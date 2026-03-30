@@ -6,10 +6,22 @@
 
 ---
 
-## Текущее состояние: 2026-03-30
+## Текущее состояние: 2026-03-30 (обновлено после ШАГ 8)
 
 ### Ветка разработки
-`claude/clone-callprofiler-repo-hL5dQ`
+`claude/clone-callprofiler-repo-hL5dQ` (синхронизирована с origin)
+
+### Прогресс
+**8/15 шагов завершено (53%)**
+- ✅ ШАГ 5: audio/normalizer.py (LUFS-нормализация)
+- ✅ ШАГ 6: transcribe/whisper_runner.py (WhisperRunner)
+- ✅ ШАГ 7: diarize/pyannote_runner.py + role_assigner.py
+- ✅ ШАГ 8: ingest/ingester.py (приём файлов)
+
+### Последний коммит
+```
+c761342 feat(ingest): ШАГ 8 — Ingester для приёма файлов в очередь обработки
+```
 
 ### Выполненные шаги
 
@@ -252,6 +264,46 @@ logger.info("Дубликат: %s (MD5=..., user_id=...)", ...)
 logger.debug("contact_id=%d для phone=%s", ...)
 logger.error("Ошибка при ...: %s", exc)
 ```
+
+---
+
+## Итоги сессии (2026-03-30)
+
+### Реализовано
+- **ШАГ 5**: audio/normalizer.py (205 строк)
+  - Двухпроходная EBU R128 LUFS-нормализация
+  - Fallback к raw-конвертации при сбое анализа
+
+- **ШАГ 6**: transcribe/whisper_runner.py (189 строк)
+  - WhisperRunner с управлением GPU-памятью
+  - Конвертация float сек → int мс
+
+- **ШАГ 7**: diarize/pyannote_runner.py (339 строк) + role_assigner.py (106 строк)
+  - PyannoteRunner с reference embedding
+  - Cosine similarity маппинг (OWNER/OTHER)
+  - assign_speakers() для сопоставления ролей
+
+- **ШАГ 8**: ingest/ingester.py (230 строк)
+  - Приём файлов с MD5 дедупликацией
+  - Копирование в data/users/{user_id}/audio/originals/
+  - Запись в БД (status='new')
+
+### Всего кода добавлено
+- **4 модуля**: 969 строк кода
+- **2 документа обновлены**: CONTINUITY.md, CHANGELOG.md
+- **4 коммита**: от c761342 до 5dbe6a7
+
+### Архитектурные решения
+✅ CONSTITUTION.md соблюдена (18 статей)
+✅ GPU-дисциплина: Whisper+pyannote вместе, LLM отдельно
+✅ Изоляция по user_id во всех операциях
+✅ Логирование через logger (не print)
+✅ Полная типизация с TYPE_CHECKING
+
+### Технические долги (минимальны)
+- ⚪ Тесты для normalizer.py, whisper_runner.py, pyannote_runner.py (mock ffmpeg)
+- ⚪ Интеграционный тест сквозного pipeline
+- ⚪ Обработка edge cases (корруптированные файлы, сетевые ошибки)
 
 ---
 
