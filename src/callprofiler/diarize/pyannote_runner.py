@@ -320,7 +320,7 @@ class PyannoteRunner:
 
             owner_label = max(
                 label_embeddings,
-                key=lambda l: float(np.dot(label_embeddings[l], self.ref_embedding)),
+                key=lambda lbl: float(np.dot(label_embeddings[lbl], self.ref_embedding)),
             )
             similarity = float(
                 np.dot(label_embeddings[owner_label], self.ref_embedding)

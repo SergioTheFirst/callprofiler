@@ -8,7 +8,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from datetime import datetime
-import pytest
+
 from callprofiler.ingest.filename_parser import parse_filename, normalize_phone
 
 
