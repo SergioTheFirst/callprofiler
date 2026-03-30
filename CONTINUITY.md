@@ -21,19 +21,19 @@
 | 3 | `db/schema.sql` + `db/repository.py` | ✅ готово | `885d137` |
 | 4 | `ingest/filename_parser.py` + тесты | ✅ готово | `885d137` |
 | 5 | `audio/normalizer.py` | ✅ готово | `5dbe6a7` |
-| 6 | `transcribe/whisper_runner.py` | ✅ готово | текущий |
+| 6 | `transcribe/whisper_runner.py` | ✅ готово | `6f73a99` |
+| 7 | `diarize/pyannote_runner.py` + `role_assigner.py` | ✅ готово | текущий |
 
 ### В работе
 
 | # | Модуль | Следующий исполнитель |
 |---|--------|-----------------------|
-| 7 | `diarize/pyannote_runner.py` + `role_assigner.py` | Claude / разработчик |
+| 8 | `ingest/ingester.py` | Claude / разработчик |
 
 ### Не начато
 
 | # | Модуль |
 |---|--------|
-| 8 | `ingest/ingester.py` |
 | 9 | `analyze/llm_client.py` + `prompt_builder.py` + `response_parser.py` |
 | 10 | `deliver/card_generator.py` |
 | 11 | `deliver/telegram_bot.py` |
@@ -126,6 +126,65 @@
 
 ---
 
+---
+
+## Детали шага 7: diarize/pyannote_runner.py + role_assigner.py
+
+### PyannoteRunner — инкапсуляция диаризации
+
+**Методы класса:**
+- `__init__(config: Config)` — инициализация
+- `load(ref_audio_path: str)` — загрузка pyannote (embedding + pipeline) + построение reference embedding
+- `diarize(wav_path: str) -> list[dict]` — диаризация с маппингом OWNER/OTHER по cosine similarity
+- `unload()` — выгрузка моделей + GPU cleanup
+
+**Ключевая логика (из batch_asr.py без изменений):**
+1. Запустить pyannote pipeline: `min_speakers=2, max_speakers=2`
+2. Собрать сегменты по label, отфильтровать < 400мс
+3. Для каждого label вычислить embedding (конкатенация его аудиосегментов)
+4. Найти label с max cosine similarity к ref_embedding → это OWNER
+5. Остальные → OTHER
+6. Конвертировать: float сек → int мс, вернуть sorted list
+
+**Параметры pyannote из CONSTITUTION.md Статья 13.1:**
+- `use_auth_token=` (не `token=`) для pyannote 3.3.2
+- Embedding model: "pyannote/embedding"
+- Diarization pipeline: "pyannote/speaker-diarization-3.1"
+
+### role_assigner.assign_speakers() — сопоставление ролей
+
+**Функция:**
+```python
+def assign_speakers(
+    segments: list[Segment],  # from Whisper (speaker='UNKNOWN')
+    diarization: list[dict]   # from PyannoteRunner
+) -> list[Segment]            # with assigned speakers
+```
+
+**Алгоритм:**
+1. Для каждого Segment (start_ms, end_ms) найти диаризационный интервал с max overlap
+2. Если overlap > 0 → скопировать speaker из диаризации
+3. Если overlap = 0 → взять ближайший по времени интервал
+4. Вернуть новый list[Segment] с назначенными ролями
+
+**Ключевая функция:**
+```python
+overlap = max(0.0, min(seg_end, dia_end) - max(seg_start, dia_start))
+```
+
+### Отличия от batch_asr.py
+
+| Аспект | batch_asr.py | PyannoteRunner |
+|--------|--------------|---|
+| Структура | функции (load_pyannote, diarize, get_embedding) | класс с state |
+| Reference embedding | построен в load_pyannote | построен в load() |
+| Возврат diarize() | `{"s": float, "e": float, "speaker": str}` | `{"start_ms": int, "end_ms": int, "speaker": str}` |
+| Логирование | print() | logger |
+| Выгрузка | ручная del | метод unload() |
+| assign_speakers | функция, работает с dict | функция, работает с Segment |
+
+---
+
 ## Как подхватить работу
 
 ```bash
@@ -133,10 +192,13 @@ git checkout claude/clone-callprofiler-repo-hL5dQ
 git pull origin claude/clone-callprofiler-repo-hL5dQ
 
 # Следующий шаг:
-# ШАГ 7: diarize/pyannote_runner.py + diarize/role_assigner.py
-# Взять логику из reference_batch_asr.py:
-#   - load_pyannote(), diarize(), get_embedding(), build_ref_embedding()
-#   - assign_speakers()
-# Обернуть в классы PyannoteRunner и функцию assign_speakers()
-# по спецификации в CLAUDE.md
+# ШАГ 8: ingest/ingester.py
+# Класс Ingester для приёма файлов с диска:
+#   - parse_filename()
+#   - вычислить MD5 (дедупликация)
+#   - check repo.call_exists(user_id, md5)
+#   - get_or_create_contact()
+#   - copy to data/users/{user_id}/audio/originals/
+#   - repo.create_call() → call_id
+# Без обработки — только ingest + DB
 ```

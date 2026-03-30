@@ -66,6 +66,28 @@
   - Логирование через стандартный `logging`
   - Создание родительских директорий для dst автоматически
 
+### Added — Шаг 7: Диаризация (Pyannote + reference embedding)
+- `src/callprofiler/diarize/pyannote_runner.py`:
+  - **Класс `PyannoteRunner`** — инкапсуляция pyannote.audio с управлением GPU-памятью
+  - `load(ref_audio_path)` — загрузка embedding + diarization моделей, построение reference embedding
+  - `diarize(wav_path) -> list[dict]`:
+    - Pyannote pipeline с min/max_speakers=2
+    - Фильтрация сегментов < 400мс
+    - Cosine similarity маппинг: найти label, похожий на ref → OWNER, другие → OTHER
+    - Конвертация float сек → int мс, сортировка по времени
+  - `unload()` — выгрузка (del, gc.collect, torch.cuda.empty_cache)
+  - Внутренние методы: `_get_embedding()`, `_build_ref_embedding()`, `_find_owner_label()`
+  - Логирование device, статус операций, similarity score
+  - **Обязательные хаки из batch_asr.py:**
+    - `use_auth_token=` (не `token=`) для pyannote 3.3.2
+    - Embedding model: "pyannote/embedding"
+    - Diarization: "pyannote/speaker-diarization-3.1"
+- `src/callprofiler/diarize/role_assigner.py`:
+  - **Функция `assign_speakers(segments, diarization) -> list[Segment]`**
+  - Сопоставление Segment из Whisper с диаризационными интервалами
+  - Алгоритм: max overlap → ближайший по времени → fallback
+  - Возврат новых Segment с назначенными ролями (исходные не меняются)
+
 ### Added — Шаг 6: Транскрибирование (Whisper)
 - `src/callprofiler/transcribe/whisper_runner.py`:
   - **Класс `WhisperRunner`** — инкапсуляция загрузки/выгрузки faster-whisper
