@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git config:*)",
+      "Bash(for f:*)",
+      "Bash(do)",
+      "Bash(touch \"$f\")",
+      "Bash(done)",
+      "Bash(python:*)"
+    ]
+  }
+}

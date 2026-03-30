@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "callprofiler"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "torch",
+    "faster-whisper",
+    "pyannote.audio",
+    "pyyaml",
+    "numpy",
+    "soundfile",
+    "librosa",
+    "python-telegram-bot",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

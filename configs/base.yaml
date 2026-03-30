@@ -1,0 +1,24 @@
+data_dir: "D:\\calls\\data"
+log_file: "D:\\calls\\data\\logs\\pipeline.log"
+
+models:
+  whisper: "large-v3"
+  whisper_device: "cuda"
+  whisper_compute: "float16"
+  whisper_beam_size: 5
+  whisper_language: "ru"
+  llm_model: "qwen2.5:14b-instruct-q4_K_M"
+  ollama_url: "http://localhost:11434"
+
+pipeline:
+  watch_interval_sec: 30
+  file_settle_sec: 5
+  max_retries: 3
+  retry_interval_sec: 3600
+
+audio:
+  sample_rate: 16000
+  channels: 1
+  format: "wav"
+
+hf_token: "TOKEN"
