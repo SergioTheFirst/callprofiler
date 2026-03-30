@@ -66,6 +66,20 @@
   - Логирование через стандартный `logging`
   - Создание родительских директорий для dst автоматически
 
+### Added — Шаг 6: Транскрибирование (Whisper)
+- `src/callprofiler/transcribe/whisper_runner.py`:
+  - **Класс `WhisperRunner`** — инкапсуляция загрузки/выгрузки faster-whisper
+  - `load()` — загрузка модели (cuda/cpu автоматически, compute_type из config)
+  - `transcribe(wav_path) -> list[Segment]`:
+    - Конвертация float секунд → int миллисекунды
+    - VAD-фильтр (min_silence_duration_ms=400), beam search, condition on previous text
+    - Язык, beam_size из config
+    - Возврат `list[Segment]` (не dict) с speaker='UNKNOWN'
+    - Фильтрация пустых сегментов
+  - `unload()` — выгрузка (del, gc.collect, torch.cuda.empty_cache)
+  - Логирование device, GPU-info, статус операций
+  - Типизированный код, обработка ошибок с контекстом
+
 ---
 
 ## Технический стек

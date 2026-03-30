@@ -20,19 +20,19 @@
 | 2 | `models.py` (dataclasses) | ✅ готово | `885d137` |
 | 3 | `db/schema.sql` + `db/repository.py` | ✅ готово | `885d137` |
 | 4 | `ingest/filename_parser.py` + тесты | ✅ готово | `885d137` |
-| 5 | `audio/normalizer.py` | ✅ готово | текущий |
+| 5 | `audio/normalizer.py` | ✅ готово | `5dbe6a7` |
+| 6 | `transcribe/whisper_runner.py` | ✅ готово | текущий |
 
 ### В работе
 
 | # | Модуль | Следующий исполнитель |
 |---|--------|-----------------------|
-| 6 | `transcribe/whisper_runner.py` | Claude / разработчик |
+| 7 | `diarize/pyannote_runner.py` + `role_assigner.py` | Claude / разработчик |
 
 ### Не начато
 
 | # | Модуль |
 |---|--------|
-| 7 | `diarize/pyannote_runner.py` + `role_assigner.py` |
 | 8 | `ingest/ingester.py` |
 | 9 | `analyze/llm_client.py` + `prompt_builder.py` + `response_parser.py` |
 | 10 | `deliver/card_generator.py` |
@@ -71,6 +71,36 @@
 
 **Статус:** Любой PR, противоречащий CONSTITUTION.md, не мержится без изменения самой Конституции (требует замер + решение).
 
+---
+
+## Детали шага 6: transcribe/whisper_runner.py
+
+### Что реализовано
+- **Класс `WhisperRunner`** с методами:
+  - `__init__(config: Config)` — инициализация с конфигурацией
+  - `load()` — загрузка faster-whisper large-v3 с выбором device (cuda/cpu) и compute_type (float16/int8)
+  - `transcribe(wav_path: str) -> list[Segment]` — транскрибирование с конвертацией float сек → int мс
+  - `unload()` — выгрузка модели + `gc.collect()` + `torch.cuda.empty_cache()`
+- Параметры транскрибирования:
+  - Язык: русский (`whisper_language` из config)
+  - VAD-фильтр: пропуск молчания, min_silence_duration_ms=400
+  - Beam search: beam_size из config (обычно 5)
+  - Условный текст и коррекция артефактов (compression_ratio, no_speech_threshold)
+- Логирование через `logging` (device, статус загрузки, кол-во сегментов)
+- Типизация: `list[Segment]` вместо `list[dict]`
+- Обработка пустых сегментов (пропускаются автоматически)
+- Защита от повторной загрузки и вызова до load()
+
+### Ключевые отличия от batch_asr.py
+| Аспект | batch_asr.py | WhisperRunner |
+|--------|--------------|---------------|
+| Структура | функции | класс с состоянием |
+| Возвращаемый тип | `list[dict]` | `list[Segment]` |
+| Время | float секунды | int миллисекунды |
+| Выгрузка | ручная | метод `unload()` |
+| Логирование | print() | logger |
+| Конфигурация | константы | Config объект |
+
 ### Почему LUFS-нормализация
 Телефонные звонки имеют разный уровень записи:
 - AGC на телефоне может сильно занижать/завышать сигнал
@@ -103,7 +133,10 @@ git checkout claude/clone-callprofiler-repo-hL5dQ
 git pull origin claude/clone-callprofiler-repo-hL5dQ
 
 # Следующий шаг:
-# ШАГ 6: transcribe/whisper_runner.py
-# Взять логику из reference_batch_asr.py: load_whisper(), transcribe()
-# Обернуть в класс WhisperRunner по спецификации в CLAUDE.md
+# ШАГ 7: diarize/pyannote_runner.py + diarize/role_assigner.py
+# Взять логику из reference_batch_asr.py:
+#   - load_pyannote(), diarize(), get_embedding(), build_ref_embedding()
+#   - assign_speakers()
+# Обернуть в классы PyannoteRunner и функцию assign_speakers()
+# по спецификации в CLAUDE.md
 ```
