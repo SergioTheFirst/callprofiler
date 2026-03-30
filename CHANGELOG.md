@@ -66,6 +66,24 @@
   - Логирование через стандартный `logging`
   - Создание родительских директорий для dst автоматически
 
+### Added — Шаг 8: Приём файлов (Ingester)
+- `src/callprofiler/ingest/ingester.py`:
+  - **Класс `Ingester`** — приём аудиофайлов в очередь обработки
+  - `ingest_file(user_id, filepath) -> int | None`:
+    - Парсинг имени файла (filename_parser)
+    - Вычисление MD5 для дедупликации
+    - Проверка repo.call_exists(user_id, md5) → None если дубликат
+    - Создание/получение контакта (repo.get_or_create_contact)
+    - Копирование оригинала в data/users/{user_id}/audio/originals/
+    - Обработка конфликтов имён (добавление MD5 префикса)
+    - Запись call в БД (repo.create_call) → call_id
+  - Внутренние методы: `_compute_md5()`, `_copy_original()`
+  - Логирование всех операций (parse, md5, дубликат, contact, copy, create)
+  - **Изоляция по user_id** (CONSTITUTION.md Статья 2.5):
+    - Все пути содержат {user_id}
+    - Контакты привязаны к (user_id, phone) паре
+    - Один номер у двух users → два разных контакта
+
 ### Added — Шаг 7: Диаризация (Pyannote + reference embedding)
 - `src/callprofiler/diarize/pyannote_runner.py`:
   - **Класс `PyannoteRunner`** — инкапсуляция pyannote.audio с управлением GPU-памятью

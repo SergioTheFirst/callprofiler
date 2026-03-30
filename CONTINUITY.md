@@ -22,19 +22,19 @@
 | 4 | `ingest/filename_parser.py` + тесты | ✅ готово | `885d137` |
 | 5 | `audio/normalizer.py` | ✅ готово | `5dbe6a7` |
 | 6 | `transcribe/whisper_runner.py` | ✅ готово | `6f73a99` |
-| 7 | `diarize/pyannote_runner.py` + `role_assigner.py` | ✅ готово | текущий |
+| 7 | `diarize/pyannote_runner.py` + `role_assigner.py` | ✅ готово | `edcbcd8` |
+| 8 | `ingest/ingester.py` | ✅ готово | текущий |
 
 ### В работе
 
 | # | Модуль | Следующий исполнитель |
 |---|--------|-----------------------|
-| 8 | `ingest/ingester.py` | Claude / разработчик |
+| 9 | `analyze/llm_client.py` + `prompt_builder.py` + `response_parser.py` | Claude / разработчик |
 
 ### Не начато
 
 | # | Модуль |
 |---|--------|
-| 9 | `analyze/llm_client.py` + `prompt_builder.py` + `response_parser.py` |
 | 10 | `deliver/card_generator.py` |
 | 11 | `deliver/telegram_bot.py` |
 | 12 | `pipeline/orchestrator.py` |
@@ -185,6 +185,76 @@ overlap = max(0.0, min(seg_end, dia_end) - max(seg_start, dia_start))
 
 ---
 
+---
+
+## Детали шага 8: ingest/ingester.py
+
+### Класс Ingester — приём файлов в очередь
+
+**Методы:**
+- `__init__(repo: Repository, config: Config)` — инициализация
+- `ingest_file(user_id: str, filepath: str) -> int | None` — главный метод
+
+**Workflow ingest_file():**
+```python
+1. Проверить что файл существует (FileNotFoundError)
+2. Парсить имя файла → CallMetadata
+3. Вычислить MD5 оригинала (дедупликация)
+4. Проверить repo.call_exists(user_id, md5)
+   → если есть: вернуть None (дубликат)
+5. repo.get_or_create_contact(user_id, phone_e164, display_name)
+6. Скопировать оригинал в data/users/{user_id}/audio/originals/
+   - Конфликты имён: добавить MD5 префикс
+7. repo.create_call(user_id, contact_id, direction, call_datetime,
+                     source_filename, source_md5, audio_path)
+   - Status = 'new' (готов к обработке)
+8. Вернуть call_id (или None если дубликат)
+```
+
+**Внутренние методы:**
+- `_compute_md5(filepath: Path) -> str` — буферизованное вычисление MD5
+- `_copy_original(user_id, src_path, file_md5) -> str` — копирование с обработкой конфликтов
+
+### Изоляция по user_id (CONSTITUTION.md Статья 2.5)
+
+Все операции фильтруются по user_id:
+- Путь хранения: `data/users/{user_id}/audio/originals/`
+- Контакт создаётся для пары (user_id, phone_e164)
+- Call привязан к user_id в БД
+- Один номер у двух пользователей → два разных контакта
+
+### Дедупликация
+
+```python
+# 1. Вычислить MD5 оригинального файла
+file_md5 = hashlib.md5(file_contents).hexdigest()
+
+# 2. Проверить repo.call_exists(user_id, md5)
+#    (у пользователя уже есть этот файл)
+if repo.call_exists(user_id, file_md5):
+    return None  # Дубликат
+```
+
+### Обработка конфликтов имён
+
+```python
+# Если файл data/users/{user_id}/audio/originals/{name} существует:
+# 1. Проверить MD5 нового файла vs существующего
+# 2. Если MD5 совпадают → это один файл, переиспользовать путь
+# 3. Если разные → переименовать: {stem}_{md5[:8]}{suffix}
+```
+
+### Логирование (CONSTITUTION.md Статья 14.3)
+
+```python
+logger.info("Зарегистрирован call_id=%d для %s (user_id=%s)", ...)
+logger.info("Дубликат: %s (MD5=..., user_id=...)", ...)
+logger.debug("contact_id=%d для phone=%s", ...)
+logger.error("Ошибка при ...: %s", exc)
+```
+
+---
+
 ## Как подхватить работу
 
 ```bash
@@ -192,13 +262,11 @@ git checkout claude/clone-callprofiler-repo-hL5dQ
 git pull origin claude/clone-callprofiler-repo-hL5dQ
 
 # Следующий шаг:
-# ШАГ 8: ingest/ingester.py
-# Класс Ingester для приёма файлов с диска:
-#   - parse_filename()
-#   - вычислить MD5 (дедупликация)
-#   - check repo.call_exists(user_id, md5)
-#   - get_or_create_contact()
-#   - copy to data/users/{user_id}/audio/originals/
-#   - repo.create_call() → call_id
-# Без обработки — только ingest + DB
+# ШАГ 9: analyze/llm_client.py + prompt_builder.py + response_parser.py
+# LLM анализ (Ollama + Qwen):
+#   - OllamaClient: POST /api/generate
+#   - PromptBuilder: загрузить configs/prompts/analyze_vNNN.txt
+#   - PromptBuilder.build(): подставить переменные
+#   - parse_llm_response(): извлечь JSON, обработать markdown-обёртки
+#   - Вернуть Analysis (priority, risk_score, summary, action_items, promises)
 ```
