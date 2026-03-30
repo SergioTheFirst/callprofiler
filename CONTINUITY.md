@@ -1,0 +1,94 @@
+# CONTINUITY.md — Журнал непрерывности разработки
+
+Этот файл обновляется после **каждой рабочей сессии**.
+Цель: любой разработчик или AI-агент может открыть репозиторий и мгновенно
+понять, что уже сделано, что в работе, и что делать дальше.
+
+---
+
+## Текущее состояние: 2026-03-30
+
+### Ветка разработки
+`claude/clone-callprofiler-repo-hL5dQ`
+
+### Выполненные шаги
+
+| # | Модуль | Статус | Коммит |
+|---|--------|--------|--------|
+| 0 | Структура проекта + pyproject.toml | ✅ готово | `885d137` |
+| 1 | `config.py` + `configs/base.yaml` | ✅ готово | `885d137` |
+| 2 | `models.py` (dataclasses) | ✅ готово | `885d137` |
+| 3 | `db/schema.sql` + `db/repository.py` | ✅ готово | `885d137` |
+| 4 | `ingest/filename_parser.py` + тесты | ✅ готово | `885d137` |
+| 5 | `audio/normalizer.py` | ✅ готово | текущий |
+
+### В работе
+
+| # | Модуль | Следующий исполнитель |
+|---|--------|-----------------------|
+| 6 | `transcribe/whisper_runner.py` | Claude / разработчик |
+
+### Не начато
+
+| # | Модуль |
+|---|--------|
+| 7 | `diarize/pyannote_runner.py` + `role_assigner.py` |
+| 8 | `ingest/ingester.py` |
+| 9 | `analyze/llm_client.py` + `prompt_builder.py` + `response_parser.py` |
+| 10 | `deliver/card_generator.py` |
+| 11 | `deliver/telegram_bot.py` |
+| 12 | `pipeline/orchestrator.py` |
+| 13 | `pipeline/watcher.py` |
+| 14 | `cli/main.py` |
+| 15 | Интеграционный тест |
+
+---
+
+## Детали шага 5: audio/normalizer.py
+
+### Что реализовано
+- `normalize(src, dst, *, loudnorm, sample_rate, channels)` — конвертация в WAV 16kHz mono
+- **Двухпроходная EBU R128 LUFS-нормализация** (loudnorm=True по умолчанию)
+  - Целевой уровень: -16 LUFS / True Peak -1.5 dBFS
+  - Fallback к простой конвертации если ffmpeg-анализ не удался
+- `get_duration_sec(wav_path)` — длительность через ffprobe
+- Проверка ffmpeg/ffprobe при импорте модуля
+- Защита от битых файлов (минимальный размер 1024 байт)
+- Логирование через `logging.getLogger(__name__)`
+
+### Почему LUFS-нормализация
+Телефонные звонки имеют разный уровень записи:
+- AGC на телефоне может сильно занижать/завышать сигнал
+- Whisper при слишком тихом сигнале пропускает сегменты или галлюцинирует
+- Цель -16 LUFS — стандарт EBU R128 для речи (та же норма, что у подкастов)
+- Двухпроходный режим точнее одного прохода: сначала анализируем, затем корректируем
+
+### Источники решений
+- EBU R128 loudness recommendation
+- ffmpeg `loudnorm` filter documentation
+- Статья Habr #932762 (основные практики нормализации аудио для ASR)
+
+---
+
+## Известные ограничения и технические долги
+
+- `configs/base.yaml` содержит `hf_token: "TOKEN"` — перед продакшн-запуском
+  заменить на реальный токен HuggingFace
+- `data_dir` в конфиге указывает на `D:\\calls\\data` — пути Windows,
+  на Linux нужно переопределить
+- `tests/` пока содержат только `test_filename_parser.py` и `test_repository.py`;
+  тест для `normalizer.py` (с mock ffmpeg) — технический долг
+
+---
+
+## Как подхватить работу
+
+```bash
+git checkout claude/clone-callprofiler-repo-hL5dQ
+git pull origin claude/clone-callprofiler-repo-hL5dQ
+
+# Следующий шаг:
+# ШАГ 6: transcribe/whisper_runner.py
+# Взять логику из reference_batch_asr.py: load_whisper(), transcribe()
+# Обернуть в класс WhisperRunner по спецификации в CLAUDE.md
+```
