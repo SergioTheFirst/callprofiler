@@ -44,3 +44,6 @@ data/
 .pytest_cache/
 .mypy_cache/
 .coverage
+htmlcov/
+coverage.xml
+*.cover
