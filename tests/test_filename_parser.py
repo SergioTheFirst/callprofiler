@@ -120,4 +120,4 @@ def test_full_path_handled():
 
 def test_raw_filename_stored():
     m = parse_filename("something_weird.mp3")
-    assert m.raw_filename == "something_weird"
+    assert m.raw_filename == "something_weird.mp3"

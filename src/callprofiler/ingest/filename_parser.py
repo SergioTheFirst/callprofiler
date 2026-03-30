@@ -138,8 +138,19 @@ def parse_filename(filename: str) -> CallMetadata:
     """
     Распарсить имя файла (или полный путь) и вернуть CallMetadata.
     При неизвестном формате: phone=None, direction='UNKNOWN'.
+
+    Поддерживает как Unix (/path/to/file.mp3), так и Windows (C:\\path\\to\\file.mp3) пути.
     """
-    stem = Path(filename).stem
+    # Извлечь имя файла из пути (работает для обоих типов путей)
+    # Используем максимальный индекс / или \ из filename
+    last_sep = max(filename.rfind("/"), filename.rfind("\\"))
+    if last_sep >= 0:
+        filename_only = filename[last_sep + 1:]
+    else:
+        filename_only = filename
+
+    # Удалить расширение
+    stem = Path(filename_only).stem
 
     for parser in (_parse_bcr, _parse_bracket, _parse_acr):
         result = parser(stem)
@@ -151,5 +162,5 @@ def parse_filename(filename: str) -> CallMetadata:
         call_datetime=None,
         direction="UNKNOWN",
         contact_name=None,
-        raw_filename=stem,
+        raw_filename=filename_only,
     )
