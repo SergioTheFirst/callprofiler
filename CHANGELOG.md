@@ -12,6 +12,31 @@
 - `CONSTITUTION.md` — принципы и правила разработки проекта
 - `CONTINUITY.md` — журнал непрерывности: статус, что сделано, что дальше
 
+### Added — Шаг 9: LLM анализ (Ollama + prompt builder + response parser)
+- `src/callprofiler/analyze/llm_client.py`:
+  - **Класс `OllamaClient`** — HTTP клиент для локального Ollama сервера
+  - `generate(prompt, stream=False) -> str` — POST /api/generate, temperature=0.3
+  - `list_models() -> list[str]` — доступные модели через GET /api/tags
+  - Проверка подключения при инициализации (`_verify_connection`)
+  - Поддержка streaming для больших ответов
+  - Timeout 300сек для qwen2.5:14b
+- `src/callprofiler/analyze/prompt_builder.py`:
+  - **Класс `PromptBuilder`** — построение промптов с подстановкой переменных
+  - `build(transcript_text, metadata, previous_summaries, version)` — главный метод
+  - Извлечение длительности из временных меток `[MM:SS]` в стенограмме
+  - Контекст из последних 3 анализов (max 100 символов каждый)
+  - Форматирование datetime в DD.MM.YYYY HH:MM
+  - Версионирование промптов: `analyze_v001.txt`, `analyze_v002.txt` и т.д.
+- `src/callprofiler/analyze/response_parser.py`:
+  - **Функция `parse_llm_response(raw, model, prompt_version) -> Analysis`**
+  - 3-уровневый fallback: прямой JSON → markdown-обёртка → очистка → дефолты
+  - Безопасное извлечение полей: `_get_int`, `_get_str`, `_get_list`, `_get_dict`
+  - Graceful degradation: при сбое парсинга → Analysis с нейтральными дефолтами
+  - Сохранение raw_response для отладки
+- `configs/prompts/analyze_v001.txt`:
+  - Шаблон JSON-промпта для LLM с метаданными и стенограммой
+  - Возвращаемые поля: priority, risk_score, summary, action_items, promises, flags, key_topics
+
 ---
 
 ## [0.1.0] — 2026-03-30

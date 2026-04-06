@@ -6,21 +6,22 @@
 
 ---
 
-## Текущее состояние: 2026-03-30 (обновлено после ШАГ 8)
+## Текущее состояние: 2026-03-30 (обновлено после ШАГ 9)
 
 ### Ветка разработки
 `claude/clone-callprofiler-repo-hL5dQ` (синхронизирована с origin)
 
 ### Прогресс
-**8/15 шагов завершено (53%)**
+**9/15 шагов завершено (60%)**
 - ✅ ШАГ 5: audio/normalizer.py (LUFS-нормализация)
 - ✅ ШАГ 6: transcribe/whisper_runner.py (WhisperRunner)
 - ✅ ШАГ 7: diarize/pyannote_runner.py + role_assigner.py
 - ✅ ШАГ 8: ingest/ingester.py (приём файлов)
+- ✅ ШАГ 9: analyze/llm_client.py + prompt_builder.py + response_parser.py (LLM анализ)
 
 ### Последний коммит
 ```
-c761342 feat(ingest): ШАГ 8 — Ingester для приёма файлов в очередь обработки
+[в процессе коммита после ШАГ 9]
 ```
 
 ### Выполненные шаги
@@ -35,13 +36,14 @@ c761342 feat(ingest): ШАГ 8 — Ingester для приёма файлов в 
 | 5 | `audio/normalizer.py` | ✅ готово | `5dbe6a7` |
 | 6 | `transcribe/whisper_runner.py` | ✅ готово | `6f73a99` |
 | 7 | `diarize/pyannote_runner.py` + `role_assigner.py` | ✅ готово | `edcbcd8` |
-| 8 | `ingest/ingester.py` | ✅ готово | текущий |
+| 8 | `ingest/ingester.py` | ✅ готово | `c761342` |
+| 9 | `analyze/llm_client.py` + `prompt_builder.py` + `response_parser.py` | ✅ готово | текущий |
 
 ### В работе
 
 | # | Модуль | Следующий исполнитель |
 |---|--------|-----------------------|
-| 9 | `analyze/llm_client.py` + `prompt_builder.py` + `response_parser.py` | Claude / разработчик |
+| 10 | `deliver/card_generator.py` | Claude / разработчик |
 
 ### Не начато
 
@@ -304,6 +306,112 @@ logger.error("Ошибка при ...: %s", exc)
 - ⚪ Тесты для normalizer.py, whisper_runner.py, pyannote_runner.py (mock ffmpeg)
 - ⚪ Интеграционный тест сквозного pipeline
 - ⚪ Обработка edge cases (корруптированные файлы, сетевые ошибки)
+
+---
+
+## Детали шага 9: analyze/llm_client.py + prompt_builder.py + response_parser.py
+
+### OllamaClient — HTTP клиент для локального LLM
+
+**Методы класса:**
+- `__init__(base_url: str, model: str, timeout: int = 300)` — инициализация с проверкой подключения
+- `generate(prompt: str, stream: bool = False) -> str` — POST /api/generate с temperature=0.3
+- `list_models() -> list[str]` — получить доступные модели
+
+**Ключевые особенности:**
+- Проверка подключения к Ollama при инициализации (GET /api/tags)
+- Поддержка streaming режима для больших ответов
+- Temperature 0.3 для консистентного JSON (не галлюцинаций)
+- Timeout 300сек для больших моделей (qwen2.5:14b)
+- Полная обработка ошибок (ConnectionError, Timeout, RequestException)
+
+### PromptBuilder — построение промптов с подстановкой
+
+**Методы класса:**
+- `__init__(prompts_dir: str)` — инициализация с проверкой директории
+- `build(transcript_text, metadata, previous_summaries=None, version="v001") -> str` — главный метод
+
+**Workflow build():**
+1. Загрузить шаблон из `configs/prompts/analyze_{version}.txt`
+2. Извлечь метаданные (contact_name, phone, call_datetime, direction)
+3. Форматировать datetime в DD.MM.YYYY HH:MM
+4. Извлечь длительность из временных меток [MM:SS] в стенограмме
+5. Построить контекст из последних 3 анализов (max 100 символов каждый)
+6. Подставить все переменные в шаблон
+
+**Поддерживаемые переменные в шаблоне:**
+- `{contact_name}` — имя контакта
+- `{phone}` — номер телефона (E.164)
+- `{call_datetime}` — дата/время (DD.MM.YYYY HH:MM)
+- `{direction}` — IN/OUT/UNKNOWN
+- `{duration}` — "Х минут Y секунд" или "неизвестна"
+- `{context_block}` — контекст из предыдущих анализов
+- `{transcript}` — полная стенограмма с ролями и временами
+
+### parse_llm_response() — парсинг ответов LLM
+
+**Стратегия 3-уровневого fallback:**
+
+1. **Попытка 1: Прямое парсинг JSON**
+   - Вызывает `_try_parse_json(raw.strip())`
+   - Логирует ошибку при сбое
+
+2. **Попытка 2: Извлечь JSON из markdown-обёртки**
+   - `_extract_json_from_markdown(raw)` ищет:
+     - ` ```json\n...\n``` ` или ` ```\n...\n``` `
+   - Использует regex с `re.DOTALL` для многострочного поиска
+   - Вызывает `_try_parse_json()` для распарсенного JSON
+
+3. **Попытка 3: Очистить JSON**
+   - `_clean_json(raw)` находит первый `{` и последний `}`
+   - Извлекает substring и пытается распарсить
+   - Защита от синтаксических ошибок
+
+4. **Fallback на дефолты**
+   - Если всё неудачно: `_default_analysis(raw_response=raw)`
+   - Возвращает Analysis с нейтральными значениями (priority=50, risk_score=50)
+   - Сохраняет raw_response для отладки
+
+**Вспомогательные функции:**
+- `_get_int(data, key, default, min_val, max_val)` — безопасное получение int с валидацией диапазона
+- `_get_str(data, key, default)` — строка с fallback
+- `_get_list(data, key, default)` — список с проверкой типа
+- `_get_dict(data, key, default)` — dict с проверкой типа
+
+### configs/prompts/analyze_v001.txt
+
+**Шаблон JSON с инструкциями LLM:**
+```
+Возвращаемый JSON содержит:
+- priority (0-100): насколько важен звонок
+- risk_score (0-100): уровень риска/проблемности
+- summary (2-4 предложения): суть разговора
+- action_items (массив): что нужно сделать
+- promises (массив объектов с who/what/due): обещания
+- flags (объект: urgent, follow_up_needed, conflict_detected)
+- key_topics (массив): ключевые темы разговора
+```
+
+**Подстановка переменных:**
+- Метаданные звонка (контакт, дата, направление, длительность)
+- Контекст из предыдущих анализов
+- Полная стенограмма с ролями
+
+### Архитектурные решения STEP 9
+
+✅ **Graceful degradation**: парсинг падает → Returns Analysis с дефолтами + raw_response для отладки
+✅ **Markdown-friendly**: поддержка ```json ... ``` (обычная ошибка LLM)
+✅ **Markdown-clean**: избегание избыточных проверок (```, ```json, пробелы)
+✅ **Трехуровневая стратегия**: от простого к сложному (попытки 1-3 + дефолты)
+✅ **Типизация с TYPE_CHECKING**: полная аннотация типов без лишних import
+✅ **Logging через logger**: все ошибки и debug информация через logging module
+✅ **Версионирование промптов**: поддержка analyze_v001.txt, analyze_v002.txt и т.д.
+
+### Тестирование STEP 9
+
+✅ **Все 40 unit-тестов пройдены** (40/40 passed в 0.31s)
+✅ **Lint analysis пройдена** (flake8 и ruff clean)
+✅ **Синтаксис проверен** (python -m py_compile)
 
 ---
 
