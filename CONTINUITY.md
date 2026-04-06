@@ -6,22 +6,23 @@
 
 ---
 
-## Текущее состояние: 2026-03-30 (обновлено после ШАГ 9)
+## Текущее состояние: 2026-04-06 (обновлено после ШАГ 10)
 
 ### Ветка разработки
 `claude/clone-callprofiler-repo-hL5dQ` (синхронизирована с origin)
 
 ### Прогресс
-**9/15 шагов завершено (60%)**
+**10/15 шагов завершено (67%)**
 - ✅ ШАГ 5: audio/normalizer.py (LUFS-нормализация)
 - ✅ ШАГ 6: transcribe/whisper_runner.py (WhisperRunner)
 - ✅ ШАГ 7: diarize/pyannote_runner.py + role_assigner.py
 - ✅ ШАГ 8: ingest/ingester.py (приём файлов)
 - ✅ ШАГ 9: analyze/llm_client.py + prompt_builder.py + response_parser.py (LLM анализ)
+- ✅ ШАГ 10: deliver/card_generator.py (caller cards для Android overlay)
 
 ### Последний коммит
 ```
-[в процессе коммита после ШАГ 9]
+c4b70f0 feat(analyze): ШАГ 9 — LLM анализ звонков
 ```
 
 ### Выполненные шаги
@@ -37,19 +38,19 @@
 | 6 | `transcribe/whisper_runner.py` | ✅ готово | `6f73a99` |
 | 7 | `diarize/pyannote_runner.py` + `role_assigner.py` | ✅ готово | `edcbcd8` |
 | 8 | `ingest/ingester.py` | ✅ готово | `c761342` |
-| 9 | `analyze/llm_client.py` + `prompt_builder.py` + `response_parser.py` | ✅ готово | текущий |
+| 9 | `analyze/llm_client.py` + `prompt_builder.py` + `response_parser.py` | ✅ готово | `c4b70f0` |
+| 10 | `deliver/card_generator.py` + тесты | ✅ готово | текущий |
 
 ### В работе
 
 | # | Модуль | Следующий исполнитель |
 |---|--------|-----------------------|
-| 10 | `deliver/card_generator.py` | Claude / разработчик |
+| 11 | `deliver/telegram_bot.py` | Claude / разработчик |
 
 ### Не начато
 
 | # | Модуль |
 |---|--------|
-| 10 | `deliver/card_generator.py` |
 | 11 | `deliver/telegram_bot.py` |
 | 12 | `pipeline/orchestrator.py` |
 | 13 | `pipeline/watcher.py` |
@@ -415,6 +416,52 @@ logger.error("Ошибка при ...: %s", exc)
 
 ---
 
+## Детали шага 10: deliver/card_generator.py
+
+### CardGenerator — caller cards для Android overlay
+
+**Методы класса:**
+- `__init__(repo: Repository)` — инициализация с репозиторием
+- `generate_card(user_id, contact_id) -> str` — собрать карточку ≤ 500 символов
+- `write_card(user_id, contact_id, sync_dir)` — записать {phone_e164}.txt
+- `update_all_cards(user_id)` — пересоздать карточки для всех контактов
+
+**Формат карточки (CONSTITUTION.md Статья 10.2):**
+```
+{display_name}
+Последний: {дата} | Звонков: {count} | Risk: {risk_score}
+─────────────────────────
+{summary последнего звонка}
+─────────────────────────
+Обещания: {открытые promises, макс 3}
+Actions: {action items, макс 3}
+```
+
+**Поток данных:**
+1. `get_contact()` → display_name, phone_e164
+2. `get_call_count_for_contact()` → кол-во звонков
+3. `get_recent_analyses(limit=1)` → последний анализ (summary, risk_score, action_items)
+4. `get_contact_promises()` → открытые обещания (filter status='open')
+5. Сборка карточки → обрезка до 500 символов
+
+**Дополнения в Repository:**
+- `get_all_contacts_for_user(user_id)` — для `update_all_cards`
+- `get_call_count_for_contact(user_id, contact_id)` — COUNT(*) звонков
+
+**Тесты (12 тест-кейсов):**
+- Базовая карточка (имя, звонки, risk, саммари, обещания, actions)
+- Карточка без анализа, без обещаний, без actions
+- Несуществующий контакт → пустая строка
+- Обрезка до 500 символов при длинном содержимом
+- Запись файла {phone}.txt в sync_dir
+- Пропуск контакта без phone_e164
+- Создание несуществующего sync_dir
+- update_all_cards для множества контактов
+- Правильный подсчёт множества звонков
+- Изоляция карточек по user_id
+
+---
+
 ## Как подхватить работу
 
 ```bash
@@ -422,11 +469,9 @@ git checkout claude/clone-callprofiler-repo-hL5dQ
 git pull origin claude/clone-callprofiler-repo-hL5dQ
 
 # Следующий шаг:
-# ШАГ 9: analyze/llm_client.py + prompt_builder.py + response_parser.py
-# LLM анализ (Ollama + Qwen):
-#   - OllamaClient: POST /api/generate
-#   - PromptBuilder: загрузить configs/prompts/analyze_vNNN.txt
-#   - PromptBuilder.build(): подставить переменные
-#   - parse_llm_response(): извлечь JSON, обработать markdown-обёртки
-#   - Вернуть Analysis (priority, risk_score, summary, action_items, promises)
+# ШАГ 11: deliver/telegram_bot.py
+# Telegram-бот (python-telegram-bot):
+#   - TelegramNotifier: отправка саммари, обработка feedback
+#   - Команды: /digest, /search, /contact, /promises, /status
+#   - Один бот на всех, различает по chat_id
 ```

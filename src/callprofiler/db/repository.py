@@ -100,6 +100,13 @@ class Repository:
         ).fetchone()
         return dict(row) if row else None
 
+    def get_all_contacts_for_user(self, user_id: str) -> list[dict]:
+        rows = self._get_conn().execute(
+            "SELECT * FROM contacts WHERE user_id = ? ORDER BY display_name",
+            (user_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     # ------------------------------------------------------------------
     # Calls
     # ------------------------------------------------------------------
@@ -163,6 +170,13 @@ class Repository:
             (max_retries,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def get_call_count_for_contact(self, user_id: str, contact_id: int) -> int:
+        row = self._get_conn().execute(
+            "SELECT COUNT(*) as cnt FROM calls WHERE user_id=? AND contact_id=?",
+            (user_id, contact_id),
+        ).fetchone()
+        return row["cnt"] if row else 0
 
     def get_calls_for_user(self, user_id: str, limit: int = 20) -> list[dict]:
         rows = self._get_conn().execute(

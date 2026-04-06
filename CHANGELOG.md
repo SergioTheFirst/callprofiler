@@ -12,6 +12,19 @@
 - `CONSTITUTION.md` — принципы и правила разработки проекта
 - `CONTINUITY.md` — журнал непрерывности: статус, что сделано, что дальше
 
+### Added — Шаг 10: Caller Cards (Android overlay)
+- `src/callprofiler/deliver/card_generator.py`:
+  - **Класс `CardGenerator`** — генерация caller cards для Android overlay
+  - `generate_card(user_id, contact_id) -> str` — сборка карточки ≤ 500 символов
+    (формат CONSTITUTION.md Статья 10.2: имя, статистика, саммари, обещания, actions)
+  - `write_card(user_id, contact_id, sync_dir)` — запись {phone_e164}.txt для FolderSync
+  - `update_all_cards(user_id)` — пересоздание карточек всех контактов пользователя
+  - Автоматическое создание sync_dir, обрезка до 500 символов, пропуск контактов без phone
+- `src/callprofiler/db/repository.py`:
+  - `get_all_contacts_for_user(user_id)` — список контактов для update_all_cards
+  - `get_call_count_for_contact(user_id, contact_id)` — подсчёт звонков контакта
+- `tests/test_card_generator.py` — 12 тест-кейсов (CRUD, обрезка, файлы, изоляция user_id)
+
 ### Added — Шаг 9: LLM анализ (Ollama + prompt builder + response parser)
 - `src/callprofiler/analyze/llm_client.py`:
   - **Класс `OllamaClient`** — HTTP клиент для локального Ollama сервера
