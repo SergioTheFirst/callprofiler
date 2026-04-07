@@ -12,6 +12,21 @@
 - `CONSTITUTION.md` — принципы и правила разработки проекта
 - `CONTINUITY.md` — журнал непрерывности: статус, что сделано, что дальше
 
+### Added — Шаг 11: Telegram-бот (доставка и команды)
+- `src/callprofiler/deliver/telegram_bot.py`:
+  - **Класс `TelegramNotifier`** — Telegram-бот для уведомлений и команд
+  - `send_summary(user_id, call_id)` — отправить саммари с inline кнопками [OK]/[Неточно]
+  - `handle_feedback()` — обработка нажатия кнопки обратной связи
+  - Команды (CONSTITUTION.md Статья 11.3):
+    - `/digest [N]` — топ звонков по priority за N дней
+    - `/search текст` — FTS5 поиск по транскриптам
+    - `/contact +7...` — карточка контакта с риском и саммари
+    - `/promises` — открытые обещания
+    - `/status` — состояние очереди (ожидают/ошибки)
+  - Один бот для всех пользователей (различает по chat_id)
+  - Лениво загружает `python-telegram-bot` (не требуется для импорта модуля)
+  - Все данные изолированы по `user_id` (CONSTITUTION.md Статья 2.5)
+
 ### Added — Шаг 10: Caller Cards (Android overlay)
 - `src/callprofiler/deliver/card_generator.py`:
   - **Класс `CardGenerator`** — генерация caller cards для Android overlay

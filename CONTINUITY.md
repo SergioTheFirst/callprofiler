@@ -6,23 +6,24 @@
 
 ---
 
-## Текущее состояние: 2026-04-06 (обновлено после ШАГ 10)
+## Текущее состояние: 2026-04-07 (обновлено после ШАГ 11)
 
 ### Ветка разработки
 `claude/clone-callprofiler-repo-hL5dQ` (синхронизирована с origin)
 
 ### Прогресс
-**10/15 шагов завершено (67%)**
+**11/15 шагов завершено (73%)**
 - ✅ ШАГ 5: audio/normalizer.py (LUFS-нормализация)
 - ✅ ШАГ 6: transcribe/whisper_runner.py (WhisperRunner)
 - ✅ ШАГ 7: diarize/pyannote_runner.py + role_assigner.py
 - ✅ ШАГ 8: ingest/ingester.py (приём файлов)
 - ✅ ШАГ 9: analyze/llm_client.py + prompt_builder.py + response_parser.py (LLM анализ)
 - ✅ ШАГ 10: deliver/card_generator.py (caller cards для Android overlay)
+- ✅ ШАГ 11: deliver/telegram_bot.py (Telegram-бот)
 
 ### Последний коммит
 ```
-c4b70f0 feat(analyze): ШАГ 9 — LLM анализ звонков
+504e6db feat(deliver): ШАГ 10 — CardGenerator для caller cards
 ```
 
 ### Выполненные шаги
@@ -39,19 +40,19 @@ c4b70f0 feat(analyze): ШАГ 9 — LLM анализ звонков
 | 7 | `diarize/pyannote_runner.py` + `role_assigner.py` | ✅ готово | `edcbcd8` |
 | 8 | `ingest/ingester.py` | ✅ готово | `c761342` |
 | 9 | `analyze/llm_client.py` + `prompt_builder.py` + `response_parser.py` | ✅ готово | `c4b70f0` |
-| 10 | `deliver/card_generator.py` + тесты | ✅ готово | текущий |
+| 10 | `deliver/card_generator.py` + тесты | ✅ готово | `504e6db` |
+| 11 | `deliver/telegram_bot.py` | ✅ готово | текущий |
 
 ### В работе
 
 | # | Модуль | Следующий исполнитель |
 |---|--------|-----------------------|
-| 11 | `deliver/telegram_bot.py` | Claude / разработчик |
+| 12 | `pipeline/orchestrator.py` | Claude / разработчик |
 
 ### Не начато
 
 | # | Модуль |
 |---|--------|
-| 11 | `deliver/telegram_bot.py` |
 | 12 | `pipeline/orchestrator.py` |
 | 13 | `pipeline/watcher.py` |
 | 14 | `cli/main.py` |
@@ -416,6 +417,33 @@ logger.error("Ошибка при ...: %s", exc)
 
 ---
 
+## Детали шага 11: deliver/telegram_bot.py
+
+### TelegramNotifier — Telegram-бот для уведомлений и команд
+
+**Методы класса:**
+- `__init__(token, repo)` — инициализация с токеном и репозиторием
+- `send_summary(user_id, call_id)` — отправить саммари с кнопками [OK]/[Неточно]
+- `handle_feedback()` — обработать нажатие кнопки обратной связи
+- Команды: `cmd_digest [N]`, `cmd_search текст`, `cmd_contact +7...`, `cmd_promises`, `cmd_status`
+- `run()` — запустить polling в отдельном потоке
+
+**Ключевые особенности:**
+- Один бот на всех пользователей (различает по `chat_id`)
+- Лениво загружает `python-telegram-bot` (не требуется для импорта)
+- Все данные фильтруются по `user_id` (CONSTITUTION.md Статья 2.5)
+- HTML-форматирование сообщений
+- Inline кнопки для обратной связи
+
+**Команды (CONSTITUTION.md Статья 11.3):**
+- `/digest [N]` — топ звонков по priority за N дней
+- `/search текст` — FTS5 поиск по транскриптам
+- `/contact +7...` — карточка контакта (имя, звонки, риск, саммари)
+- `/promises` — открытые обещания
+- `/status` — состояние очереди (ожидают, ошибки)
+
+---
+
 ## Детали шага 10: deliver/card_generator.py
 
 ### CardGenerator — caller cards для Android overlay
@@ -469,9 +497,9 @@ git checkout claude/clone-callprofiler-repo-hL5dQ
 git pull origin claude/clone-callprofiler-repo-hL5dQ
 
 # Следующий шаг:
-# ШАГ 11: deliver/telegram_bot.py
-# Telegram-бот (python-telegram-bot):
-#   - TelegramNotifier: отправка саммари, обработка feedback
-#   - Команды: /digest, /search, /contact, /promises, /status
-#   - Один бот на всех, различает по chat_id
+# ШАГ 12: pipeline/orchestrator.py
+# Главный оркестратор (сборка всех компонентов):
+#   - process_call(): normalize → transcribe → diarize → analyze → deliver
+#   - process_batch(): load модели → обработать файлы → unload
+#   - Управление GPU памятью (Whisper+pyannote вместе, LLM отдельно)
 ```
