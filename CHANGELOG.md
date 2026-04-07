@@ -12,6 +12,20 @@
 - `CONSTITUTION.md` — принципы и правила разработки проекта
 - `CONTINUITY.md` — журнал непрерывности: статус, что сделано, что дальше
 
+### Added — Шаг 12: Pipeline Orchestrator (главный оркестратор)
+- `src/callprofiler/pipeline/orchestrator.py`:
+  - **Класс `Orchestrator`** — сборка всех модулей в сквозной pipeline
+  - `process_call(call_id) -> bool` — полная обработка звонка:
+    normalize → transcribe → diarize → analyze → deliver
+  - `process_batch(call_ids)` — batch-обработка с GPU-оптимизацией
+    (Whisper+pyannote вместе → выгрузка → LLM)
+  - `process_pending()` — обработка всех новых звонков
+  - `retry_errors()` — повторная обработка ошибок (retry_count < max_retries)
+  - GPU-дисциплина (CONSTITUTION.md Ст. 9.2-9.3): Whisper+pyannote вместе, LLM отдельно
+  - Graceful degradation: ошибка на шаге → лог + status='error', pipeline не падает
+  - Все статусы в БД: normalizing → transcribing → diarizing → analyzing → delivering → done
+  - `_format_transcript()` — форматирование сегментов в [MM:SS] SPEAKER: текст
+
 ### Added — Шаг 11: Telegram-бот (доставка и команды)
 - `src/callprofiler/deliver/telegram_bot.py`:
   - **Класс `TelegramNotifier`** — Telegram-бот для уведомлений и команд

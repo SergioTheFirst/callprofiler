@@ -6,13 +6,13 @@
 
 ---
 
-## Текущее состояние: 2026-04-07 (обновлено после ШАГ 11)
+## Текущее состояние: 2026-04-07 (обновлено после ШАГ 12)
 
 ### Ветка разработки
 `claude/clone-callprofiler-repo-hL5dQ` (синхронизирована с origin)
 
 ### Прогресс
-**11/15 шагов завершено (73%)**
+**12/15 шагов завершено (80%)**
 - ✅ ШАГ 5: audio/normalizer.py (LUFS-нормализация)
 - ✅ ШАГ 6: transcribe/whisper_runner.py (WhisperRunner)
 - ✅ ШАГ 7: diarize/pyannote_runner.py + role_assigner.py
@@ -20,10 +20,11 @@
 - ✅ ШАГ 9: analyze/llm_client.py + prompt_builder.py + response_parser.py (LLM анализ)
 - ✅ ШАГ 10: deliver/card_generator.py (caller cards для Android overlay)
 - ✅ ШАГ 11: deliver/telegram_bot.py (Telegram-бот)
+- ✅ ШАГ 12: pipeline/orchestrator.py (главный оркестратор)
 
 ### Последний коммит
 ```
-504e6db feat(deliver): ШАГ 10 — CardGenerator для caller cards
+bf66bad feat(deliver): ШАГ 11 — TelegramNotifier
 ```
 
 ### Выполненные шаги
@@ -41,19 +42,19 @@
 | 8 | `ingest/ingester.py` | ✅ готово | `c761342` |
 | 9 | `analyze/llm_client.py` + `prompt_builder.py` + `response_parser.py` | ✅ готово | `c4b70f0` |
 | 10 | `deliver/card_generator.py` + тесты | ✅ готово | `504e6db` |
-| 11 | `deliver/telegram_bot.py` | ✅ готово | текущий |
+| 11 | `deliver/telegram_bot.py` | ✅ готово | `bf66bad` |
+| 12 | `pipeline/orchestrator.py` | ✅ готово | текущий |
 
 ### В работе
 
 | # | Модуль | Следующий исполнитель |
 |---|--------|-----------------------|
-| 12 | `pipeline/orchestrator.py` | Claude / разработчик |
+| 13 | `pipeline/watcher.py` | Claude / разработчик |
 
 ### Не начато
 
 | # | Модуль |
 |---|--------|
-| 12 | `pipeline/orchestrator.py` |
 | 13 | `pipeline/watcher.py` |
 | 14 | `cli/main.py` |
 | 15 | Интеграционный тест |
@@ -417,6 +418,40 @@ logger.error("Ошибка при ...: %s", exc)
 
 ---
 
+## Детали шага 12: pipeline/orchestrator.py
+
+### Orchestrator — главный оркестратор pipeline
+
+**Методы класса:**
+- `__init__(config, repo, telegram=None)` — инициализация всех компонентов
+- `process_call(call_id) -> bool` — полная обработка одного звонка
+- `process_batch(call_ids)` — batch-обработка с GPU-оптимизацией
+- `process_pending()` — обработать все звонки со статусом 'new'
+- `retry_errors()` — повторить звонки со статусом 'error' (retry_count < max)
+
+**Поток process_call():**
+1. Normalize — ffmpeg → WAV 16kHz mono + LUFS нормализация
+2. Transcribe — загрузить Whisper → транскрибировать → выгрузить
+3. Diarize — загрузить pyannote → диаризация с ref embedding → assign speakers → выгрузить
+4. Analyze — построить промпт → отправить в Ollama → распарсить JSON → сохранить
+5. Deliver — обновить caller card + отправить Telegram саммари
+
+**Поток process_batch() (GPU-оптимизация, CONSTITUTION.md Ст. 9.2):**
+1. Normalize все файлы
+2. Загрузить Whisper → транскрибировать ВСЕ → выгрузить
+3. Для каждого файла: загрузить pyannote → diarize → выгрузить
+4. Для каждого: LLM analyze (Ollama сам управляет моделью)
+5. Для каждого: deliver (карточка + Telegram)
+
+**Ключевые особенности:**
+- При ошибке на любом шаге: логирование + update_call_status('error') → не роняет pipeline
+- Все статусы в БД: normalizing → transcribing → diarizing → analyzing → delivering → done
+- Async Telegram через asyncio.get_event_loop() / new_event_loop()
+- Контекст из последних 5 анализов для промпта
+- Graceful degradation: нет ref_audio → пропуск диаризации
+
+---
+
 ## Детали шага 11: deliver/telegram_bot.py
 
 ### TelegramNotifier — Telegram-бот для уведомлений и команд
@@ -497,9 +532,9 @@ git checkout claude/clone-callprofiler-repo-hL5dQ
 git pull origin claude/clone-callprofiler-repo-hL5dQ
 
 # Следующий шаг:
-# ШАГ 12: pipeline/orchestrator.py
-# Главный оркестратор (сборка всех компонентов):
-#   - process_call(): normalize → transcribe → diarize → analyze → deliver
-#   - process_batch(): load модели → обработать файлы → unload
-#   - Управление GPU памятью (Whisper+pyannote вместе, LLM отдельно)
+# ШАГ 13: pipeline/watcher.py
+# FileWatcher — автоматический мониторинг папок:
+#   - scan_all_users(): сканировать incoming_dir каждого пользователя
+#   - run_loop(): бесконечный цикл с sleep(watch_interval_sec)
+#   - Интеграция с Ingester + Orchestrator
 ```
