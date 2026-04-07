@@ -12,6 +12,15 @@
 - `CONSTITUTION.md` — принципы и правила разработки проекта
 - `CONTINUITY.md` — журнал непрерывности: статус, что сделано, что дальше
 
+### Added — Шаг 13: FileWatcher (мониторинг папок)
+- `src/callprofiler/pipeline/watcher.py`:
+  - **Класс `FileWatcher`** — автоматический мониторинг incoming_dir пользователей
+  - `scan_all_users() -> list[int]` — рекурсивный обход (os.walk), фильтр аудио-расширений
+  - `run_loop()` — бесконечный цикл: scan → process_batch → retry_errors → sleep
+  - Проверка file_settle_sec (mtime) — не хватать незаписанный файл
+  - Graceful degradation: ошибка файла → лог → продолжить
+  - Поддержка: .mp3, .m4a, .wav, .ogg, .opus, .flac, .aac, .wma
+
 ### Added — Шаг 12: Pipeline Orchestrator (главный оркестратор)
 - `src/callprofiler/pipeline/orchestrator.py`:
   - **Класс `Orchestrator`** — сборка всех модулей в сквозной pipeline

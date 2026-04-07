@@ -6,13 +6,13 @@
 
 ---
 
-## Текущее состояние: 2026-04-07 (обновлено после ШАГ 12)
+## Текущее состояние: 2026-04-07 (обновлено после ШАГ 13)
 
 ### Ветка разработки
 `claude/clone-callprofiler-repo-hL5dQ` (синхронизирована с origin)
 
 ### Прогресс
-**12/15 шагов завершено (80%)**
+**13/15 шагов завершено (87%)**
 - ✅ ШАГ 5: audio/normalizer.py (LUFS-нормализация)
 - ✅ ШАГ 6: transcribe/whisper_runner.py (WhisperRunner)
 - ✅ ШАГ 7: diarize/pyannote_runner.py + role_assigner.py
@@ -21,10 +21,11 @@
 - ✅ ШАГ 10: deliver/card_generator.py (caller cards для Android overlay)
 - ✅ ШАГ 11: deliver/telegram_bot.py (Telegram-бот)
 - ✅ ШАГ 12: pipeline/orchestrator.py (главный оркестратор)
+- ✅ ШАГ 13: pipeline/watcher.py (мониторинг папок)
 
 ### Последний коммит
 ```
-bf66bad feat(deliver): ШАГ 11 — TelegramNotifier
+c0f8b49 feat(pipeline): ШАГ 12 — Orchestrator
 ```
 
 ### Выполненные шаги
@@ -43,19 +44,19 @@ bf66bad feat(deliver): ШАГ 11 — TelegramNotifier
 | 9 | `analyze/llm_client.py` + `prompt_builder.py` + `response_parser.py` | ✅ готово | `c4b70f0` |
 | 10 | `deliver/card_generator.py` + тесты | ✅ готово | `504e6db` |
 | 11 | `deliver/telegram_bot.py` | ✅ готово | `bf66bad` |
-| 12 | `pipeline/orchestrator.py` | ✅ готово | текущий |
+| 12 | `pipeline/orchestrator.py` | ✅ готово | `c0f8b49` |
+| 13 | `pipeline/watcher.py` | ✅ готово | текущий |
 
 ### В работе
 
 | # | Модуль | Следующий исполнитель |
 |---|--------|-----------------------|
-| 13 | `pipeline/watcher.py` | Claude / разработчик |
+| 14 | `cli/main.py` | Claude / разработчик |
 
 ### Не начато
 
 | # | Модуль |
 |---|--------|
-| 13 | `pipeline/watcher.py` |
 | 14 | `cli/main.py` |
 | 15 | Интеграционный тест |
 
@@ -418,6 +419,31 @@ logger.error("Ошибка при ...: %s", exc)
 
 ---
 
+## Детали шага 13: pipeline/watcher.py
+
+### FileWatcher — мониторинг папок пользователей
+
+**Методы класса:**
+- `__init__(config, repo, ingester, orchestrator)` — инициализация
+- `scan_all_users() -> list[int]` — однократное сканирование всех пользователей
+- `run_loop()` — бесконечный цикл: scan → process_batch → retry_errors → sleep
+
+**Поток scan_all_users():**
+1. Получить всех пользователей из БД
+2. Для каждого: обойти incoming_dir рекурсивно (os.walk)
+3. Фильтровать по аудио-расширениям: .mp3, .m4a, .wav, .ogg, .opus, .flac, .aac, .wma
+4. Проверить file_settle_sec (файл не записывается)
+5. Передать в ingester.ingest_file() → call_id (или None если дубликат)
+
+**Ключевые особенности:**
+- Рекурсивный обход подпапок (os.walk)
+- file_settle_sec: проверка mtime чтобы не хватать незаписанный файл
+- Graceful degradation: ошибка одного файла → лог → продолжить
+- KeyboardInterrupt → чистый выход из run_loop()
+- Дубликаты (call_id=None) пропускаются молча
+
+---
+
 ## Детали шага 12: pipeline/orchestrator.py
 
 ### Orchestrator — главный оркестратор pipeline
@@ -532,9 +558,12 @@ git checkout claude/clone-callprofiler-repo-hL5dQ
 git pull origin claude/clone-callprofiler-repo-hL5dQ
 
 # Следующий шаг:
-# ШАГ 13: pipeline/watcher.py
-# FileWatcher — автоматический мониторинг папок:
-#   - scan_all_users(): сканировать incoming_dir каждого пользователя
-#   - run_loop(): бесконечный цикл с sleep(watch_interval_sec)
-#   - Интеграция с Ingester + Orchestrator
+# ШАГ 14: cli/main.py — точка входа
+# argparse CLI:
+#   python -m callprofiler watch          # watchdog + обработка
+#   python -m callprofiler process <file> # один файл
+#   python -m callprofiler reprocess      # повторить ошибки
+#   python -m callprofiler add-user ...   # добавить пользователя
+#   python -m callprofiler digest <user>  # дайджест
+#   python -m callprofiler status         # состояние
 ```
