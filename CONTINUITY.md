@@ -6,13 +6,13 @@
 
 ---
 
-## Текущее состояние: 2026-04-07 (обновлено после ШАГ 13)
+## Текущее состояние: 2026-04-07 (обновлено после ШАГ 14)
 
 ### Ветка разработки
 `claude/clone-callprofiler-repo-hL5dQ` (синхронизирована с origin)
 
 ### Прогресс
-**13/15 шагов завершено (87%)**
+**14/15 шагов завершено (93%)**
 - ✅ ШАГ 5: audio/normalizer.py (LUFS-нормализация)
 - ✅ ШАГ 6: transcribe/whisper_runner.py (WhisperRunner)
 - ✅ ШАГ 7: diarize/pyannote_runner.py + role_assigner.py
@@ -22,10 +22,11 @@
 - ✅ ШАГ 11: deliver/telegram_bot.py (Telegram-бот)
 - ✅ ШАГ 12: pipeline/orchestrator.py (главный оркестратор)
 - ✅ ШАГ 13: pipeline/watcher.py (мониторинг папок)
+- ✅ ШАГ 14: cli/main.py + __main__.py (точка входа CLI)
 
 ### Последний коммит
 ```
-c0f8b49 feat(pipeline): ШАГ 12 — Orchestrator
+d96b8da feat(pipeline): ШАГ 13 — FileWatcher
 ```
 
 ### Выполненные шаги
@@ -45,19 +46,13 @@ c0f8b49 feat(pipeline): ШАГ 12 — Orchestrator
 | 10 | `deliver/card_generator.py` + тесты | ✅ готово | `504e6db` |
 | 11 | `deliver/telegram_bot.py` | ✅ готово | `bf66bad` |
 | 12 | `pipeline/orchestrator.py` | ✅ готово | `c0f8b49` |
-| 13 | `pipeline/watcher.py` | ✅ готово | текущий |
-
-### В работе
-
-| # | Модуль | Следующий исполнитель |
-|---|--------|-----------------------|
-| 14 | `cli/main.py` | Claude / разработчик |
+| 13 | `pipeline/watcher.py` | ✅ готово | `d96b8da` |
+| 14 | `cli/main.py` + `__main__.py` | ✅ готово | текущий |
 
 ### Не начато
 
 | # | Модуль |
 |---|--------|
-| 14 | `cli/main.py` |
 | 15 | Интеграционный тест |
 
 ---
@@ -419,6 +414,34 @@ logger.error("Ошибка при ...: %s", exc)
 
 ---
 
+## Детали шага 14: cli/main.py + __main__.py
+
+### CLI — точка входа `python -m callprofiler`
+
+**Команды:**
+
+| Команда | Описание |
+|---------|----------|
+| `watch` | Запустить FileWatcher.run_loop() — watchdog + автообработка |
+| `process <file> --user ID` | Зарегистрировать и обработать один файл |
+| `reprocess` | Повторить все звонки с ошибками |
+| `add-user ID --incoming --ref-audio --sync-dir [--display-name --telegram-chat-id]` | Добавить пользователя |
+| `digest <user> [--days N]` | Топ-10 звонков по priority за N дней |
+| `status` | Статистика очереди: статусы, pending, errors |
+
+**Флаги:**
+- `--config PATH` — путь к base.yaml (по умолчанию `configs/base.yaml`)
+- `--verbose / -v` — DEBUG-логирование
+
+**Ключевые особенности:**
+- `_setup_logging()` — консоль + файл (из config.log_file)
+- `_load_config_and_repo()` — загрузить конфиг, создать БД, вернуть (cfg, repo)
+- Все импорты тяжёлых модулей — внутри функций (ленивая загрузка)
+- Graceful KeyboardInterrupt → sys.exit(0)
+- `digest` и `status` печатают в stdout без лог-файла
+
+---
+
 ## Детали шага 13: pipeline/watcher.py
 
 ### FileWatcher — мониторинг папок пользователей
@@ -558,12 +581,10 @@ git checkout claude/clone-callprofiler-repo-hL5dQ
 git pull origin claude/clone-callprofiler-repo-hL5dQ
 
 # Следующий шаг:
-# ШАГ 14: cli/main.py — точка входа
-# argparse CLI:
-#   python -m callprofiler watch          # watchdog + обработка
-#   python -m callprofiler process <file> # один файл
-#   python -m callprofiler reprocess      # повторить ошибки
-#   python -m callprofiler add-user ...   # добавить пользователя
-#   python -m callprofiler digest <user>  # дайджест
-#   python -m callprofiler status         # состояние
+# ШАГ 15: Интеграционный тест (ручной прогон)
+# python -m callprofiler add-user serhio --incoming D:\calls\audio \
+#   --ref-audio C:\pro\mbot\ref\manager.wav --sync-dir D:\calls\sync\serhio\cards
+# python -m callprofiler process "D:\calls\audio\test.mp3" --user serhio
+# python -m callprofiler status
+# python -m callprofiler watch
 ```

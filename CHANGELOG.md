@@ -12,6 +12,21 @@
 - `CONSTITUTION.md` — принципы и правила разработки проекта
 - `CONTINUITY.md` — журнал непрерывности: статус, что сделано, что дальше
 
+### Added — Шаг 14: CLI точка входа (python -m callprofiler)
+- `src/callprofiler/cli/main.py`:
+  - Полный argparse CLI с 6 командами:
+    - `watch` — запуск FileWatcher.run_loop() (watchdog-режим)
+    - `process <file> --user ID` — регистрация и обработка одного файла
+    - `reprocess` — повторная обработка звонков с ошибками
+    - `add-user ID --incoming --ref-audio --sync-dir [--display-name --telegram-chat-id]`
+    - `digest <user> [--days N]` — топ-10 по priority за N дней
+    - `status` — состояние очереди (статусы, pending, errors)
+  - `--config PATH` (по умолчанию `configs/base.yaml`)
+  - `-v / --verbose` — DEBUG-логирование
+  - Ленивые импорты тяжёлых модулей внутри функций
+  - Graceful KeyboardInterrupt → sys.exit(0)
+- `src/callprofiler/__main__.py` — `from callprofiler.cli.main import main; main()`
+
 ### Added — Шаг 13: FileWatcher (мониторинг папок)
 - `src/callprofiler/pipeline/watcher.py`:
   - **Класс `FileWatcher`** — автоматический мониторинг incoming_dir пользователей
