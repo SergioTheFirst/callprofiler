@@ -93,8 +93,9 @@ def test_add_user_and_ingest():
         assert user["incoming_dir"] == str(incoming_dir)
 
         # Шаг 2: Зарегистрировать файл через Ingester
+        # Используем формат 4: Имя контакта + номер в скобках + дата
         ingester = Ingester(repo, cfg)
-        test_file = incoming_dir / "20260328_143022_IN_+79161234567_Иванов.mp3"
+        test_file = incoming_dir / "Иванов(0079161234567)_20260328143022.mp3"
         _make_test_wav(test_file)
 
         call_id = ingester.ingest_file(user_id, str(test_file))
