@@ -279,6 +279,51 @@ def cmd_extract_names(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bulk_load(args: argparse.Namespace) -> int:
+    """bulk-load <folder> --user ID — загрузить .txt транскрипты в БД."""
+    cfg, repo = _load_config_and_repo(args.config)
+    _setup_logging(cfg.log_file, args.verbose)
+
+    log = logging.getLogger(__name__)
+
+    # Проверить пользователя
+    user = repo.get_user(args.user_id)
+    if not user:
+        log.error("Пользователь '%s' не найден", args.user_id)
+        return 1
+
+    # Проверить папку
+    from pathlib import Path
+    folder = Path(args.folder)
+    if not folder.is_dir():
+        log.error("Папка не найдена: %s", args.folder)
+        return 1
+
+    from callprofiler.bulk.loader import bulk_load
+
+    db_path = Path(cfg.data_dir) / "db" / "callprofiler.db"
+
+    print(f"\n📂 Загрузка транскриптов из: {args.folder}")
+    print(f"👤 Пользователь: {args.user_id}")
+    print(f"💾 База данных: {db_path}\n")
+
+    stats = bulk_load(
+        txt_folder=args.folder,
+        user_id=args.user_id,
+        db_path=str(db_path),
+    )
+
+    print(
+        f"\n✅ Завершено!\n"
+        f"  Загружено файлов    : {stats['loaded']}\n"
+        f"  Пропущено (дубли)   : {stats['skipped']}\n"
+        f"  Ошибки парсинга     : {stats['errors']}\n"
+        f"  Уникальных контактов: {stats['unique_contacts']}\n"
+    )
+
+    return 0
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     """status — показать состояние очереди."""
     cfg, repo = _load_config_and_repo(args.config)
@@ -427,6 +472,19 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Показать результат без записи в БД",
     )
 
+    # ── bulk-load ──────────────────────────────────────────────
+    p_bulk = sub.add_parser(
+        "bulk-load",
+        help="Массовая загрузка .txt транскриптов в БД",
+    )
+    p_bulk.add_argument(
+        "folder", help="Папка с .txt файлами транскриптов",
+    )
+    p_bulk.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+
     return parser
 
 
@@ -443,6 +501,7 @@ def main() -> None:
         "digest": cmd_digest,
         "status": cmd_status,
         "extract-names": cmd_extract_names,
+        "bulk-load": cmd_bulk_load,
     }
 
     handler = dispatch.get(args.command)
