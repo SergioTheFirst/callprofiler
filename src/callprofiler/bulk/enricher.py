@@ -108,7 +108,8 @@ def bulk_enrich(
            LEFT JOIN contacts cnt ON c.contact_id = cnt.contact_id
            LEFT JOIN analyses a ON c.call_id = a.call_id
            WHERE c.user_id = ? AND a.analysis_id IS NULL
-           ORDER BY c.call_datetime"""
+           ORDER BY c.call_datetime""",
+        (user_id,),
     ).fetchall()
 
     calls = [dict(row) for row in rows]
