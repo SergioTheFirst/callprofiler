@@ -10,31 +10,44 @@ CLI: python -m callprofiler bulk-enrich --user <user_id> [--limit 100]
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 import time
-from datetime import datetime
 from pathlib import Path
 
 from callprofiler.analyze.llm_client import LLMClient
 from callprofiler.analyze.response_parser import parse_llm_response
 from callprofiler.config import load_config
 from callprofiler.db.repository import Repository
+from callprofiler.models import Analysis
 
 log = logging.getLogger(__name__)
 
-# Паттерн для извлечения JSON из markdown кода
-_JSON_MD_RE = re.compile(r"```json\s*(.*?)\s*```", re.DOTALL | re.IGNORECASE)
+# Сегменты короче этого (в символах) убираются из транскрипта,
+# кроме специально сохраняемых коротких слов.
+_MIN_SEG_CHARS = 3
+_KEEP_SHORT_SEGS = {"да", "ну", "угу"}
+
+# Если суммарный текст транскрипта короче — пропустить LLM.
+_SHORT_CALL_THRESHOLD = 50
+
+# Кол-во звонков, накапливаемых перед записью одной транзакцией.
+_BATCH_SIZE = 5
 
 
 def _format_transcript(segments: list[dict]) -> str:
-    """Форматировать транскрипт для промпта."""
+    """Форматировать и сжать транскрипт для промпта.
+
+    Убирает пустые и очень короткие сегменты (< 3 символов),
+    оставляя исключения: "да", "ну", "угу".
+    """
     lines = []
     for seg in segments:
-        speaker = seg.get("speaker", "UNKNOWN")
-        text = seg.get("text", "")
-        role = "[Я]" if speaker == "OWNER" else "[Собеседник]"
+        text = seg.get("text", "").strip()
+        if not text:
+            continue
+        if len(text) < _MIN_SEG_CHARS and text.lower() not in _KEEP_SHORT_SEGS:
+            continue
+        role = "[Я]" if seg.get("speaker") == "OWNER" else "[Собеседник]"
         lines.append(f"{role}: {text}")
     return "\n".join(lines)
 
@@ -57,6 +70,47 @@ def _load_prompt_template(prompts_dir: str) -> str:
     return prompt_file.read_text(encoding="utf-8")
 
 
+def _stub_analysis() -> Analysis:
+    """Заглушка для короткого звонка без содержания."""
+    return Analysis(
+        priority=0,
+        risk_score=0,
+        summary="Короткий звонок без содержания",
+        action_items=[],
+        promises=[],
+        flags={},
+        key_topics=[],
+        raw_response="",
+        model="stub",
+        prompt_version="v001",
+    )
+
+
+def _flush_batch(repo: Repository, batch: list[dict]) -> int:
+    """Записать батч в БД одной транзакцией. Возвращает кол-во ошибок."""
+    if not batch:
+        return 0
+    try:
+        repo.save_batch(batch)
+        log.debug("[enricher] Батч записан (%d элементов)", len(batch))
+        return 0
+    except Exception as e:
+        log.error("[enricher] Ошибка batch-записи: %s — пробуем по одному", e)
+        failed = 0
+        for item in batch:
+            try:
+                repo.save_analysis(item["call_id"], item["analysis"])
+                if item.get("promises") and item.get("contact_id") is not None:
+                    repo.save_promises(
+                        item["user_id"], item["contact_id"],
+                        item["call_id"], item["promises"],
+                    )
+            except Exception as ie:
+                log.error("[enricher] ✗ call_id=%d: ошибка записи: %s", item["call_id"], ie)
+                failed += 1
+        return failed
+
+
 def bulk_enrich(
     user_id: str,
     db_path: str,
@@ -75,35 +129,30 @@ def bulk_enrich(
     Возвращает:
         {"processed": N, "failed": N, "skipped": N, "total": N}
     """
-    # Загрузить конфиг
     cfg = load_config(config_path)
     repo = Repository(db_path)
     repo.init_db()
 
-    # Проверить пользователя
     user = repo.get_user(user_id)
     if not user:
         log.error("[enricher] Пользователь '%s' не найден", user_id)
         return {"processed": 0, "failed": 0, "skipped": 0, "total": 0}
 
-    # Инициализировать LLM клиент
     try:
         llm = LLMClient(base_url=cfg.models.llm_url, timeout=300)
     except ConnectionError as e:
         log.error("[enricher] Ошибка подключения к LLM: %s", e)
         return {"processed": 0, "failed": 0, "skipped": 0, "total": 0}
 
-    # Загрузить шаблон промпта
     prompts_dir = Path(cfg.data_dir).parent / "configs" / "prompts"
     if not prompts_dir.exists():
         prompts_dir = Path("configs") / "prompts"
     prompt_template = _load_prompt_template(str(prompts_dir))
 
-    # Выбрать звонки без анализа
     conn = repo._get_conn()
     rows = conn.execute(
         """SELECT c.call_id, c.user_id, c.contact_id, c.call_datetime,
-                  c.source_filename, cnt.phone_e164, cnt.display_name
+                  c.source_filename, c.direction, cnt.phone_e164, cnt.display_name
            FROM calls c
            LEFT JOIN contacts cnt ON c.contact_id = cnt.contact_id
            LEFT JOIN analyses a ON c.call_id = a.call_id
@@ -116,105 +165,113 @@ def bulk_enrich(
     if limit > 0:
         calls = calls[:limit]
 
-    log.info("[enricher] Найдено %d звонков для анализа (пользователь: %s)", len(calls), user_id)
+    total = len(calls)
+    log.info("[enricher] Найдено %d звонков для анализа (пользователь: %s)", total, user_id)
 
-    stats = {
-        "processed": 0,
-        "failed": 0,
-        "skipped": 0,
-        "total": len(calls),
-    }
-
-    start_time = time.time()
+    stats = {"processed": 0, "failed": 0, "skipped": 0, "total": total}
+    pending_batch: list[dict] = []
+    llm_times: list[float] = []
+    tokens_total = 0
+    global_start = time.time()
 
     try:
         for idx, call in enumerate(calls, 1):
             call_id = call["call_id"]
-            phone = call.get("phone_e164", "unknown")
-            name = call.get("display_name", "?")
-
-            log.info(
-                "[enricher] Обработка %d/%d: call_id=%d (%s, %s)",
-                idx, len(calls), call_id, phone, name,
-            )
+            phone = call.get("phone_e164") or "unknown"
+            name = call.get("display_name") or "?"
+            call_start = time.time()
 
             try:
-                # Получить транскрипт
                 segments = repo.get_transcript(call_id)
                 if not segments:
-                    log.warning("[enricher] call_id=%d: транскрипт пустой", call_id)
+                    log.warning("[enricher] call_id=%d: транскрипт пустой, пропускаем", call_id)
                     stats["skipped"] += 1
                     continue
 
-                # Форматировать промпт
                 transcript_text = _format_transcript(segments)
-                call_datetime = call.get("call_datetime", "unknown")
-                direction = call.get("direction", "UNKNOWN")
 
-                user_message = f"""Метаданные звонка:
-Контакт: {name} ({phone})
-Дата: {call_datetime}
-Направление: {direction}
+                # Короткий звонок — не отправлять в LLM
+                if len(transcript_text) < _SHORT_CALL_THRESHOLD:
+                    log.info(
+                        "[enricher] %d/%d call_id=%d | короткий (%d симв) — stub | %.1fс",
+                        idx, total, call_id, len(transcript_text), time.time() - call_start,
+                    )
+                    analysis = _stub_analysis()
+                else:
+                    user_message = (
+                        f"Метаданные звонка:\n"
+                        f"Контакт: {name} ({phone})\n"
+                        f"Дата: {call.get('call_datetime', 'unknown')}\n"
+                        f"Направление: {call.get('direction', 'UNKNOWN')}\n\n"
+                        f"Стенограмма:\n{transcript_text}"
+                    )
 
-Стенограмма:
-{transcript_text}"""
+                    llm_start = time.time()
+                    llm_response = llm.generate(
+                        messages=[
+                            {"role": "system", "content": prompt_template},
+                            {"role": "user", "content": user_message},
+                        ],
+                        temperature=0.3,
+                        max_tokens=1024,
+                    )
+                    llm_elapsed = time.time() - llm_start
+                    llm_times.append(llm_elapsed)
 
-                # Отправить на анализ
-                llm_response = llm.generate(
-                    messages=[
-                        {"role": "system", "content": prompt_template},
-                        {"role": "user", "content": user_message},
-                    ],
-                    temperature=0.3,
-                    max_tokens=2048,
-                )
+                    est_tokens = max(1, len(llm_response) // 4)
+                    tokens_total += est_tokens
+                    tps = est_tokens / llm_elapsed if llm_elapsed > 0 else 0
 
-                # Распарсить ответ
-                analysis = parse_llm_response(llm_response)
+                    analysis = parse_llm_response(llm_response)
 
-                # Сохранить анализ
-                repo.save_analysis(call_id, analysis)
+                    # ETA по всем завершённым (включая skipped/failed)
+                    completed = stats["processed"] + stats["skipped"] + stats["failed"]
+                    elapsed_total = time.time() - global_start
+                    rate = completed / elapsed_total if elapsed_total > 0 and completed > 0 else 0
+                    eta = (total - idx) / rate if rate > 0 else 0
 
-                # Сохранить promises если были найдены
-                if analysis.promises:
-                    repo.save_promises(user_id, call["contact_id"] or 0, call_id, analysis.promises)
+                    log.info(
+                        "[enricher] %d/%d call_id=%d | %.1fс/файл | ~%.0f tok/с | ETA %.0fс",
+                        idx, total, call_id,
+                        time.time() - call_start, tps, eta,
+                    )
 
-                # Обновить контакт если был найден guessed_name
-                # (в данном случае игнорируем, т.к. это из LLM, а не из имён в транскрипте)
-
+                pending_batch.append({
+                    "call_id": call_id,
+                    "analysis": analysis,
+                    "user_id": user_id,
+                    "contact_id": call.get("contact_id"),
+                    "promises": getattr(analysis, "promises", []),
+                })
                 stats["processed"] += 1
-                elapsed = time.time() - start_time
-                rate = stats["processed"] / elapsed if elapsed > 0 else 0
-                eta = (len(calls) - idx) / rate if rate > 0 else 0
-
-                log.debug(
-                    "[enricher] ✓ call_id=%d (%.1f сек/файл, ETA: %.0f сек)",
-                    call_id, 1 / rate if rate > 0 else 0, eta,
-                )
 
             except Exception as e:
-                log.error("[enricher] ✗ call_id=%d: ошибка при обработке: %s", call_id, e)
+                log.error("[enricher] ✗ call_id=%d: %s", call_id, e)
                 stats["failed"] += 1
+
+            # Батчевая запись каждые BATCH_SIZE файлов
+            if len(pending_batch) >= _BATCH_SIZE:
+                stats["failed"] += _flush_batch(repo, pending_batch)
+                pending_batch.clear()
 
     except KeyboardInterrupt:
         log.info("[enricher] Прервано пользователем (обработано: %d)", stats["processed"])
+        if pending_batch:
+            _flush_batch(repo, pending_batch)
         return stats
 
-    # Итоговая статистика
-    elapsed_total = time.time() - start_time
+    # Дозаписать остаток
+    if pending_batch:
+        stats["failed"] += _flush_batch(repo, pending_batch)
+
+    elapsed_total = time.time() - global_start
+    avg_tps = tokens_total / sum(llm_times) if llm_times else 0
     log.info(
         "\n[enricher] ✅ Завершено!\n"
-        "  Обработано файлов: %d\n"
-        "  Ошибок: %d\n"
-        "  Пропущено: %d\n"
-        "  Всего: %d\n"
-        "  Время: %.1f сек (%.1f сек/файл)",
-        stats["processed"],
-        stats["failed"],
-        stats["skipped"],
-        stats["total"],
-        elapsed_total,
-        elapsed_total / stats["processed"] if stats["processed"] > 0 else 0,
+        "  Обработано: %d | Ошибок: %d | Пропущено: %d | Всего: %d\n"
+        "  Время: %.1fс | Средняя скорость LLM: ~%.0f tok/с",
+        stats["processed"], stats["failed"], stats["skipped"], stats["total"],
+        elapsed_total, avg_tps,
     )
 
     return stats
