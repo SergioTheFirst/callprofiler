@@ -8,6 +8,27 @@
 
 ## [Unreleased]
 
+### Changed — configs/prompts/analyze_v001.txt (расширенный LLM-анализ)
+- Переписан системный промпт для детального анализа звонков
+- **JSON-структура:** 30+ полей для комплексного анализа
+  - Основные: `summary`, `priority`, `risk_score`, `category`, `sentiment`, `initiative`
+  - Действия: `action_items[]` с кто/что/когда
+  - Обещания: `promises[]` с отметкой `vague` (размытость)
+  - Извлечение: люди, компании, суммы, даты, адреса
+  - Контакт: `contact_name_guess`, `contact_company_guess`, `contact_role_guess`
+  - Оценка честности: `bullshit_index` (score, vagueness, defensiveness, contradictions)
+  - Динамика: `power_dynamics`, `emotional_tone_owner/other`
+  - Флаги: `urgent`, `conflict`, `money_discussed`, `deadline_mentioned`, `legal_risk`, `lie_suspected`
+- **Правила анализа:**
+  - Роли [Me]/[S2] часто перепутаны — определять по контексту
+  - Сергей/Медведев ВСЕГДА владелец, даже если [S2]
+  - bullshit_index: 0=честный, 100=пиздёж
+  - vagueness: "может быть", "посмотрим" = высокий балл
+  - Extractить ВСЕ упомянутые данные
+  - Если непонятно → null, не выдумывать
+- **Формат:** ТОЛЬКО валидный JSON, без markdown, без пояснений
+- response_parser.py совместим, хранит все поля в raw_response
+
 ### Changed — LLM интеграция: Ollama → llama.cpp (OpenAI API)
 - **`src/callprofiler/analyze/llm_client.py`:**
   - Новый класс `LLMClient` вместо `OllamaClient`
