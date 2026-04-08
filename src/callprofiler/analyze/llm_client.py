@@ -35,12 +35,12 @@ class LLMClient:
         print(response)  # JSON строка или текст ответа
     """
 
-    def __init__(self, base_url: str, timeout: int = 300) -> None:
+    def __init__(self, base_url: str, timeout: int = 180) -> None:
         """Инициализировать LLM клиент.
 
         Параметры:
             base_url  — URL endpoint (обычно http://127.0.0.1:8080/v1/chat/completions)
-            timeout   — timeout для запроса в секундах (по умолчанию 300)
+            timeout   — timeout для запроса в секундах (по умолчанию 180 для длинных звонков)
         """
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
@@ -77,21 +77,18 @@ class LLMClient:
         self,
         messages: list[dict],
         temperature: float = 0.3,
-        max_tokens: int = 2048,
-    ) -> str:
+        max_tokens: int = 1500,
+    ) -> str | None:
         """Отправить сообщения в LLM и получить ответ.
 
         Параметры:
             messages     — список сообщений в формате OpenAI API
                           [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}]
             temperature  — параметр температуры (0.0-2.0), по умолчанию 0.3 для консистентного JSON
-            max_tokens   — максимальное число токенов в ответе
+            max_tokens   — максимальное число токенов в ответе (1500 для полного JSON)
 
         Возвращает:
-            Полный ответ модели (текст или JSON)
-
-        Raises:
-            RuntimeError  — если запрос к серверу упал
+            Полный ответ модели (текст или JSON), или None при ошибке
         """
         logger.debug(
             "Отправка промпта в LLM сервер (сообщений: %d, max_tokens: %d)",
@@ -115,16 +112,15 @@ class LLMClient:
                 # OpenAI API format: response["choices"][0]["message"]["content"]
                 return result["choices"][0]["message"]["content"]
             except (json.JSONDecodeError, KeyError, IndexError) as exc:
-                raise RuntimeError(
-                    f"Невалидный ответ от LLM сервера: {response.text[:200]}"
-                ) from exc
+                logger.error("Невалидный ответ от LLM сервера: %s", response.text[:200])
+                return None
 
         except requests.Timeout as exc:
-            raise RuntimeError(
-                f"Timeout при запросе к LLM серверу (timeout={self.timeout}s): {exc}"
-            ) from exc
+            logger.error("Timeout при запросе к LLM серверу (timeout=%ds): %s", self.timeout, exc)
+            return None
         except requests.RequestException as exc:
-            raise RuntimeError(f"Ошибка при запросе к LLM серверу: {exc}") from exc
+            logger.error("Ошибка при запросе к LLM серверу: %s", exc)
+            return None
 
 
 # Для обратной совместимости (если что-то ещё использует OllamaClient)

@@ -168,7 +168,7 @@ def bulk_enrich(
     total = len(calls)
     log.info("[enricher] Найдено %d звонков для анализа (пользователь: %s)", total, user_id)
 
-    stats = {"processed": 0, "failed": 0, "skipped": 0, "total": total}
+    stats = {"processed": 0, "partial": 0, "failed": 0, "skipped": 0, "total": total}
     pending_batch: list[dict] = []
     llm_times: list[float] = []
     tokens_total = 0
@@ -189,6 +189,7 @@ def bulk_enrich(
                     continue
 
                 transcript_text = _format_transcript(segments)
+                is_partial = False  # По умолчанию полный успех
 
                 # Короткий звонок — не отправлять в LLM
                 if len(transcript_text) < _SHORT_CALL_THRESHOLD:
@@ -197,6 +198,7 @@ def bulk_enrich(
                         idx, total, call_id, len(transcript_text), time.time() - call_start,
                     )
                     analysis = _stub_analysis()
+                    is_partial = True
                 else:
                     user_message = (
                         f"Метаданные звонка:\n"
@@ -213,28 +215,42 @@ def bulk_enrich(
                             {"role": "user", "content": user_message},
                         ],
                         temperature=0.3,
-                        max_tokens=1024,
+                        max_tokens=1500,
                     )
                     llm_elapsed = time.time() - llm_start
-                    llm_times.append(llm_elapsed)
 
+                    # Если LLM вернул None — ошибка подключения/timeout
+                    if llm_response is None:
+                        log.error("[enricher] ✗ call_id=%d: LLM вернул None (ошибка/timeout)", call_id)
+                        stats["failed"] += 1
+                        continue
+
+                    llm_times.append(llm_elapsed)
                     est_tokens = max(1, len(llm_response) // 4)
                     tokens_total += est_tokens
                     tps = est_tokens / llm_elapsed if llm_elapsed > 0 else 0
 
                     analysis = parse_llm_response(llm_response)
+                    is_partial = not analysis.summary  # Если summary пусто — парсинг частичный
 
                     # ETA по всем завершённым (включая skipped/failed)
-                    completed = stats["processed"] + stats["skipped"] + stats["failed"]
+                    completed = stats["processed"] + stats["partial"] + stats["skipped"] + stats["failed"]
                     elapsed_total = time.time() - global_start
                     rate = completed / elapsed_total if elapsed_total > 0 and completed > 0 else 0
                     eta = (total - idx) / rate if rate > 0 else 0
 
+                    status = "[partial]" if is_partial else "✓"
                     log.info(
-                        "[enricher] %d/%d call_id=%d | %.1fс/файл | ~%.0f tok/с | ETA %.0fс",
-                        idx, total, call_id,
+                        "[enricher] %d/%d call_id=%d | %s | %.1fс/файл | ~%.0f tok/с | ETA %.0fс",
+                        idx, total, call_id, status,
                         time.time() - call_start, tps, eta,
                     )
+
+                # Счётчик partial успехов
+                if is_partial:
+                    stats["partial"] += 1
+                else:
+                    stats["processed"] += 1
 
                 pending_batch.append({
                     "call_id": call_id,
@@ -243,11 +259,23 @@ def bulk_enrich(
                     "contact_id": call.get("contact_id"),
                     "promises": getattr(analysis, "promises", []),
                 })
-                stats["processed"] += 1
+
+                # Промежуточная статистика каждые 50 файлов
+                completed = stats["processed"] + stats["partial"] + stats["skipped"] + stats["failed"]
+                if completed % 50 == 0 and completed > 0:
+                    elapsed = time.time() - global_start
+                    rate = completed / elapsed if elapsed > 0 else 0
+                    log.info(
+                        "[enricher] промежуточная статистика (%d/%d): успешно %d, частичных %d, "
+                        "пропущено %d, ошибок %d (%.1f файлов/сек)",
+                        completed, total, stats["processed"], stats["partial"],
+                        stats["skipped"], stats["failed"], rate,
+                    )
 
             except Exception as e:
-                log.error("[enricher] ✗ call_id=%d: %s", call_id, e)
+                log.error("[enricher] ✗ call_id=%d: ошибка обработки: %s", call_id, e)
                 stats["failed"] += 1
+                # Продолжаем, несмотря на ошибку одного звонка
 
             # Батчевая запись каждые BATCH_SIZE файлов
             if len(pending_batch) >= _BATCH_SIZE:
@@ -266,12 +294,20 @@ def bulk_enrich(
 
     elapsed_total = time.time() - global_start
     avg_tps = tokens_total / sum(llm_times) if llm_times else 0
+    total_done = stats["processed"] + stats["partial"] + stats["skipped"] + stats["failed"]
+
     log.info(
         "\n[enricher] ✅ Завершено!\n"
-        "  Обработано: %d | Ошибок: %d | Пропущено: %d | Всего: %d\n"
-        "  Время: %.1fс | Средняя скорость LLM: ~%.0f tok/с",
-        stats["processed"], stats["failed"], stats["skipped"], stats["total"],
-        elapsed_total, avg_tps,
+        "  Успешных: %d | Частичных: %d | Пропущено: %d | Ошибок: %d | Всего: %d\n"
+        "  Время: %.1fс (%.1f файлов/сек) | Средняя скорость LLM: ~%.0f tok/с",
+        stats["processed"], stats["partial"], stats["skipped"], stats["failed"], stats["total"],
+        elapsed_total, total_done / elapsed_total if elapsed_total > 0 else 0, avg_tps,
     )
 
-    return stats
+    # Вернуть совместимые со старым кодом stats
+    return {
+        "processed": stats["processed"] + stats["partial"],  # total successful + partial
+        "failed": stats["failed"],
+        "skipped": stats["skipped"],
+        "total": stats["total"],
+    }
