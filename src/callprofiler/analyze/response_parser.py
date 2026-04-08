@@ -135,7 +135,7 @@ def _repair_json(text: str) -> str | None:
     candidate = text[start:]
 
     # Попытка 1: Простое закрытие if JSON seems incomplete
-    if not candidate.rstrip().endswith(("}",)) ):
+    if not candidate.rstrip().endswith(("}",)):
         candidate = _close_json_structure(candidate)
 
     # Попытка 2: Убрать trailing запятые перед } и ]
