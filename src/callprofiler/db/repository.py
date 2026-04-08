@@ -348,6 +348,46 @@ class Repository:
     # Promises
     # ------------------------------------------------------------------
 
+    def save_batch(self, items: list[dict]) -> None:
+        """Сохранить батч анализов и promises в одной транзакции.
+
+        Формат каждого элемента: {call_id, analysis, user_id, contact_id, promises}.
+        contact_id может быть None — тогда promises пропускаются.
+        """
+        conn = self._get_conn()
+        for item in items:
+            call_id = item["call_id"]
+            a = item["analysis"]
+            conn.execute(
+                """INSERT OR REPLACE INTO analyses
+                   (call_id, priority, risk_score, summary, action_items,
+                    flags, key_topics, raw_response, model, prompt_version)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    call_id,
+                    a.priority,
+                    a.risk_score,
+                    a.summary,
+                    json.dumps(a.action_items, ensure_ascii=False),
+                    json.dumps(a.flags, ensure_ascii=False),
+                    json.dumps(a.key_topics, ensure_ascii=False),
+                    a.raw_response,
+                    a.model,
+                    a.prompt_version,
+                ),
+            )
+            contact_id = item.get("contact_id")
+            promises = item.get("promises") or []
+            if promises and contact_id is not None:
+                conn.executemany(
+                    """INSERT INTO promises (user_id, contact_id, call_id, who, what, due)
+                       VALUES (?,?,?,?,?,?)""",
+                    [(item["user_id"], contact_id, call_id,
+                      p.get("who", ""), p.get("what", ""), p.get("due"))
+                     for p in promises],
+                )
+        conn.commit()
+
     def save_promises(self, user_id: str, contact_id: int | None, call_id: int,
                       promises: list[dict]) -> None:
         """Save promises. Skip if contact_id is None or no promises."""
