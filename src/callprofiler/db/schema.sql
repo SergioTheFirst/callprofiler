@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS analyses (
 CREATE TABLE IF NOT EXISTS promises (
     promise_id     INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id        TEXT NOT NULL REFERENCES users(user_id),
-    contact_id     INTEGER NOT NULL REFERENCES contacts(contact_id),
+    contact_id     INTEGER REFERENCES contacts(contact_id),
     call_id        INTEGER NOT NULL REFERENCES calls(call_id),
     who            TEXT NOT NULL,
     what           TEXT NOT NULL,

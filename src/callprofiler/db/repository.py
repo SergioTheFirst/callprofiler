@@ -348,8 +348,11 @@ class Repository:
     # Promises
     # ------------------------------------------------------------------
 
-    def save_promises(self, user_id: str, contact_id: int, call_id: int,
+    def save_promises(self, user_id: str, contact_id: int | None, call_id: int,
                       promises: list[dict]) -> None:
+        """Save promises. Skip if contact_id is None or no promises."""
+        if not promises or contact_id is None:
+            return
         conn = self._get_conn()
         conn.executemany(
             """INSERT INTO promises (user_id, contact_id, call_id, who, what, due)

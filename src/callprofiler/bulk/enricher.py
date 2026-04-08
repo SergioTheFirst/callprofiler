@@ -173,11 +173,20 @@ def bulk_enrich(
                 analysis = parse_llm_response(llm_response)
 
                 # Сохранить анализ
-                repo.save_analysis(call_id, analysis)
+                try:
+                    repo.save_analysis(call_id, analysis)
+                except Exception as e:
+                    log.error("[enricher] ✗ call_id=%d: ошибка при сохранении анализа: %s", call_id, e)
+                    stats["failed"] += 1
+                    continue
 
                 # Сохранить promises если были найдены
                 if analysis.promises:
-                    repo.save_promises(user_id, call["contact_id"] or 0, call_id, analysis.promises)
+                    try:
+                        repo.save_promises(user_id, call["contact_id"], call_id, analysis.promises)
+                    except Exception as e:
+                        log.error("[enricher] ✗ call_id=%d: ошибка при сохранении promises: %s", call_id, e)
+                        # Не прерываем обработку, если promises не удалось сохранить
 
                 # Обновить контакт если был найден guessed_name
                 # (в данном случае игнорируем, т.к. это из LLM, а не из имён в транскрипте)
