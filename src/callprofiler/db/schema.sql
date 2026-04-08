@@ -11,11 +11,17 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS contacts (
-    contact_id     INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id        TEXT NOT NULL REFERENCES users(user_id),
-    phone_e164     TEXT,
-    display_name   TEXT,
-    created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    contact_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id          TEXT NOT NULL REFERENCES users(user_id),
+    phone_e164       TEXT,
+    display_name     TEXT,
+    guessed_name     TEXT,
+    guessed_company  TEXT,
+    guess_source     TEXT,
+    guess_call_id    INTEGER REFERENCES calls(call_id),
+    guess_confidence TEXT,
+    name_confirmed   INTEGER NOT NULL DEFAULT 0,
+    created_at       TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(user_id, phone_e164)
 );
 
