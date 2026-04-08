@@ -6,13 +6,13 @@
 
 ---
 
-## Текущее состояние: 2026-04-07 (обновлено после ШАГ 14)
+## Текущее состояние: 2026-04-08 (обновлено после bulk/name_extractor)
 
 ### Ветка разработки
 `claude/clone-callprofiler-repo-hL5dQ` (синхронизирована с origin)
 
 ### Прогресс
-**14/15 шагов завершено (93%)**
+**15/15 шагов завершено (100%) + доп. модуль bulk/name_extractor**
 - ✅ ШАГ 5: audio/normalizer.py (LUFS-нормализация)
 - ✅ ШАГ 6: transcribe/whisper_runner.py (WhisperRunner)
 - ✅ ШАГ 7: diarize/pyannote_runner.py + role_assigner.py
@@ -23,10 +23,12 @@
 - ✅ ШАГ 12: pipeline/orchestrator.py (главный оркестратор)
 - ✅ ШАГ 13: pipeline/watcher.py (мониторинг папок)
 - ✅ ШАГ 14: cli/main.py + __main__.py (точка входа CLI)
+- ✅ ШАГ 15: tests/test_integration.py (интеграционный тест — 58 тестов, все зелёные)
+- ✅ ДОППО: bulk/name_extractor.py + schema миграция + CLI extract-names
 
 ### Последний коммит
 ```
-d96b8da feat(pipeline): ШАГ 13 — FileWatcher
+(текущий — bulk/name_extractor.py)
 ```
 
 ### Выполненные шаги
@@ -47,13 +49,31 @@ d96b8da feat(pipeline): ШАГ 13 — FileWatcher
 | 11 | `deliver/telegram_bot.py` | ✅ готово | `bf66bad` |
 | 12 | `pipeline/orchestrator.py` | ✅ готово | `c0f8b49` |
 | 13 | `pipeline/watcher.py` | ✅ готово | `d96b8da` |
-| 14 | `cli/main.py` + `__main__.py` | ✅ готово | текущий |
+| 14 | `cli/main.py` + `__main__.py` | ✅ готово | (prev) |
+| 15 | `tests/test_integration.py` | ✅ готово | (prev) |
+| +  | `bulk/name_extractor.py` | ✅ готово | текущий |
 
-### Не начато
+### Доп. модуль: bulk/name_extractor.py
 
-| # | Модуль |
-|---|--------|
-| 15 | Интеграционный тест |
+**Что делает:**
+- Находит имена собеседников в транскриптах для контактов без `display_name`
+- Ищет в обоих спикерах (первые 10 сегментов), т.к. роли [me]/[s2] часто перепутаны
+- 12 regex-паттернов приветствий/представлений
+- Исключает имена владельца (Сергей, Серёжа, Серёж, Серёга, Медведев)
+- Confidence: medium (1 звонок) / high (2+ звонков с тем же именем)
+- Не перезаписывает контакты с `name_confirmed=1`
+
+**CLI:**
+```
+python -m callprofiler extract-names --user serhio
+python -m callprofiler extract-names --user serhio --dry-run
+```
+
+**Новые поля contacts:**
+`guessed_name`, `guessed_company`, `guess_source`, `guess_call_id`,
+`guess_confidence`, `name_confirmed`
+
+**Миграция:** `Repository._migrate()` — auto ALTER TABLE для старых БД без новых колонок.
 
 ---
 

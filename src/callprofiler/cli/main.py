@@ -246,6 +246,39 @@ def cmd_digest(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_extract_names(args: argparse.Namespace) -> int:
+    """extract-names --user ID [--dry-run] — угадать имена контактов из транскриптов."""
+    cfg, repo = _load_config_and_repo(args.config)
+    _setup_logging(None, args.verbose)
+
+    log = logging.getLogger(__name__)
+
+    user = repo.get_user(args.user_id)
+    if not user:
+        log.error("Пользователь '%s' не найден", args.user_id)
+        return 1
+
+    from callprofiler.bulk.name_extractor import NameExtractor
+
+    extractor = NameExtractor(repo)
+
+    if args.dry_run:
+        print(f"\n[dry-run] Угадываем имена для '{args.user_id}'...\n")
+
+    updated = extractor.apply_guesses(args.user_id, dry_run=args.dry_run)
+
+    if args.dry_run:
+        print(f"\nБудет обновлено контактов: {updated}")
+    else:
+        log.info("Обновлено контактов: %d", updated)
+        if updated == 0:
+            print("Нет контактов для обновления (все уже имеют имя или имена не найдены).")
+        else:
+            print(f"Угаданы имена для {updated} контакт(ов).")
+
+    return 0
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     """status — показать состояние очереди."""
     cfg, repo = _load_config_and_repo(args.config)
@@ -380,6 +413,20 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Показать состояние очереди обработки",
     )
 
+    # ── extract-names ─────────────────────────────────────────
+    p_extract = sub.add_parser(
+        "extract-names",
+        help="Угадать имена собеседников из транскриптов (для контактов без display_name)",
+    )
+    p_extract.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_extract.add_argument(
+        "--dry-run", action="store_true",
+        help="Показать результат без записи в БД",
+    )
+
     return parser
 
 
@@ -395,6 +442,7 @@ def main() -> None:
         "add-user": cmd_add_user,
         "digest": cmd_digest,
         "status": cmd_status,
+        "extract-names": cmd_extract_names,
     }
 
     handler = dispatch.get(args.command)

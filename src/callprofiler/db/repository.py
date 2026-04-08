@@ -22,6 +22,8 @@ class Repository:
 
     def _get_conn(self) -> sqlite3.Connection:
         if self._conn is None:
+            if self._db_path != ":memory:":
+                Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
             self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
             self._conn.row_factory = sqlite3.Row
             self._conn.execute("PRAGMA journal_mode=WAL")
@@ -29,12 +31,35 @@ class Repository:
         return self._conn
 
     def init_db(self) -> None:
-        """Создать все таблицы по schema.sql."""
+        """Создать все таблицы по schema.sql + применить миграции."""
         schema_path = Path(__file__).parent / "schema.sql"
         with open(schema_path, encoding="utf-8") as f:
             sql = f.read()
         conn = self._get_conn()
         conn.executescript(sql)
+        conn.commit()
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Применить ALTER TABLE для колонок, добавленных после первого релиза."""
+        conn = self._get_conn()
+        new_cols = [
+            ("guessed_name",    "TEXT"),
+            ("guessed_company", "TEXT"),
+            ("guess_source",    "TEXT"),
+            ("guess_call_id",   "INTEGER"),
+            ("guess_confidence","TEXT"),
+            ("name_confirmed",  "INTEGER NOT NULL DEFAULT 0"),
+        ]
+        existing = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(contacts)").fetchall()
+        }
+        for col_name, col_def in new_cols:
+            if col_name not in existing:
+                conn.execute(
+                    f"ALTER TABLE contacts ADD COLUMN {col_name} {col_def}"
+                )
         conn.commit()
 
     def close(self) -> None:
@@ -106,6 +131,47 @@ class Repository:
             (user_id,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def get_contacts_without_name(self, user_id: str) -> list[dict]:
+        """Вернуть контакты без display_name и без подтверждённого guessed_name."""
+        rows = self._get_conn().execute(
+            """SELECT * FROM contacts
+               WHERE user_id = ?
+                 AND (display_name IS NULL OR display_name = '')
+                 AND (name_confirmed = 0 OR name_confirmed IS NULL)
+               ORDER BY contact_id""",
+            (user_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_calls_for_contact(self, user_id: str, contact_id: int) -> list[dict]:
+        """Все звонки контакта, отфильтрованные по user_id."""
+        rows = self._get_conn().execute(
+            """SELECT * FROM calls
+               WHERE user_id = ? AND contact_id = ?
+               ORDER BY call_datetime""",
+            (user_id, contact_id),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_contact_guessed_name(
+        self,
+        contact_id: int,
+        guessed_name: str,
+        guess_source: str,
+        guess_call_id: int,
+        guess_confidence: str,
+    ) -> None:
+        """Записать угаданное имя контакта (не перезаписывает подтверждённые)."""
+        conn = self._get_conn()
+        conn.execute(
+            """UPDATE contacts
+               SET guessed_name=?, guess_source=?,
+                   guess_call_id=?, guess_confidence=?
+               WHERE contact_id=? AND (name_confirmed = 0 OR name_confirmed IS NULL)""",
+            (guessed_name, guess_source, guess_call_id, guess_confidence, contact_id),
+        )
+        conn.commit()
 
     # ------------------------------------------------------------------
     # Calls

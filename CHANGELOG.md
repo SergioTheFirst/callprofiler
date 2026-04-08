@@ -8,6 +8,30 @@
 
 ## [Unreleased]
 
+### Added — bulk/name_extractor.py (извлечение имён из транскриптов)
+- `src/callprofiler/bulk/__init__.py` — новый пакет `bulk`
+- `src/callprofiler/bulk/name_extractor.py`:
+  - Класс `NameExtractor` — извлекает имена собеседников из первых 10 сегментов
+    транскрипта (оба спикера — роли [me]/[s2] часто перепутаны)
+  - 12 regex-паттернов: "привет, Имя", "это Имя", "меня зовут Имя", "Имя беспокоит" и др.
+  - Исключение имён владельца: Сергей, Серёжа, Серёж, Серёга, Медведев
+  - Confidence: "medium" (1 звонок) / "high" (2+ звонков с тем же именем)
+  - `extract_for_user(user_id)` → `dict[contact_id, NameCandidate]`
+  - `apply_guesses(user_id, dry_run=False)` — запись в БД с поддержкой dry-run
+- `src/callprofiler/db/schema.sql` — 6 новых колонок в таблице contacts:
+  `guessed_name`, `guessed_company`, `guess_source`, `guess_call_id`,
+  `guess_confidence`, `name_confirmed`
+- `src/callprofiler/db/repository.py`:
+  - `_migrate()` — AUTO ALTER TABLE для баз данных без новых колонок (backward compat)
+  - `get_contacts_without_name(user_id)` — контакты без display_name и без подтверждения
+  - `get_calls_for_contact(user_id, contact_id)` — все звонки контакта
+  - `update_contact_guessed_name(contact_id, ...)` — сохранить угаданное имя
+  - `_get_conn()` — auto-mkdir для родительского каталога БД (bugfix)
+- CLI: добавлена команда `extract-names --user ID [--dry-run]`
+- `tests/test_integration.py` — исправлены 6 ранее сломанных тестов:
+  - добавлено создание пользователя перед FK-зависимыми операциями
+  - исправлена ошибочная проверка `promises` в `get_analysis()`
+
 ### Added
 - `CONSTITUTION.md` — принципы и правила разработки проекта
 - `CONTINUITY.md` — журнал непрерывности: статус, что сделано, что дальше
