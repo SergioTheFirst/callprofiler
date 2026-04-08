@@ -6,7 +6,7 @@
 
 ---
 
-## Текущее состояние: 2026-04-08 (обновлено после loader.py реализации)
+## Текущее состояние: 2026-04-08 (обновлено после enricher.py + llama.cpp интеграции)
 
 ### Ветка разработки
 `claude/clone-callprofiler-repo-hL5dQ` (синхронизирована с origin)
@@ -74,6 +74,33 @@ python -m callprofiler extract-names --user serhio --dry-run
 `guess_confidence`, `name_confirmed`
 
 **Миграция:** `Repository._migrate()` — auto ALTER TABLE для старых БД без новых колонок.
+
+### Изменения: LLM клиент (Ollama → llama.cpp)
+
+**Вместо Ollama теперь используется llama.cpp (llama-server):**
+- **Endpoint:** POST `http://127.0.0.1:8080/v1/chat/completions` (OpenAI API совместимый)
+- **Класс:** `LLMClient` (обратная совместимость: `OllamaClient = LLMClient`)
+- **Параметры запроса:** `messages`, `temperature`, `max_tokens` (нет `model` — загружено на сервере)
+- **Зависимости:** только `requests` (без openai SDK)
+- **Запуск:** `llama-server -api` (обычно на порту 8080)
+
+### Новый модуль: bulk/enricher.py (массовый LLM-анализ)
+
+**Функция `bulk_enrich(user_id, db_path, limit=0)`:**
+- Обрабатывает все звонки **БЕЗ** analysis
+- Форматирует транскрипт + метаданные (phone, name, datetime)
+- Отправляет на LLM через новый OpenAI-совместимый API
+- Распарсивает JSON из ответа LLM (обработка markdown)
+- Сохраняет Analysis + Promises в БД
+- Логирует прогресс, время обработки, ETA
+- Graceful Ctrl+C (завершить текущий файл, не начинать новый)
+- `limit=0` = обрабатывать все файлы
+
+**CLI:**
+```bash
+python -m callprofiler bulk-enrich --user serhio
+python -m callprofiler bulk-enrich --user serhio --limit 100
+```
 
 ### Новый модуль: bulk/loader.py (массовая загрузка транскриптов)
 

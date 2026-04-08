@@ -8,6 +8,32 @@
 
 ## [Unreleased]
 
+### Changed — LLM интеграция: Ollama → llama.cpp (OpenAI API)
+- **`src/callprofiler/analyze/llm_client.py`:**
+  - Новый класс `LLMClient` вместо `OllamaClient`
+  - Используется OpenAI-совместимый API: POST `/v1/chat/completions`
+  - Endpoint: `http://127.0.0.1:8080/v1/chat/completions` (llama.cpp/llama-server)
+  - Параметры: `messages`, `temperature`, `max_tokens`
+  - Без зависимости от openai SDK — простой `requests.post`
+  - Обратная совместимость: `OllamaClient = LLMClient`
+- **`configs/base.yaml`:**
+  - `ollama_url` → `llm_url: "http://127.0.0.1:8080/v1/chat/completions"`
+  - `llm_model` → `"local"` (модель загружена на сервере, не передаётся)
+- **`src/callprofiler/config.py`:**
+  - `ModelsConfig`: заменён `ollama_url` на `llm_url`
+
+### Added — bulk/enricher.py (массовый LLM-анализ)
+- Функция `bulk_enrich(user_id, db_path, limit=0)`:
+  - Обрабатывает все звонки БЕЗ analysis в порядке call_datetime
+  - Форматирует транскрипт + метаданные (phone, name, datetime)
+  - Отправляет на LLM через OpenAI-совместимый API
+  - Распарсивает JSON из ответа (обработка markdown `\`\`\`json\`\`\``)
+  - Сохраняет `Analysis` + `Promises` в БД
+  - Логирует прогресс, время на файл, ETA
+  - Graceful `Ctrl+C` обработка (завершить текущий, не начинать новый)
+  - `limit=0` обрабатывает все файлы
+- CLI: `python -m callprofiler bulk-enrich --user <user_id> [--limit 100]`
+
 ### Added — bulk/loader.py (массовая загрузка .txt транскриптов)
 - Функция `bulk_load(txt_folder, user_id, db_path)` для импорта существующих транскриптов:
   - Рекурсивный обход всех .txt файлов
