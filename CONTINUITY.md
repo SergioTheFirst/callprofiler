@@ -6,7 +6,7 @@
 
 ---
 
-## Текущее состояние: 2026-04-08 (обновлено после enricher.py + llama.cpp интеграции)
+## Текущее состояние: 2026-04-08 (обновлено после расширенного LLM-промпта)
 
 ### Ветка разработки
 `claude/clone-callprofiler-repo-hL5dQ` (синхронизирована с origin)
@@ -74,6 +74,31 @@ python -m callprofiler extract-names --user serhio --dry-run
 `guess_confidence`, `name_confirmed`
 
 **Миграция:** `Repository._migrate()` — auto ALTER TABLE для старых БД без новых колонок.
+
+### Новый системный промпт: analyze_v001.txt (30+ полей анализа)
+
+**Комплексный анализ звонков через LLM:**
+
+| Раздел | Поля |
+|--------|------|
+| **Основное** | summary, priority, risk_score, category, sentiment, initiative |
+| **Действия** | action_items[] {who, what, deadline} |
+| **Обещания** | promises[] {who, what, deadline, vague} |
+| **Данные** | mentioned_people, companies, amounts, dates, addresses |
+| **Контакт** | contact_name_guess, company_guess, role_guess |
+| **Честность** | bullshit_index {score, vagueness, defensiveness, contradictions, evidence} |
+| **Динамика** | power_dynamics, emotional_tone_owner/other |
+| **Флаги** | urgent, conflict, money_discussed, deadline_mentioned, legal_risk, lie_suspected |
+
+**Ключевые правила:**
+- Роли [Me]/[S2] часто перепутаны → определять по контексту
+- Сергей/Медведев ВСЕГДА владелец, даже если [S2]
+- bullshit_index: 0=честный, 100=пиздёж (vagueness, defensiveness, contradictions)
+- Extractить ВСЕ упомянутые: имена, компании, суммы, даты, адреса
+- Если непонятно → null, не выдумывать
+- ТОЛЬКО JSON, без markdown, без пояснений
+
+**Хранение:** Все 30+ полей сохраняются в `Analysis.raw_response` (JSON)
 
 ### Изменения: LLM клиент (Ollama → llama.cpp)
 
