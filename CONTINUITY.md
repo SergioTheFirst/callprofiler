@@ -6,7 +6,7 @@
 
 ---
 
-## Текущее состояние: 2026-04-08 (обновлено после filename_parser refactor)
+## Текущее состояние: 2026-04-08 (обновлено после loader.py реализации)
 
 ### Ветка разработки
 `claude/clone-callprofiler-repo-hL5dQ` (синхронизирована с origin)
@@ -74,6 +74,38 @@ python -m callprofiler extract-names --user serhio --dry-run
 `guess_confidence`, `name_confirmed`
 
 **Миграция:** `Repository._migrate()` — auto ALTER TABLE для старых БД без новых колонок.
+
+### Новый модуль: bulk/loader.py (массовая загрузка транскриптов)
+
+**Функция `bulk_load(txt_folder, user_id, db_path)`:**
+- Рекурсивный поиск .txt файлов в папке
+- Парсинг имён файлов → CallMetadata (phone, datetime, name)
+- MD5-дедупликация по хешу содержимого
+- Разбор [me]: / [s2]: маркеров в сегменты:
+  - [me]: → speaker='OWNER' (владелец)
+  - [s2]: → speaker='OTHER' (собеседник)
+- Создание контактов и звонков (status='done')
+- Индексация в FTS5
+- Логирование каждые 100 файлов
+- Graceful обработка ошибок (skip + continue)
+
+**Возвращает статистику:**
+```python
+{
+    'loaded': количество загруженных файлов,
+    'skipped': дубликаты (по MD5),
+    'errors': ошибки парсинга/БД,
+    'unique_contacts': уникальные контакты,
+}
+```
+
+**CLI:**
+```bash
+python -m callprofiler bulk-load /path/to/transcripts --user serhio
+```
+
+**Тесты:** 7 новых тестов для `_parse_segments()`
+- Простые/сложные сегменты, whitespace, timing, edge cases
 
 ### Рефакторинг: filename_parser.py (5 форматов)
 
