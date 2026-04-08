@@ -1,148 +1,131 @@
 # -*- coding: utf-8 -*-
 """
-llm_client.py — клиент Ollama для локального LLM анализа.
+llm_client.py — клиент для локального LLM (llama.cpp) с OpenAI-совместимым API.
 
-Используется для отправки промптов на локально запущенный Ollama
-и получения ответов (обычно Qwen 2.5 14B или аналогичная модель).
+Используется для отправки промптов на локально запущенный llama-server
+и получения ответов в формате OpenAI API.
+
+API endpoint: http://127.0.0.1:8080/v1/chat/completions
+Формат совместим с OpenAI API, но без необходимости указывать модель.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING
 
 import requests
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 
 
-class OllamaClient:
-    """Клиент для взаимодействия с локальным Ollama сервером.
+class LLMClient:
+    """Клиент для взаимодействия с локальным llama-server (llama.cpp).
 
-    Ollama должен быть запущен и доступен по адресу base_url (обычно http://localhost:11434).
+    llama-server должен быть запущен с флагом -api для OpenAI-совместимого API.
 
     Использование:
-        client = OllamaClient(base_url="http://localhost:11434", model="qwen2.5:14b-instruct-q4_K_M")
-        response = client.generate(prompt="Анализируй стенограмму...")
+        client = LLMClient(base_url="http://127.0.0.1:8080/v1/chat/completions")
+        response = client.generate(
+            messages=[
+                {"role": "system", "content": "Ты анализируешь стенограммы"},
+                {"role": "user", "content": "Проанализируй..."}
+            ]
+        )
         print(response)  # JSON строка или текст ответа
     """
 
-    def __init__(self, base_url: str, model: str, timeout: int = 300) -> None:
-        """Инициализировать Ollama клиент.
+    def __init__(self, base_url: str, timeout: int = 300) -> None:
+        """Инициализировать LLM клиент.
 
         Параметры:
-            base_url  — URL базового сервера Ollama (например, http://localhost:11434)
-            model     — название модели (например, "qwen2.5:14b-instruct-q4_K_M")
-            timeout   — timeout для запроса в секундах (по умолчанию 300 для больших моделей)
+            base_url  — URL endpoint (обычно http://127.0.0.1:8080/v1/chat/completions)
+            timeout   — timeout для запроса в секундах (по умолчанию 300)
         """
         self.base_url = base_url.rstrip("/")
-        self.model = model
         self.timeout = timeout
         self._verify_connection()
 
     def _verify_connection(self) -> None:
-        """Проверить что Ollama доступен при инициализации.
+        """Проверить что llama-server доступен при инициализации.
 
         Raises:
-            ConnectionError  — если Ollama недоступен
+            ConnectionError  — если сервер недоступен
         """
         try:
-            response = requests.get(
-                f"{self.base_url}/api/tags",
+            # Попытаться минимальный запрос
+            response = requests.post(
+                self.base_url,
+                json={
+                    "messages": [{"role": "user", "content": "test"}],
+                    "temperature": 0.1,
+                    "max_tokens": 10,
+                },
                 timeout=5,
             )
             response.raise_for_status()
-            logger.info("✓ Ollama доступен на %s", self.base_url)
+            logger.info("✓ LLM сервер доступен на %s", self.base_url)
         except requests.ConnectionError as exc:
             raise ConnectionError(
-                f"Не удаётся подключиться к Ollama на {self.base_url}. "
-                f"Убедитесь что Ollama запущен: ollama serve"
+                f"Не удаётся подключиться к llama-server на {self.base_url}. "
+                f"Запустите: llama-server -api"
             ) from exc
         except requests.RequestException as exc:
-            logger.warning("Предупреждение при проверке Ollama: %s", exc)
+            logger.warning("Предупреждение при проверке LLM сервера: %s", exc)
 
-    def generate(self, prompt: str, stream: bool = False) -> str:
-        """Отправить промпт в LLM и получить ответ.
+    def generate(
+        self,
+        messages: list[dict],
+        temperature: float = 0.3,
+        max_tokens: int = 2048,
+    ) -> str:
+        """Отправить сообщения в LLM и получить ответ.
 
         Параметры:
-            prompt  — промпт для анализа
-            stream  — если True, поточный режим (для больших ответов)
+            messages     — список сообщений в формате OpenAI API
+                          [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}]
+            temperature  — параметр температуры (0.0-2.0), по умолчанию 0.3 для консистентного JSON
+            max_tokens   — максимальное число токенов в ответе
 
         Возвращает:
             Полный ответ модели (текст или JSON)
 
         Raises:
-            RuntimeError  — если запрос к Ollama упал
+            RuntimeError  — если запрос к серверу упал
         """
         logger.debug(
-            "Отправка промпта в Ollama (модель: %s, длина: %d)",
-            self.model, len(prompt),
+            "Отправка промпта в LLM сервер (сообщений: %d, max_tokens: %d)",
+            len(messages), max_tokens,
         )
 
         try:
             response = requests.post(
-                f"{self.base_url}/api/generate",
+                self.base_url,
                 json={
-                    "model": self.model,
-                    "prompt": prompt,
-                    "stream": stream,
-                    "temperature": 0.3,  # Низкая температура для консистентного JSON
+                    "messages": messages,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
                 },
                 timeout=self.timeout,
             )
             response.raise_for_status()
 
-            if stream:
-                # Собрать потоковый ответ
-                full_response = ""
-                for line in response.iter_lines():
-                    if line:
-                        try:
-                            chunk = json.loads(line)
-                            full_response += chunk.get("response", "")
-                        except json.JSONDecodeError:
-                            logger.warning("Невалидный JSON в потоке: %s", line)
-                            continue
-                return full_response
-            else:
-                # Обычный ответ
-                try:
-                    result = response.json()
-                    return result.get("response", "")
-                except json.JSONDecodeError as exc:
-                    raise RuntimeError(
-                        f"Ollama вернул невалидный JSON: {response.text[:200]}"
-                    ) from exc
+            try:
+                result = response.json()
+                # OpenAI API format: response["choices"][0]["message"]["content"]
+                return result["choices"][0]["message"]["content"]
+            except (json.JSONDecodeError, KeyError, IndexError) as exc:
+                raise RuntimeError(
+                    f"Невалидный ответ от LLM сервера: {response.text[:200]}"
+                ) from exc
 
         except requests.Timeout as exc:
             raise RuntimeError(
-                f"Timeout при запросе к Ollama (timeout={self.timeout}s): {exc}"
+                f"Timeout при запросе к LLM серверу (timeout={self.timeout}s): {exc}"
             ) from exc
         except requests.RequestException as exc:
-            raise RuntimeError(f"Ошибка при запросе к Ollama: {exc}") from exc
+            raise RuntimeError(f"Ошибка при запросе к LLM серверу: {exc}") from exc
 
-    def list_models(self) -> list[str]:
-        """Получить список доступных моделей на сервере.
 
-        Возвращает:
-            Список имён моделей
-
-        Raises:
-            RuntimeError  — если запрос упал
-        """
-        try:
-            response = requests.get(
-                f"{self.base_url}/api/tags",
-                timeout=10,
-            )
-            response.raise_for_status()
-            data = response.json()
-            models = [m["name"] for m in data.get("models", [])]
-            logger.debug("Доступные модели на Ollama: %s", models)
-            return models
-        except requests.RequestException as exc:
-            raise RuntimeError(f"Ошибка при получении списка моделей: {exc}") from exc
+# Для обратной совместимости (если что-то ещё использует OllamaClient)
+OllamaClient = LLMClient

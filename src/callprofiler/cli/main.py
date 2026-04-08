@@ -324,6 +324,46 @@ def cmd_bulk_load(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bulk_enrich(args: argparse.Namespace) -> int:
+    """bulk-enrich --user ID [--limit N] — LLM анализ для всех звонков без анализа."""
+    cfg, repo = _load_config_and_repo(args.config)
+    _setup_logging(cfg.log_file, args.verbose)
+
+    log = logging.getLogger(__name__)
+
+    # Проверить пользователя
+    user = repo.get_user(args.user_id)
+    if not user:
+        log.error("Пользователь '%s' не найден", args.user_id)
+        return 1
+
+    from callprofiler.bulk.enricher import bulk_enrich
+
+    db_path = Path(cfg.data_dir) / "db" / "callprofiler.db"
+
+    print(f"\n🤖 LLM-анализ звонков")
+    print(f"👤 Пользователь: {args.user_id}")
+    print(f"📊 Лимит: {args.limit if args.limit > 0 else 'все файлы'}")
+    print(f"💾 База данных: {db_path}\n")
+
+    stats = bulk_enrich(
+        user_id=args.user_id,
+        db_path=str(db_path),
+        config_path=args.config,
+        limit=args.limit,
+    )
+
+    print(
+        f"\n✅ Завершено!\n"
+        f"  Обработано файлов: {stats['processed']}\n"
+        f"  Ошибок: {stats['failed']}\n"
+        f"  Пропущено: {stats['skipped']}\n"
+        f"  Всего: {stats['total']}\n"
+    )
+
+    return 0
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     """status — показать состояние очереди."""
     cfg, repo = _load_config_and_repo(args.config)
@@ -485,6 +525,20 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Идентификатор пользователя",
     )
 
+    # ── bulk-enrich ────────────────────────────────────────────
+    p_enrich = sub.add_parser(
+        "bulk-enrich",
+        help="LLM-анализ для всех звонков без анализа",
+    )
+    p_enrich.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_enrich.add_argument(
+        "--limit", type=int, default=0, metavar="N",
+        help="Максимум файлов для обработки (0 = все)",
+    )
+
     return parser
 
 
@@ -502,6 +556,7 @@ def main() -> None:
         "status": cmd_status,
         "extract-names": cmd_extract_names,
         "bulk-load": cmd_bulk_load,
+        "bulk-enrich": cmd_bulk_enrich,
     }
 
     handler = dispatch.get(args.command)

@@ -44,8 +44,8 @@ def _make_config(data_dir: str) -> Config:
             whisper_compute="int8",
             whisper_beam_size=5,
             whisper_language="ru",
-            llm_model="qwen2.5:14b-instruct-q4_K_M",
-            ollama_url="http://localhost:11434",
+            llm_model="local",
+            llm_url="http://127.0.0.1:8080/v1/chat/completions",
         ),
         pipeline=PipelineConfig(
             watch_interval_sec=30,
