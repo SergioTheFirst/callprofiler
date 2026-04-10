@@ -98,16 +98,33 @@ class Repository:
 
     def get_or_create_contact(self, user_id: str, phone_e164: str | None,
                                display_name: str | None = None) -> int:
+        """Найти контакт или создать новый.
+
+        Если display_name передан (имя из имени файла = телефонная книга пользователя),
+        оно ВСЕГДА обновляется как приоритетное — даже если контакт уже существует.
+        Имя из телефонной книги имеет безусловный приоритет над auto-extracted именами.
+        """
         conn = self._get_conn()
         row = conn.execute(
             "SELECT contact_id FROM contacts WHERE user_id = ? AND phone_e164 = ?",
             (user_id, phone_e164),
         ).fetchone()
         if row:
-            return row["contact_id"]
+            contact_id = row["contact_id"]
+            # Имя из имени файла = имя из телефонной книги = безусловный приоритет
+            if display_name:
+                conn.execute(
+                    """UPDATE contacts SET display_name = ?, name_confirmed = 1
+                       WHERE contact_id = ?""",
+                    (display_name, contact_id),
+                )
+                conn.commit()
+            return contact_id
+        # Создать новый контакт
         cur = conn.execute(
-            "INSERT INTO contacts (user_id, phone_e164, display_name) VALUES (?, ?, ?)",
-            (user_id, phone_e164, display_name),
+            """INSERT INTO contacts (user_id, phone_e164, display_name, name_confirmed)
+               VALUES (?, ?, ?, ?)""",
+            (user_id, phone_e164, display_name, 1 if display_name else 0),
         )
         conn.commit()
         return cur.lastrowid

@@ -707,6 +707,27 @@ Actions: {action items, макс 3}
 
 ---
 
+## Сессия 2026-04-10: Phonebook name priority fix
+
+### Исправление: имя из телефонной книги не обновлялось в БД
+
+**Проблема:** `get_or_create_contact()` возвращал `contact_id` без обновления `display_name`
+если контакт уже существовал.
+
+**Правило:** Имя в имени файла = имя из телефонной книги Android = АБСОЛЮТНЫЙ ПРИОРИТЕТ.
+
+**Исправлено** в `repository.py`:
+- При каждом вызове `get_or_create_contact()` с `display_name≠None` → UPDATE + `name_confirmed=1`
+- При создании нового контакта → INSERT с `name_confirmed=1` если есть имя
+
+**Схема приоритетов:**
+- `display_name` + `name_confirmed=1` = из телефонной книги (WINNER всегда)
+- `guessed_name` = из транскрипта (name_extractor, только если display_name пустой)
+
+**Тесты: 3 новых в test_repository.py, итого 90 pass**
+
+---
+
 ## Сессия 2026-04-09: Bug fixes, JSON parsing, оптимизация enricher
 
 ### Выполненные работы (6 коммитов):

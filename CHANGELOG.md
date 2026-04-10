@@ -8,6 +8,58 @@
 
 ## [Unreleased]
 
+## [2026-04-10] — Phonebook name priority fix
+
+### Fixed — get_or_create_contact() не обновлял display_name (repository.py)
+
+**Проблема:** Имя контакта из имени файла (= телефонная книга пользователя) игнорировалось
+если контакт уже существовал в БД.
+
+**Цепочка:**
+1. Телефон записывает звонок: `Иванов(+79161234567)_20260410143022.m4a`
+2. Имя `Иванов` берётся приложением записи из телефонной книги Android
+3. `filename_parser` → `CallMetadata.contact_name = "Иванов"`
+4. `ingester` → `get_or_create_contact(user_id, phone, "Иванов")`
+5. **БАГ:** если контакт `+79161234567` уже есть → `return contact_id` без обновления имени!
+
+**Исправление** в `repository.py get_or_create_contact()`:
+```python
+if row:
+    contact_id = row["contact_id"]
+    if display_name:                           # ← NEW: обновить если есть имя
+        conn.execute(
+            "UPDATE contacts SET display_name=?, name_confirmed=1 WHERE contact_id=?",
+            (display_name, contact_id),
+        )
+        conn.commit()
+    return contact_id
+# При создании нового контакта:
+VALUES (?, ?, ?, ?)  # + name_confirmed = 1 if display_name else 0
+```
+
+**Приоритет имён (окончательная схема):**
+```
+МАКСИМАЛЬНЫЙ: display_name (из имени файла = телефонная книга), name_confirmed=1
+              ↳ устанавливается через get_or_create_contact() при каждом новом файле
+ВТОРИЧНЫЙ:    guessed_name (авто-извлечение из текста транскрипта name_extractor.py)
+              ↳ только записывается если display_name пустой
+FALLBACK:     null
+```
+
+**Гарантии:**
+- Файл без имени (только номер) → `display_name=None` → существующее имя НЕ стирается
+- Файл с именем → `display_name` всегда обновляется (пользователь мог переименовать в телефоне)
+- `name_confirmed=1` при любом имени из файла → `name_extractor.py` не перезаписывает
+
+**Новые тесты** (test_repository.py +3):
+- `test_phonebook_name_overwrites_existing_empty_name` — имя заполняет пустой контакт
+- `test_phonebook_name_overwrites_guessed_name` — имя из файла > guessed_name
+- `test_no_name_in_filename_does_not_clear_existing` — файл без имени не стирает имя
+
+**Результат:** 90 тестов pass (было 87)
+
+---
+
 ## [2026-04-09] — Bug fixes, JSON parsing robustness, enricher optimization
 
 ### Fixed — Critical bugs in enricher
