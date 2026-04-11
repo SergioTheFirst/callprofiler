@@ -6,7 +6,54 @@
 
 ---
 
-## Текущее состояние: 2026-04-09 (обновлено после bug fixes и оптимизации enricher)
+## Текущее состояние: 2026-04-11 (AGENTS.md + skills для AI-агентов)
+
+### Ветка разработки
+`claude/clone-callprofiler-repo-hL5dQ` (синхронизирована с origin)
+
+### Прогресс
+**15/15 основных шагов + доп. модули + инфраструктура AI-агентов**
+
+### Что сделано в этой сессии (2026-04-11)
+
+1. **Создан `AGENTS.md`** — единая точка входа для любого AI-агента над проектом:
+   - Структура репозитория, workflow агента, команды, анти-паттерны
+   - Связывает `CONSTITUTION.md`, `CLAUDE.md`, `CHANGELOG.md`, `CONTINUITY.md`
+     в пошаговый процесс, но не дублирует их
+   - Раздел 7.2 — roadmap будущих skills (к созданию по мере нужды)
+
+2. **Создан первый доменный skill: `filename-parser`**
+   - Файл: `.claude/skills/filename-parser/SKILL.md`
+   - Домен: 5 форматов имён файлов + `normalize_phone()`
+   - Алгоритм добавления 6-го формата, ссылки на код, анти-паттерны
+
+3. **Создан второй доменный skill: `journal-keeper`**
+   - Файл: `.claude/skills/journal-keeper/SKILL.md`
+   - Кодифицирует требование владельца про Obsidian-like журналирование
+   - Рабочий процесс: briefing → logging → final check
+
+4. **Обновлены CHANGELOG.md и CONTINUITY.md** (этой записью).
+
+### Тесты
+90/90 pass (skills — только документация, кода не трогали).
+
+### Следующий шаг / возможности
+
+- При регулярных прогонах `bulk-enrich` на реальных звонках > 10 мин —
+  создать skill `bulk-ops-runner` с per-file метриками и ETA.
+- При переходе на `analyze_v002.txt` — создать `prompt-version-manager`.
+- При любом баге в filename parsing — первым делом прочитать
+  `.claude/skills/filename-parser/SKILL.md`.
+- При старте любой новой сессии — прочитать `AGENTS.md` секцию 3.1.
+
+### Известные ограничения / долги (без изменений)
+- `configs/base.yaml` содержит `hf_token: "TOKEN"` — перед production заменить.
+- `data_dir` в конфиге — Windows пути (`D:\calls\data`).
+- Тесты для `normalizer.py`, `whisper_runner.py`, `pyannote_runner.py` (mock ffmpeg/GPU) — технический долг.
+
+---
+
+## Предыдущее состояние: 2026-04-09 (обновлено после bug fixes и оптимизации enricher)
 
 ### Ветка разработки
 `claude/clone-callprofiler-repo-hL5dQ` (синхронизирована с origin)
