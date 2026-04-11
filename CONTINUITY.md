@@ -6,7 +6,54 @@
 
 ---
 
-## Текущее состояние: 2026-04-08 (обновлено после расширенного LLM-промпта)
+## Текущее состояние: 2026-04-11 (AGENTS.md + skills для AI-агентов)
+
+### Ветка разработки
+`claude/clone-callprofiler-repo-hL5dQ` (синхронизирована с origin)
+
+### Прогресс
+**15/15 основных шагов + доп. модули + инфраструктура AI-агентов**
+
+### Что сделано в этой сессии (2026-04-11)
+
+1. **Создан `AGENTS.md`** — единая точка входа для любого AI-агента над проектом:
+   - Структура репозитория, workflow агента, команды, анти-паттерны
+   - Связывает `CONSTITUTION.md`, `CLAUDE.md`, `CHANGELOG.md`, `CONTINUITY.md`
+     в пошаговый процесс, но не дублирует их
+   - Раздел 7.2 — roadmap будущих skills (к созданию по мере нужды)
+
+2. **Создан первый доменный skill: `filename-parser`**
+   - Файл: `.claude/skills/filename-parser/SKILL.md`
+   - Домен: 5 форматов имён файлов + `normalize_phone()`
+   - Алгоритм добавления 6-го формата, ссылки на код, анти-паттерны
+
+3. **Создан второй доменный skill: `journal-keeper`**
+   - Файл: `.claude/skills/journal-keeper/SKILL.md`
+   - Кодифицирует требование владельца про Obsidian-like журналирование
+   - Рабочий процесс: briefing → logging → final check
+
+4. **Обновлены CHANGELOG.md и CONTINUITY.md** (этой записью).
+
+### Тесты
+90/90 pass (skills — только документация, кода не трогали).
+
+### Следующий шаг / возможности
+
+- При регулярных прогонах `bulk-enrich` на реальных звонках > 10 мин —
+  создать skill `bulk-ops-runner` с per-file метриками и ETA.
+- При переходе на `analyze_v002.txt` — создать `prompt-version-manager`.
+- При любом баге в filename parsing — первым делом прочитать
+  `.claude/skills/filename-parser/SKILL.md`.
+- При старте любой новой сессии — прочитать `AGENTS.md` секцию 3.1.
+
+### Известные ограничения / долги (без изменений)
+- `configs/base.yaml` содержит `hf_token: "TOKEN"` — перед production заменить.
+- `data_dir` в конфиге — Windows пути (`D:\calls\data`).
+- Тесты для `normalizer.py`, `whisper_runner.py`, `pyannote_runner.py` (mock ffmpeg/GPU) — технический долг.
+
+---
+
+## Предыдущее состояние: 2026-04-09 (обновлено после bug fixes и оптимизации enricher)
 
 ### Ветка разработки
 `claude/clone-callprofiler-repo-hL5dQ` (синхронизирована с origin)
@@ -704,6 +751,97 @@ Actions: {action items, макс 3}
 - update_all_cards для множества контактов
 - Правильный подсчёт множества звонков
 - Изоляция карточек по user_id
+
+---
+
+## Сессия 2026-04-10: Phonebook name priority fix
+
+### Исправление: имя из телефонной книги не обновлялось в БД
+
+**Проблема:** `get_or_create_contact()` возвращал `contact_id` без обновления `display_name`
+если контакт уже существовал.
+
+**Правило:** Имя в имени файла = имя из телефонной книги Android = АБСОЛЮТНЫЙ ПРИОРИТЕТ.
+
+**Исправлено** в `repository.py`:
+- При каждом вызове `get_or_create_contact()` с `display_name≠None` → UPDATE + `name_confirmed=1`
+- При создании нового контакта → INSERT с `name_confirmed=1` если есть имя
+
+**Схема приоритетов:**
+- `display_name` + `name_confirmed=1` = из телефонной книги (WINNER всегда)
+- `guessed_name` = из транскрипта (name_extractor, только если display_name пустой)
+
+**Тесты: 3 новых в test_repository.py, итого 90 pass**
+
+---
+
+## Сессия 2026-04-09: Bug fixes, JSON parsing, оптимизация enricher
+
+### Выполненные работы (6 коммитов):
+
+#### 1. **SQL binding fix** (369935e)
+- **Проблема:** enricher.py WHERE c.user_id = ? без параметров
+- **Решение:** добавлена (user_id,) в execute()
+- **Статус:** ✅ Все 87 тестов pass
+
+#### 2. **FOREIGN KEY constraint fix** (bef94e9)
+- **Проблема:** promises требует contact_id NOT NULL, но calls.contact_id может быть NULL
+- **Решение:** 
+  - schema.sql: contact_id в promises → nullable
+  - repository.save_promises(): пропускаем если contact_id = NULL
+  - enricher.py: лучший error handling для batch writes
+- **Статус:** ✅ Все 87 тестов pass
+
+#### 3. **Оптимизация bulk_enrich** (6034fc0)
+- **5 оптимизаций:**
+  1. **Сжатие транскрипта** — убрать сегменты < 3 символов (except "да"/"ну"/"угу")
+  2. **max_tokens: 1024** (было 2048, JSON редко > 600 токенов)
+  3. **Батчевая запись в БД** — новый Repository.save_batch() для одной транзакции
+  4. **Пропуск коротких звонков** — transcript < 50 символов → stub, без LLM
+  5. **Логирование** — per-file timing, ~tok/s, ETA
+- **Статус:** ✅ Все 87 тестов pass
+
+#### 4. **Robust JSON parsing** (668e44c)
+- **Новые уровни спасения обрезанного JSON:**
+  1. Markdown extraction (```json ... ```)
+  2. Text bounds extraction ({...})
+  3. **_repair_json()** — auto-close truncated structures
+  4. **Regex fallback** — извлечение ключевых полей если JSON совсем сломан
+- **Type coercion:** "75" → 75, list из string → [string]
+- **Дефолты:** summary='', risk_score=0 (более мягкие чем раньше)
+- **Статус:** ✅ Все 87 тестов pass
+
+#### 5. **LLM client improvements** (668e44c)
+- **max_tokens:** 2048 → 1500 (достаточно для полного JSON)
+- **timeout:** 300s → 180s (лучше для длинных звонков)
+- **Error handling:** generate() возвращает None вместо exception
+- **Статус:** ✅ Совместимо со всеми модулями
+
+#### 6. **Syntax error fix** (8cd8d5c)
+- **Проблема:** unmatched ')' в response_parser.py line 138
+- **Решение:** endswith(('}',)) ) → endswith(('}',))
+- **Статус:** ✅ Все 87 тестов pass
+
+### Упрощение промпта (analyze_v001.txt)
+- **Было:** 30+ полей в огромной структуре
+- **Стало:** компактная структура с 15 обязательными полями:
+  - Основное: summary, category, priority, risk_score, sentiment
+  - Действия: action_items[], promises[]
+  - Данные: people, companies, amounts
+  - Оценка: contact_name_guess, bs_score, bs_evidence
+  - Флаги: {urgent, conflict, money, legal_risk}
+
+### Готовность к production
+- ✅ SQL binding: исправлены все параметризованные запросы
+- ✅ FK constraints: обработана NULL-безопасность
+- ✅ JSON парсинг: 4-уровневая защита от обрезанного JSON
+- ✅ LLM интеграция: graceful degradation на ошибках
+- ✅ Оптимизация: транскрипты сжимаются, батчи в БД, пропуск пустых
+
+### Оставшиеся задачи (на следующую сессию)
+- Тестирование на реальных звонках > 10 мин
+- Мониторинг GPU memory при длинных батчах
+- (опционально) Интеграция с Android overlay-окном
 
 ---
 

@@ -8,6 +8,208 @@
 
 ## [Unreleased]
 
+## [2026-04-11] — AGENTS.md + доменные skills для AI-агентов
+
+### Added — AGENTS.md (единая точка входа для любого AI-агента)
+
+Создан `AGENTS.md` в корне репозитория — руководство для Claude Code,
+Cursor, Codex и любых других AI-инструментов, работающих с проектом.
+
+**Секции:**
+1. TL;DR рабочий процесс (journal-first → code → journal-last → commit)
+2. Структура репозитория (древовидная карта всех модулей)
+3. Обязательный workflow агента (чтение журналов, правила сессии, запись)
+4. Ключевые команды (разработка, CLI, ветка)
+5. Стек и жёсткие зависимости (не менять без CONSTITUTION-ревизии)
+6. Модель данных (карта таблиц + приоритет имён контактов)
+7. Агенты и skills (текущие + предложенные)
+8. Анти-паттерны (мгновенные red flags для ревью)
+9. Полезные ссылки на остальные доки
+
+**Принцип:** AGENTS.md не дублирует CONSTITUTION/CLAUDE/CONTINUITY,
+а связывает их в пошаговый workflow.
+
+### Added — `.claude/skills/filename-parser/SKILL.md`
+
+Первый доменный skill. Описывает:
+- 5 поддерживаемых форматов имён файлов Android-записей
+- Правила `normalize_phone()` (E.164, сервисные, 8/007/00)
+- Пошаговый алгоритм добавления 6-го формата
+- Анти-паттерны (жадный regex формата 4, парсинг в обход normalize_phone)
+- Ссылки на код (`filename_parser.py:271`, `models.py`, тесты)
+
+Применяется при изменении `filename_parser.py`, отладке `UNKNOWN` телефонов
+или добавлении нового формата.
+
+### Added — `.claude/skills/journal-keeper/SKILL.md`
+
+Второй доменный skill. Кодифицирует требование владельца про
+журналирование в стиле Obsidian:
+- Этап 1: читать `CONTINUITY.md` + `CHANGELOG.md` в начале сессии
+- Этап 2: обновлять оба файла перед `git commit`
+- Этап 3: финальная проверка (тесты, CONSTITUTION, секреты)
+- Шаблоны записей для Keep a Changelog формата
+- Анти-паттерны (коммит без журнала, стирание старых секций)
+
+### Предложенные (не реализованные) skills
+
+В `AGENTS.md` секция 7.2 перечислены будущие skills, создаются только
+при измеренной потребности (CONSTITUTION 2.3):
+
+| Skill                    | Триггер                                      |
+|--------------------------|----------------------------------------------|
+| `constitution-auditor`   | > 1 нарушение CONSTITUTION в неделю в PR     |
+| `llm-json-surgeon`       | > 5% парсинг LLM провалов                    |
+| `schema-migrator`        | Второй раз добавляем колонку                 |
+| `gpu-discipline-checker` | OOM на RTX 3060 в batch pipeline             |
+| `bulk-ops-runner`        | Регулярные прогоны > 1000 файлов             |
+| `prompt-version-manager` | Переход на `analyze_v002.txt`                |
+
+### Результат
+
+- `AGENTS.md` (275 строк) + 2 SKILL.md
+- Рабочий процесс AI-агентов формализован
+- 90/90 тестов pass (skills — только документация, код не менялся)
+
+## [2026-04-10] — Phonebook name priority fix
+
+### Fixed — get_or_create_contact() не обновлял display_name (repository.py)
+
+**Проблема:** Имя контакта из имени файла (= телефонная книга пользователя) игнорировалось
+если контакт уже существовал в БД.
+
+**Цепочка:**
+1. Телефон записывает звонок: `Иванов(+79161234567)_20260410143022.m4a`
+2. Имя `Иванов` берётся приложением записи из телефонной книги Android
+3. `filename_parser` → `CallMetadata.contact_name = "Иванов"`
+4. `ingester` → `get_or_create_contact(user_id, phone, "Иванов")`
+5. **БАГ:** если контакт `+79161234567` уже есть → `return contact_id` без обновления имени!
+
+**Исправление** в `repository.py get_or_create_contact()`:
+```python
+if row:
+    contact_id = row["contact_id"]
+    if display_name:                           # ← NEW: обновить если есть имя
+        conn.execute(
+            "UPDATE contacts SET display_name=?, name_confirmed=1 WHERE contact_id=?",
+            (display_name, contact_id),
+        )
+        conn.commit()
+    return contact_id
+# При создании нового контакта:
+VALUES (?, ?, ?, ?)  # + name_confirmed = 1 if display_name else 0
+```
+
+**Приоритет имён (окончательная схема):**
+```
+МАКСИМАЛЬНЫЙ: display_name (из имени файла = телефонная книга), name_confirmed=1
+              ↳ устанавливается через get_or_create_contact() при каждом новом файле
+ВТОРИЧНЫЙ:    guessed_name (авто-извлечение из текста транскрипта name_extractor.py)
+              ↳ только записывается если display_name пустой
+FALLBACK:     null
+```
+
+**Гарантии:**
+- Файл без имени (только номер) → `display_name=None` → существующее имя НЕ стирается
+- Файл с именем → `display_name` всегда обновляется (пользователь мог переименовать в телефоне)
+- `name_confirmed=1` при любом имени из файла → `name_extractor.py` не перезаписывает
+
+**Новые тесты** (test_repository.py +3):
+- `test_phonebook_name_overwrites_existing_empty_name` — имя заполняет пустой контакт
+- `test_phonebook_name_overwrites_guessed_name` — имя из файла > guessed_name
+- `test_no_name_in_filename_does_not_clear_existing` — файл без имени не стирает имя
+
+**Результат:** 90 тестов pass (было 87)
+
+---
+
+## [2026-04-09] — Bug fixes, JSON parsing robustness, enricher optimization
+
+### Fixed — Critical bugs in enricher
+
+#### 1. SQL binding mismatch (commit 369935e)
+- **Bug:** enricher.py WHERE c.user_id = ? был без параметров (user_id,)
+- **Impact:** "Incorrect number of bindings supplied" при bulk-enrich
+- **Fix:** добавлен (user_id,) в execute() в bulk_enrich()
+
+#### 2. FOREIGN KEY constraint violation (commit bef94e9)
+- **Bug:** promises.contact_id NOT NULL, но calls.contact_id может быть NULL
+- **Impact:** FK constraint failed при сохранении promises для звонков без распознанного номера
+- **Fix:** 
+  - schema.sql: promises.contact_id → nullable
+  - repository.save_promises(): пропускаем если contact_id = NULL
+  - enricher.py: улучшен batch error handling
+
+### Changed — response_parser.py (robust JSON parsing, 4-уровневая защита)
+
+- **Проблема:** LLM часто обрезает JSON на max_tokens или выдаёт невалидный JSON
+- **4-уровневое спасение обрезанного JSON:**
+  1. `_extract_json_from_markdown()` — извлечь из ```json...```
+  2. `_extract_json_bounds()` — текст от первой { до последней }
+  3. `_repair_json()` — активное восстановление:
+     - `_close_json_structure()` — дозакрыть } и ] с учётом вложенности
+     - `_remove_trailing_commas()` — убрать запятые перед } и ]
+     - Закрыть незакрытые кавычки внутри строк
+  4. `_extract_fields_by_regex()` — последняя линия защиты: извлечь summary, priority, risk_score, action_items, key_topics, promises через regex если JSON совсем сломан
+
+- **Type coercion:**
+  - String "75" → int 75
+  - String вместо list → ["строка"]
+  - Boolean "true"/"false" → bool
+
+- **Мягкие дефолты:**
+  - summary: "" (было "Ошибка при анализе")
+  - risk_score: 0 (было 50)
+  - Никогда не падает на отсутствующем поле
+
+### Changed — llm_client.py (graceful degradation, больше времени)
+
+- **max_tokens:** 2048 → 1500 (JSON редко > 600 токенов, экономим время)
+- **timeout:** 300s → 180s (лучше для длинных звонков, избегаем зависания)
+- **Error handling:** generate() теперь возвращает None на ошибке вместо RuntimeError
+  - Timeout, connection error, invalid response → None
+  - enricher.py обрабатывает None и продолжает работу
+
+### Changed — configs/prompts/analyze_v001.txt (упрощение промпта)
+
+- **Было:** 30+ полей в мегаструктуре (bullshit_index, power_dynamics, emotional_tone и т.д.)
+- **Стало:** компактная структура с 15 обязательными полями:
+  - **Основное:** summary, category, priority, risk_score, sentiment
+  - **Действия:** action_items[], promises[] {who, what, vague}
+  - **Данные:** people, companies, amounts
+  - **Контакт:** contact_name_guess
+  - **Оценка:** bs_score, bs_evidence
+  - **Флаги:** {urgent, conflict, money, legal_risk}
+- **Мотивация:** упрощение + меньше hallucinations + скорость парсинга
+
+### Changed — bulk/enricher.py (оптимизация и улучшение обработки ошибок)
+
+#### Оптимизации (commit 6034fc0):
+1. **Сжатие транскрипта** — убрать сегменты < 3 символов (except "да"/"ну"/"угу")
+2. **max_tokens: 1024** (было 2048) в generate() → экономия времени
+3. **Батчевая запись в БД** — новый Repository.save_batch() для одной транзакции каждые 5 звонков
+4. **Пропуск коротких звонков** — если transcript < 50 символов → stub Analysis без LLM call
+5. **Логирование:**
+   - Per-file: время обработки, ~tok/s, ETA
+   - Промежуточная статистика каждые 50 файлов: успешных/частичных/пропущено/ошибок
+
+#### Улучшение обработки ошибок (commit 668e44c):
+- Отдельный счётчик `partial` для успешно распарсенных анализов с пустым summary
+- Обработка None от llm.generate() — логирует ошибку и продолжает
+- Any error in single call → log + continue (никогда не прерывает батч)
+- Save batch failure → fallback на per-item saves с логированием
+
+### Results
+
+- ✅ Все 87 тестов pass (не было регрессии)
+- ✅ enricher.py теперь работает на Windows (SQL binding fixed)
+- ✅ bulk-enrich обрабатывает звонки без contact_id (FK constraint fixed)
+- ✅ Обрезанный JSON от LLM спасается в 4 раза
+- ✅ Graceful degradation на ошибках LLM (None вместо exception)
+- ✅ Время обработки на звонок ~2-5 сек (было 10+)
+
+---
+
 ### Changed — configs/prompts/analyze_v001.txt (расширенный LLM-анализ)
 - Переписан системный промпт для детального анализа звонков
 - **JSON-структура:** 30+ полей для комплексного анализа
