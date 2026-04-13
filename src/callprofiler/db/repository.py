@@ -506,3 +506,63 @@ class Repository:
             (status, event_id),
         )
         conn.commit()
+
+    # ------------------------------------------------------------------
+    # Contact Summaries
+    # ------------------------------------------------------------------
+
+    def save_contact_summary(
+        self,
+        contact_id: int,
+        user_id: str,
+        total_calls: int = 0,
+        last_call_date: str | None = None,
+        global_risk: int = 0,
+        avg_bs_score: int = 0,
+        top_hook: str | None = None,
+        open_promises: str | None = None,
+        open_debts: str | None = None,
+        personal_facts: str | None = None,
+        contact_role: str | None = None,
+        advice: str | None = None,
+    ) -> None:
+        """Save or update a contact summary (INSERT OR REPLACE)."""
+        conn = self._get_conn()
+        conn.execute(
+            """INSERT OR REPLACE INTO contact_summaries
+               (contact_id, user_id, total_calls, last_call_date, global_risk,
+                avg_bs_score, top_hook, open_promises, open_debts, personal_facts,
+                contact_role, advice, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+            (
+                contact_id,
+                user_id,
+                total_calls,
+                last_call_date,
+                global_risk,
+                avg_bs_score,
+                top_hook,
+                open_promises,
+                open_debts,
+                personal_facts,
+                contact_role,
+                advice,
+            ),
+        )
+        conn.commit()
+
+    def get_contact_summary(self, contact_id: int) -> dict | None:
+        """Get contact summary by ID."""
+        row = self._get_conn().execute(
+            "SELECT * FROM contact_summaries WHERE contact_id = ?",
+            (contact_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def get_all_contacts_for_user(self, user_id: str) -> list[dict]:
+        """Get all contacts for a user (previously in queries, now explicit)."""
+        rows = self._get_conn().execute(
+            "SELECT * FROM contacts WHERE user_id = ? ORDER BY display_name",
+            (user_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]

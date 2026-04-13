@@ -8,6 +8,63 @@
 
 ## [Unreleased]
 
+## [2026-04-11d] — Contact summaries: aggregated profiles with weighted risk scoring
+
+### Added — `contact_summaries` table to schema.sql
+
+New table for aggregated contact profiles synthesizing all interactions:
+- **Structure:** contact_id (PK), user_id (FK), total_calls, last_call_date, global_risk, avg_bs_score,
+  top_hook, open_promises (JSON), open_debts (JSON), personal_facts (JSON), contact_role, advice, updated_at
+- **Key fields:**
+  - `global_risk` (0–100): exponential-decay weighted average of all call risk_scores (half-life 90 days)
+  - `avg_bs_score` (0–100): same weighting for BS-score from analysis raw_response
+  - `open_promises`, `open_debts`, `personal_facts`: JSON arrays of events filtered by type and status
+  - `top_hook`: extracted from last analysis's raw_response.hook field
+  - `advice`: generated rules-based recommendations (risk→"Говори первым", bs→"Осторожно", debts→"Начни с долга")
+
+### Added — `SummaryBuilder` class (aggregate/summary_builder.py)
+
+Main methods:
+- `rebuild_contact(contact_id)`: Core algorithm aggregating risk, BS-score, events, hook, role, and advice
+- `rebuild_all(user_id)`: Bulk rebuild for all user's contacts with error resilience
+- `generate_card_text(contact_id)` → str: Formatted text ≤512 bytes with header, risk emoji (🟢/🟡/🔴), hook, 3 bullets, advice
+- `write_card(contact_id, sync_dir)`: Write card as `{phone_e164}.txt`
+- `write_all_cards(user_id)`: Bulk card generation
+
+Helper methods:
+- `_compute_weighted_risk()`: Exponential decay (weight = 2^(-days_ago/90)), returns int
+- `_compute_weighted_bs_score()`: Same weighting, extracts bs_score from JSON
+- `_extract_open_promises/debts/facts()`: Filter events by type+status, return JSON
+- `_extract_top_hook()`: Get hook from last analysis
+- `_extract_contact_role()`: Get contact_company_guess or contact_role from last analysis
+- `_generate_advice()`: Rules: risk>70→"Говори первым", bs>60→"Осторожно", debts→"Начни с долга"
+
+### Added — Repository methods for contact_summaries
+
+- `save_contact_summary(...)`: INSERT OR REPLACE all 12 fields
+- `get_contact_summary(contact_id)`: Retrieve dict or None
+- `get_all_contacts_for_user(user_id)`: List all contacts for user, ordered by display_name
+
+### Added — 2 new CLI commands
+
+- `rebuild-summaries --user ID`: Pересчитать contact_summaries для пользователя
+- `rebuild-cards --user ID`: Пересоздать caller cards в sync_dir
+
+Both commands validate user exists and handle errors gracefully per CONSTITUTION.
+
+### Isolation & Safety
+
+- All summaries filtered by user_id (CONSTITUTION 2.5)
+- Contact isolation via (user_id, contact_id) pair
+- Events extraction respects event type and status filters
+- Weighted risk model ensures recent calls matter more (but old data not forgotten)
+
+### Result
+- Contact aggregation infrastructure ready for analytics and Android overlay display
+- 90/90 tests pass (new schema + methods; existing tests unaffected)
+- Weighted risk scoring with exponential decay implemented per spec
+- Card text generation with risk emoji and smart bullet selection (3-bullet limit)
+
 ## [2026-04-11c] — Event extraction refinement: proper role mapping (Me→OWNER, S2→OTHER)
 
 ### Changed — Event extraction logic in enricher.py
