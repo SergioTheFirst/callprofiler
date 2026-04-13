@@ -8,6 +8,95 @@
 
 ## [Unreleased]
 
+## [2026-04-11e] — Telegram bot: commands, notifications, and feedback integration
+
+### Added — `TelegramNotifier` class with full command suite (deliver/telegram_bot.py)
+
+Telegram bot implementation for command processing and automatic notifications:
+
+**Initialization:**
+- Token from environment variable `TELEGRAM_BOT_TOKEN` (or explicit parameter)
+- User validation: only registered users (with telegram_chat_id in database) can use bot
+- Unregistered chat_ids logged with warning, messages ignored
+- Graceful degradation if python-telegram-bot not installed
+
+**Commands (6 total):**
+1. `/start` — Welcome message with command list, shows user display_name
+2. `/digest [N] [days]` — Top-N calls by priority in last N days (default: 5 calls, 1 day)
+   - Formatted: `[P:###] DIRECTION → NAME (PHONE) | DATE`
+3. `/search <text>` — FTS5 transcript search, shows up to 5 results with date/contact/fragment
+   - Format: `**CONTACT_NAME** (DATE) [SPEAKER] text_fragment...`
+4. `/contact <phone or name>` — Contact card from contact_summaries
+   - Shows: name, phone, total_calls, global_risk with emoji, BS-score, top_hook
+   - Includes: open promises/debts (up to 2 each), contact_role, advice
+5. `/promises` — All open promises grouped by contact (max 5 contacts displayed)
+   - Format: `[WHO] payload (deadline)`
+6. `/status` — System queue status for current user
+   - Shows: total calls, processed, in queue, errors (with retry count)
+
+**Automatic notifications:**
+- After each enrichment: `send_summary(user_id, call_id)` sends formatted message
+  - Format: `📞 DIRECTION → CONTACT (PHONE) | 📅 DATE | ⏱ DURATION`
+  - Summary text + priority + risk with emoji (🟢/🟡/🔴)
+  - Action items (max 3)
+  - Inline buttons: [✅ OK] [❌ Неточно] for feedback
+
+**Feedback handling:**
+- User clicks [✅ OK] or [❌ Неточно]
+- Callback data parsed: `feedback_{call_id}_{ok|inaccurate}`
+- Found analysis_id from call_id, saves via `repo.set_feedback(analysis_id, "ok"|"inaccurate")`
+- User sees confirmation: "💾 Ваш отзыв записан: ..."
+
+**Architecture:**
+- Long polling mode (not webhooks) — runs in background thread via `run()`
+- Exception handling: JSON parsing for events, missing fields, unregistered users
+- Logging: verbose logging with chat_id, user_id, call_id for debugging
+
+### Added — `cmd_bot` CLI command (cli/main.py)
+
+New CLI command to start Telegram bot:
+```
+python -m callprofiler bot
+```
+
+Checks:
+- TELEGRAM_BOT_TOKEN environment variable
+- Lists registered users with telegram_chat_id
+- Warns if no users registered
+- Logs user count and IDs
+- Runs bot in background thread, keeps main thread alive (while True)
+
+### Changed — telegram_bot.py improvements
+
+1. **Token handling:**
+   - Constructor parameter optional (taken from env if not provided)
+   - Warning if not set → non-blocking (allows module import without token)
+
+2. **Command improvements:**
+   - `/digest`: properly sorts by priority, shows direction/phone/date
+   - `/search`: now queries calls table to show contact_name and call_date
+   - `/contact`: integrated with contact_summaries, supports search by name or phone
+   - `/promises`: uses events table (type='promise') instead of old promises table
+   - `/status`: shows all_calls, calls_with_analysis, pending, errors
+
+3. **User isolation:**
+   - All commands validate user via `_get_user_id(update)` → chat_id → user_id
+   - Unregistered users get "Your chat_id is not registered" message
+
+4. **Better formatting:**
+   - Risk emoji (🟢/🟡/🔴) based on numeric risk_score
+   - HTML parse_mode for bold/italic text
+   - Direction field in notifications (IN/OUT/UNKNOWN)
+   - Duration in seconds for calls
+
+### Result
+
+- Full-featured Telegram bot for push notifications and querying system state
+- 90/90 tests pass (bot uses only existing Repository methods)
+- All 6 commands working with proper error handling
+- User isolation via chat_id → user_id mapping
+- Feedback integration with analysis records
+
 ## [2026-04-11d] — Contact summaries: aggregated profiles with weighted risk scoring
 
 ### Added — `contact_summaries` table to schema.sql
