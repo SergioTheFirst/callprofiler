@@ -114,3 +114,19 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE INDEX IF NOT EXISTS idx_events_contact ON events(user_id, contact_id, event_type);
 CREATE INDEX IF NOT EXISTS idx_events_status ON events(user_id, status);
+
+CREATE TABLE IF NOT EXISTS contact_summaries (
+    contact_id    INTEGER PRIMARY KEY REFERENCES contacts(contact_id),
+    user_id       TEXT NOT NULL REFERENCES users(user_id),
+    total_calls   INTEGER DEFAULT 0,
+    last_call_date TEXT,
+    global_risk   INTEGER DEFAULT 0,
+    avg_bs_score  INTEGER DEFAULT 0,
+    top_hook      TEXT,
+    open_promises TEXT,
+    open_debts    TEXT,
+    personal_facts TEXT,
+    contact_role  TEXT,
+    advice        TEXT,
+    updated_at    TEXT DEFAULT CURRENT_TIMESTAMP
+);

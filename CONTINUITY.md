@@ -6,12 +6,87 @@
 
 ---
 
-## Текущее состояние: 2026-04-11c (Event extraction with proper role mapping)
+## Текущее состояние: 2026-04-11d (Contact summaries: aggregated profiles)
 
 ### Ветка разработки
 `claude/clone-callprofiler-repo-hL5dQ` (синхронизирована с origin)
 
-### Что сделано в этой сессии (2026-04-11c)
+### Что сделано в этой сессии (2026-04-11d)
+
+**Реализована инфраструктура contact_summaries** для синтезирования полных профилей контактов:
+
+1. **Added `contact_summaries` table** to `schema.sql`:
+   - contact_id (PK), user_id (FK), total_calls, last_call_date
+   - global_risk (0–100): exponential-decay weighted average of risk_scores
+   - avg_bs_score (0–100): same weighting for BS-score
+   - top_hook (TEXT): hook from last analysis
+   - open_promises, open_debts, personal_facts (JSON): filtered events
+   - contact_role (TEXT): guessed company/role
+   - advice (TEXT): rules-based recommendations
+   - updated_at (TIMESTAMP)
+
+2. **Created `aggregate/summary_builder.py`** with SummaryBuilder class:
+   - `rebuild_contact()`: Core algorithm — aggregate risk, BS-score, events, hook, role, advice
+   - `rebuild_all()`: Bulk rebuild for user with error handling
+   - `generate_card_text()`: Format ≤512 bytes card with emoji, hook, bullets, advice
+   - `write_card()` / `write_all_cards()`: Persist cards as {phone_e164}.txt
+   - **Weighted risk model:** weight = 2^(-days_ago/90), exponential decay (half-life 90 days)
+   - **BS-score calculation:** Same exponential weighting, extract from analysis.raw_response JSON
+   - **Event extraction:** Promises/debts/facts filtered by type + status, returned as JSON
+   - **Advice generation:** Rules-based on risk, bs_score, open_debts
+
+3. **Added 3 Repository methods** (`repository.py`):
+   - `save_contact_summary(contact_id, user_id, ...)` → INSERT OR REPLACE
+   - `get_contact_summary(contact_id)` → dict or None
+   - `get_all_contacts_for_user(user_id)` → list[dict] sorted by display_name
+
+4. **Added 2 CLI commands** (`cli/main.py`):
+   - `rebuild-summaries --user ID` — пересчитать contact_summaries для пользователя
+   - `rebuild-cards --user ID` — пересоздать caller cards в sync_dir
+
+5. **Testing:**
+   - All 90 tests pass (new schema + methods; existing tests unaffected)
+   - Weighted risk model verified with exponential decay
+   - JSON event parsing robust (try/except on json.loads)
+   - Card text generation handles missing fields gracefully
+
+### Техническая детали
+
+**Weighted risk algorithm:**
+```python
+weight = 2^(-days_ago / 90)  # Exponential decay with 90-day half-life
+global_risk = sum(weight_i * risk_i) / sum(weight_i)
+```
+Recent calls have higher weight; old calls still influence but less.
+
+**Event extraction:**
+- open_promises: events where type='promise' and status='open'
+- open_debts: events where type='debt' and status='open'
+- personal_facts: events where type='smalltalk' and status='open', limit 5 newest
+
+**Card text format** (≤512 bytes):
+```
+{Name} — {Role}
+Risk: {score} {emoji}
+Hook: {hook}
+• {debt or promise or fact}
+• (second bullet)
+• (third bullet)
+💡 {advice}
+```
+
+Risk emoji: 🟢 (risk<30), 🟡 (30-70), 🔴 (>70)
+
+**Advice rules:**
+- risk>70 → "Говори первым"
+- bs_score>60 → "Осторожно: размытые обещания"
+- open_debts → "Начни с долга"
+- risk<30 && bs<30 → "Надёжный партнёр"
+- default → "Стандартный контакт"
+
+---
+
+### Что было в сессии (2026-04-11c)
 
 **Refined event extraction** with proper role mapping from LLM JSON:
 - Promises: extract `who` field and map Me→OWNER, S2→OTHER

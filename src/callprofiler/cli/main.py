@@ -412,6 +412,52 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_rebuild_summaries(args: argparse.Namespace) -> int:
+    """rebuild-summaries --user ID — пересчитать contact_summaries."""
+    cfg, repo = _load_config_and_repo(args.config)
+    _setup_logging(cfg.log_file, args.verbose)
+
+    log = logging.getLogger(__name__)
+
+    user = repo.get_user(args.user_id)
+    if not user:
+        log.error("Пользователь '%s' не найден", args.user_id)
+        return 1
+
+    from callprofiler.aggregate.summary_builder import SummaryBuilder
+
+    log.info("Пересчет contact_summaries для пользователя '%s'...", args.user_id)
+
+    builder = SummaryBuilder(repo)
+    builder.rebuild_all(args.user_id)
+
+    log.info("✓ Contact_summaries пересчитаны для пользователя '%s'", args.user_id)
+    return 0
+
+
+def cmd_rebuild_cards(args: argparse.Namespace) -> int:
+    """rebuild-cards --user ID — пересоздать caller cards."""
+    cfg, repo = _load_config_and_repo(args.config)
+    _setup_logging(cfg.log_file, args.verbose)
+
+    log = logging.getLogger(__name__)
+
+    user = repo.get_user(args.user_id)
+    if not user:
+        log.error("Пользователь '%s' не найден", args.user_id)
+        return 1
+
+    from callprofiler.aggregate.summary_builder import SummaryBuilder
+
+    log.info("Переиздание caller cards для пользователя '%s'...", args.user_id)
+
+    builder = SummaryBuilder(repo)
+    builder.write_all_cards(args.user_id)
+
+    log.info("✓ Caller cards переиданы для пользователя '%s'", args.user_id)
+    return 0
+
+
 # ── Построение парсера ────────────────────────────────────────────────────
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -539,6 +585,26 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Максимум файлов для обработки (0 = все)",
     )
 
+    # ── rebuild-summaries ──────────────────────────────────────
+    p_rebuild_sum = sub.add_parser(
+        "rebuild-summaries",
+        help="Пересчитать contact_summaries (взвешенный риск, события, совет)",
+    )
+    p_rebuild_sum.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+
+    # ── rebuild-cards ──────────────────────────────────────────
+    p_rebuild_cards = sub.add_parser(
+        "rebuild-cards",
+        help="Пересоздать caller cards (≤512 байт) в sync_dir",
+    )
+    p_rebuild_cards.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+
     return parser
 
 
@@ -557,6 +623,8 @@ def main() -> None:
         "extract-names": cmd_extract_names,
         "bulk-load": cmd_bulk_load,
         "bulk-enrich": cmd_bulk_enrich,
+        "rebuild-summaries": cmd_rebuild_summaries,
+        "rebuild-cards": cmd_rebuild_cards,
     }
 
     handler = dispatch.get(args.command)
