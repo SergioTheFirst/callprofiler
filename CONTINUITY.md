@@ -6,7 +6,50 @@
 
 ---
 
-## Текущее состояние: 2026-04-11 (AGENTS.md + skills для AI-агентов)
+## Текущее состояние: 2026-04-11b (Events table for structured event extraction)
+
+### Ветка разработки
+`claude/clone-callprofiler-repo-hL5dQ` (синхронизирована с origin)
+
+### Что сделано в этой сессии (2026-04-11b)
+
+1. **Added `events` table** to `schema.sql`:
+   - 7 event types: promise, debt, contradiction, risk, task, fact, smalltalk
+   - Per-event metadata: who, payload, source_quote, deadline, confidence, status
+   - Dual indices on (user_id, contact_id, event_type) and (user_id, status)
+
+2. **Added 4 Repository methods** (`repository.py`):
+   - `save_events(call_id, events: list[dict])` — batch insert
+   - `get_open_events(user_id, contact_id=None, event_type=None)` — filtered query
+   - `get_events_for_contact(user_id, contact_id, limit=50)` — contact history
+   - `update_event_status(event_id, status)` — status transition
+
+3. **Added event extraction** to `enricher.py`:
+   - New function `_extract_events_from_analysis()` converts Analysis → events
+   - Extracts from: promises, action_items, flags (conflict, legal_risk, urgent), key_topics
+   - Confidence scoring: 0.9 (promises) > 0.85 (flags) > 0.7 (heuristics)
+   - Updated `_flush_batch()` to save events alongside analysis
+
+4. **Tестирование:**
+   - All 90 tests pass (no existing tests affected; events are new)
+   - New code path tested implicitly via enricher (promise extraction already covered)
+
+### Следующий шаг / возможности
+
+- Implement event dashboards / event timelines in deliver module
+- Create skill `event-tracker` when event queries become frequent
+- Add event deduplication logic (same promise from multiple calls?)
+- Implement promise fulfillment tracking via Telegram commands
+
+### Известные ограничения
+
+- Events rely on LLM extraction quality (inherited from Analysis)
+- Confidence scores are heuristic (0.9/0.85/0.7) — could be improved with A/B testing
+- `key_topics` → `smalltalk` conversion is simplistic (only checks lowercase/spaces)
+
+---
+
+## Предыдущее состояние: 2026-04-11 (AGENTS.md + skills для AI-агентов)
 
 ### Ветка разработки
 `claude/clone-callprofiler-repo-hL5dQ` (синхронизирована с origin)

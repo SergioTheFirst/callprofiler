@@ -34,6 +34,101 @@ _SHORT_CALL_THRESHOLD = 50
 _BATCH_SIZE = 5
 
 
+def _extract_events_from_analysis(
+    analysis: Analysis,
+    user_id: str,
+    contact_id: int | None,
+    call_id: int,
+) -> list[dict]:
+    """Extract structured events from LLM analysis result.
+
+    Converts analysis fields into event records:
+    - promises → 'promise' events
+    - action_items → 'task' events
+    - risks/contradictions → 'risk'/'contradiction' events
+    - debts/amounts → 'debt' events
+    - smalltalk facts → 'smalltalk' events
+    """
+    events = []
+
+    # Promises → event type 'promise'
+    if hasattr(analysis, "promises") and analysis.promises:
+        for p in analysis.promises:
+            if isinstance(p, dict):
+                events.append({
+                    "user_id": user_id,
+                    "contact_id": contact_id,
+                    "call_id": call_id,
+                    "event_type": "promise",
+                    "who": p.get("who", "UNKNOWN"),
+                    "payload": p.get("what", ""),
+                    "deadline": p.get("due"),
+                    "confidence": 0.9,
+                    "status": "open",
+                })
+
+    # Action items → event type 'task'
+    if hasattr(analysis, "action_items") and analysis.action_items:
+        for item in analysis.action_items:
+            if isinstance(item, str):
+                events.append({
+                    "user_id": user_id,
+                    "contact_id": contact_id,
+                    "call_id": call_id,
+                    "event_type": "task",
+                    "who": "OWNER",  # Actions are for owner
+                    "payload": item,
+                    "confidence": 0.85,
+                    "status": "open",
+                })
+
+    # Risk/contradiction flags and evidence (from raw_response if available)
+    flags = getattr(analysis, "flags", {}) or {}
+    if isinstance(flags, dict):
+        if flags.get("conflict"):
+            events.append({
+                "user_id": user_id,
+                "contact_id": contact_id,
+                "call_id": call_id,
+                "event_type": "contradiction",
+                "who": "UNKNOWN",
+                "payload": "Конфликт/противоречие обнаружено",
+                "confidence": 0.8,
+                "status": "open",
+            })
+
+        if flags.get("legal_risk") or flags.get("urgent"):
+            events.append({
+                "user_id": user_id,
+                "contact_id": contact_id,
+                "call_id": call_id,
+                "event_type": "risk",
+                "who": "UNKNOWN",
+                "payload": "Юридический или срочный риск",
+                "confidence": 0.85,
+                "status": "open",
+            })
+
+    # Key topics → 'fact' events for high-confidence smalltalk
+    if hasattr(analysis, "key_topics") and analysis.key_topics:
+        for topic in analysis.key_topics:
+            if isinstance(topic, str) and len(topic) > 0:
+                # Check if this looks like a personal fact (lowercase heuristic)
+                if topic[0].islower() or " " in topic:
+                    events.append({
+                        "user_id": user_id,
+                        "contact_id": contact_id,
+                        "call_id": call_id,
+                        "event_type": "smalltalk",
+                        "who": "UNKNOWN",
+                        "payload": topic,
+                        "confidence": 0.7,
+                        "status": "open",
+                    })
+
+    return events
+
+
 def _format_transcript(segments: list[dict]) -> str:
     """Форматировать и сжать транскрипт для промпта.
 
@@ -93,6 +188,10 @@ def _flush_batch(repo: Repository, batch: list[dict]) -> int:
     try:
         repo.save_batch(batch)
         log.debug("[enricher] Батч записан (%d элементов)", len(batch))
+        # Сохранить события отдельно (save_batch их не трогает)
+        for item in batch:
+            if item.get("events"):
+                repo.save_events(item["call_id"], item["events"])
         return 0
     except Exception as e:
         log.error("[enricher] Ошибка batch-записи: %s — пробуем по одному", e)
@@ -105,6 +204,8 @@ def _flush_batch(repo: Repository, batch: list[dict]) -> int:
                         item["user_id"], item["contact_id"],
                         item["call_id"], item["promises"],
                     )
+                if item.get("events"):
+                    repo.save_events(item["call_id"], item["events"])
             except Exception as ie:
                 log.error("[enricher] ✗ call_id=%d: ошибка записи: %s", item["call_id"], ie)
                 failed += 1
@@ -252,12 +353,18 @@ def bulk_enrich(
                 else:
                     stats["processed"] += 1
 
+                # Extract events from analysis
+                events = _extract_events_from_analysis(
+                    analysis, user_id, call.get("contact_id"), call_id
+                )
+
                 pending_batch.append({
                     "call_id": call_id,
                     "analysis": analysis,
                     "user_id": user_id,
                     "contact_id": call.get("contact_id"),
                     "promises": getattr(analysis, "promises", []),
+                    "events": events,
                 })
 
                 # Промежуточная статистика каждые 50 файлов
