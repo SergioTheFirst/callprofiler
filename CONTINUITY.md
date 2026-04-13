@@ -6,12 +6,57 @@
 
 ---
 
-## Текущее состояние: 2026-04-11d (Contact summaries: aggregated profiles)
+## Текущее состояние: 2026-04-11e (Telegram bot: full command suite + notifications)
 
 ### Ветка разработки
 `claude/clone-callprofiler-repo-hL5dQ` (синхронизирована с origin)
 
-### Что сделано в этой сессии (2026-04-11d)
+### Что сделано в этой сессии (2026-04-11e)
+
+**Реализован полнофункциональный Telegram-бот** для доставки уведомлений и команд:
+
+1. **TelegramNotifier класс** (deliver/telegram_bot.py):
+   - Токен из `TELEGRAM_BOT_TOKEN` с graceful fallback
+   - Инициализация с валидацией пользователя по chat_id
+   - Long polling mode в отдельном потоке (не webhook)
+
+2. **6 команд бота:**
+   - `/start` — приветствие с описанием команд
+   - `/digest [N] [days]` — топ-N звонков (по умолчанию 5, за 1 день)
+   - `/search <текст>` — FTS5 поиск по транскриптам с контактом и датой
+   - `/contact <номер или имя>` — карточка из contact_summaries (risk, hook, promises, facts)
+   - `/promises` — открытые обещания, сгруппированные по контакту
+   - `/status` — состояние очереди (всего/обработано/в работе/ошибки)
+
+3. **Автоматические уведомления:**
+   - После обогащения: отправить саммари с метаданными (направление, дата, длительность)
+   - Risk emoji (🟢/🟡/🔴) по score
+   - Inline-кнопки [OK] [Неточно] для feedback
+   - Обработка callback: найти analysis_id, сохранить feedback
+
+4. **CLI команда** (cli/main.py):
+   - `python -m callprofiler bot`
+   - Проверка TELEGRAM_BOT_TOKEN
+   - Вывод зарегистрированных пользователей с chat_id
+   - Логирование статуса инициализации
+
+5. **Тестирование:**
+   - All 90 tests pass (bot использует только существующие методы Repository)
+   - User isolation via (user_id ← chat_id) mapping
+   - Graceful error handling для missing/malformed data
+
+**Ключевые детали:**
+
+- Все команды требуют регистрации пользователя (check telegram_chat_id in users)
+- Нерегистрированные chat_id игнорируются с логом
+- JSON парсинг для events (promises, debts, facts) с try/except fallback
+- HTML parse_mode для форматирования (bold, italic)
+- Direction в notifications (IN/OUT/UNKNOWN)
+- Feedback saving: callback → call_id → analysis_id → set_feedback()
+
+---
+
+### Что было в сессии (2026-04-11d)
 
 **Реализована инфраструктура contact_summaries** для синтезирования полных профилей контактов:
 

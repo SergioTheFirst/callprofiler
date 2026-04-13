@@ -458,6 +458,54 @@ def cmd_rebuild_cards(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bot(args: argparse.Namespace) -> int:
+    """bot — запустить Telegram-бот (long polling)."""
+    cfg, repo = _load_config_and_repo(args.config)
+    _setup_logging(cfg.log_file, args.verbose)
+
+    log = logging.getLogger(__name__)
+
+    from callprofiler.deliver.telegram_bot import TelegramNotifier
+
+    notifier = TelegramNotifier(repo)
+
+    if not notifier.token:
+        log.error(
+            "TELEGRAM_BOT_TOKEN не установлен. "
+            "Установите переменную окружения: export TELEGRAM_BOT_TOKEN=<ваш_токен>"
+        )
+        return 1
+
+    # Получить список пользователей с chat_id для регистрации
+    users = repo.get_all_users()
+    registered_users = [u for u in users if u.get("telegram_chat_id")]
+
+    log.info("✓ Telegram-бот инициализирован")
+    log.info("  Зарегистрировано пользователей: %d", len(registered_users))
+
+    if len(registered_users) == 0:
+        log.warning(
+            "⚠️  Нет пользователей с telegram_chat_id. "
+            "Добавьте их с помощью: add-user --telegram-chat-id <id>"
+        )
+
+    for user in registered_users:
+        log.info("  • %s (chat_id=%s)", user.get("user_id"),
+                user.get("telegram_chat_id"))
+
+    log.info("Запуск Telegram-бота...")
+    notifier.run()
+
+    # Бот работает в фоновом потоке, вводим бесконечный цикл
+    try:
+        import time
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        log.info("Бот остановлен пользователем")
+        return 0
+
+
 # ── Построение парсера ────────────────────────────────────────────────────
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -605,6 +653,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Идентификатор пользователя",
     )
 
+    # ── bot ────────────────────────────────────────────────────
+    sub.add_parser(
+        "bot",
+        help="Запустить Telegram-бот (long polling, requires TELEGRAM_BOT_TOKEN)",
+    )
+
     return parser
 
 
@@ -625,6 +679,7 @@ def main() -> None:
         "bulk-enrich": cmd_bulk_enrich,
         "rebuild-summaries": cmd_rebuild_summaries,
         "rebuild-cards": cmd_rebuild_cards,
+        "bot": cmd_bot,
     }
 
     handler = dispatch.get(args.command)
