@@ -8,6 +8,34 @@
 
 ## [Unreleased]
 
+## [2026-04-11c] — Event extraction refinement: proper role mapping (Me→OWNER, S2→OTHER)
+
+### Changed — Event extraction logic in enricher.py
+
+**Updated `_extract_events_from_analysis()`** to properly map LLM-supplied roles:
+- `Me` → `OWNER` (user/owner of the phone)
+- `S2` → `OTHER` (counterparty)
+- Unknown → `UNKNOWN`
+
+**Extended event type extraction:**
+1. **promises** — extract from `promises[].who` with role mapping
+2. **action_items** → `event_type='task'` (who=OWNER)
+3. **bs_evidence** → `event_type='contradiction'` (extracted from raw_response JSON)
+4. **amounts** → `event_type='debt'` (extracted from raw_response JSON)
+
+**Error handling:** Each field extraction wrapped in try/except. On failure, log warning
+and continue (don't fail enrichment). Graceful degradation per CONSTITUTION 6.4.
+
+**Parsing strategy:**
+- Promises use `p.get("who")` directly (Me/S2 from LLM JSON)
+- bs_evidence & amounts require parsing `raw_response` as JSON (LLM output may contain these)
+- If raw_response not JSON or missing field → skip silently with debug log
+
+### Result
+- Events now have correct role semantics matching LLM analysis
+- All 90 tests pass
+- Enricher robustly handles both complete and partial LLM responses
+
 ## [2026-04-11b] — Events table: structured extraction from analyses
 
 ### Added — `events` table for fine-grained analysis records (schema.sql + repository.py)

@@ -43,88 +43,119 @@ def _extract_events_from_analysis(
     """Extract structured events from LLM analysis result.
 
     Converts analysis fields into event records:
-    - promises → 'promise' events
+    - promises → 'promise' events (who: Me→OWNER, S2→OTHER)
     - action_items → 'task' events
-    - risks/contradictions → 'risk'/'contradiction' events
-    - debts/amounts → 'debt' events
-    - smalltalk facts → 'smalltalk' events
+    - bs_evidence → 'contradiction' events
+    - amounts → 'debt' events
+    - Handles role mapping and graceful error handling.
+
+    If extraction fails for any field, log and continue (don't fail the enrichment).
     """
     events = []
 
-    # Promises → event type 'promise'
-    if hasattr(analysis, "promises") and analysis.promises:
-        for p in analysis.promises:
-            if isinstance(p, dict):
-                events.append({
-                    "user_id": user_id,
-                    "contact_id": contact_id,
-                    "call_id": call_id,
-                    "event_type": "promise",
-                    "who": p.get("who", "UNKNOWN"),
-                    "payload": p.get("what", ""),
-                    "deadline": p.get("due"),
-                    "confidence": 0.9,
-                    "status": "open",
-                })
+    try:
+        # Promises → event type 'promise'
+        if hasattr(analysis, "promises") and analysis.promises:
+            for p in analysis.promises:
+                try:
+                    if isinstance(p, dict):
+                        who_raw = p.get("who", "UNKNOWN")
+                        # Map Me→OWNER, S2→OTHER
+                        who_mapped = "OWNER" if who_raw == "Me" else (
+                            "OTHER" if who_raw == "S2" else "UNKNOWN"
+                        )
+                        events.append({
+                            "user_id": user_id,
+                            "contact_id": contact_id,
+                            "call_id": call_id,
+                            "event_type": "promise",
+                            "who": who_mapped,
+                            "payload": p.get("what", ""),
+                            "deadline": p.get("due"),
+                            "confidence": 0.9,
+                            "status": "open",
+                        })
+                except Exception as e:
+                    log.warning("[enricher] Ошибка при извлечении promise: %s", e)
+                    continue
 
-    # Action items → event type 'task'
-    if hasattr(analysis, "action_items") and analysis.action_items:
-        for item in analysis.action_items:
-            if isinstance(item, str):
-                events.append({
-                    "user_id": user_id,
-                    "contact_id": contact_id,
-                    "call_id": call_id,
-                    "event_type": "task",
-                    "who": "OWNER",  # Actions are for owner
-                    "payload": item,
-                    "confidence": 0.85,
-                    "status": "open",
-                })
+        # Action items → event type 'task'
+        if hasattr(analysis, "action_items") and analysis.action_items:
+            for item in analysis.action_items:
+                try:
+                    if isinstance(item, str):
+                        events.append({
+                            "user_id": user_id,
+                            "contact_id": contact_id,
+                            "call_id": call_id,
+                            "event_type": "task",
+                            "who": "OWNER",  # Actions are for owner
+                            "payload": item,
+                            "confidence": 0.85,
+                            "status": "open",
+                        })
+                except Exception as e:
+                    log.warning("[enricher] Ошибка при извлечении action_item: %s", e)
+                    continue
 
-    # Risk/contradiction flags and evidence (from raw_response if available)
-    flags = getattr(analysis, "flags", {}) or {}
-    if isinstance(flags, dict):
-        if flags.get("conflict"):
-            events.append({
-                "user_id": user_id,
-                "contact_id": contact_id,
-                "call_id": call_id,
-                "event_type": "contradiction",
-                "who": "UNKNOWN",
-                "payload": "Конфликт/противоречие обнаружено",
-                "confidence": 0.8,
-                "status": "open",
-            })
+        # bs_evidence → 'contradiction' events
+        try:
+            raw_resp = getattr(analysis, "raw_response", "") or ""
+            if raw_resp:
+                # Try to extract bs_evidence from raw JSON response
+                import json
+                try:
+                    parsed = json.loads(raw_resp)
+                    bs_evidence = parsed.get("bs_evidence", [])
+                    if bs_evidence and isinstance(bs_evidence, list):
+                        for evidence in bs_evidence:
+                            if isinstance(evidence, str) and len(evidence) > 0:
+                                events.append({
+                                    "user_id": user_id,
+                                    "contact_id": contact_id,
+                                    "call_id": call_id,
+                                    "event_type": "contradiction",
+                                    "who": "UNKNOWN",
+                                    "payload": evidence,
+                                    "source_quote": evidence[:100],  # First 100 chars as quote
+                                    "confidence": 0.8,
+                                    "status": "open",
+                                })
+                except (json.JSONDecodeError, TypeError):
+                    pass  # raw_response не распарсился или не JSON
+        except Exception as e:
+            log.warning("[enricher] Ошибка при извлечении bs_evidence: %s", e)
 
-        if flags.get("legal_risk") or flags.get("urgent"):
-            events.append({
-                "user_id": user_id,
-                "contact_id": contact_id,
-                "call_id": call_id,
-                "event_type": "risk",
-                "who": "UNKNOWN",
-                "payload": "Юридический или срочный риск",
-                "confidence": 0.85,
-                "status": "open",
-            })
+        # Amounts → 'debt' events
+        try:
+            raw_resp = getattr(analysis, "raw_response", "") or ""
+            if raw_resp:
+                import json
+                try:
+                    parsed = json.loads(raw_resp)
+                    amounts = parsed.get("amounts", [])
+                    if amounts and isinstance(amounts, list):
+                        for amount in amounts:
+                            if isinstance(amount, str) and len(amount) > 0:
+                                events.append({
+                                    "user_id": user_id,
+                                    "contact_id": contact_id,
+                                    "call_id": call_id,
+                                    "event_type": "debt",
+                                    "who": "UNKNOWN",
+                                    "payload": f"Сумма упомянута: {amount}",
+                                    "source_quote": amount[:100],
+                                    "confidence": 0.75,
+                                    "status": "open",
+                                })
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        except Exception as e:
+            log.warning("[enricher] Ошибка при извлечении amounts: %s", e)
 
-    # Key topics → 'fact' events for high-confidence smalltalk
-    if hasattr(analysis, "key_topics") and analysis.key_topics:
-        for topic in analysis.key_topics:
-            if isinstance(topic, str) and len(topic) > 0:
-                # Check if this looks like a personal fact (lowercase heuristic)
-                if topic[0].islower() or " " in topic:
-                    events.append({
-                        "user_id": user_id,
-                        "contact_id": contact_id,
-                        "call_id": call_id,
-                        "event_type": "smalltalk",
-                        "who": "UNKNOWN",
-                        "payload": topic,
-                        "confidence": 0.7,
-                        "status": "open",
-                    })
+    except Exception as e:
+        log.error("[enricher] Неожиданная ошибка при извлечении events: %s", e)
+        # Don't fail enrichment, just skip events for this call
 
     return events
 

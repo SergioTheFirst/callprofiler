@@ -6,12 +6,28 @@
 
 ---
 
-## Текущее состояние: 2026-04-11b (Events table for structured event extraction)
+## Текущее состояние: 2026-04-11c (Event extraction with proper role mapping)
 
 ### Ветка разработки
 `claude/clone-callprofiler-repo-hL5dQ` (синхронизирована с origin)
 
-### Что сделано в этой сессии (2026-04-11b)
+### Что сделано в этой сессии (2026-04-11c)
+
+**Refined event extraction** with proper role mapping from LLM JSON:
+- Promises: extract `who` field and map Me→OWNER, S2→OTHER
+- Action items: all tagged with who=OWNER
+- bs_evidence: parse from raw_response JSON → event_type='contradiction'
+- amounts: parse from raw_response JSON → event_type='debt'
+- Error handling: per-field try/except, graceful degradation (log warning, continue)
+
+**Роли в данных:**
+- LLM выпускает JSON с полями `who: "Me"|"S2"`
+- В транскриптах метки `[me]` и `[s2]` (но они уже обработаны pyannote)
+- Маппинг: Me→OWNER (владелец), S2→OTHER (собеседник)
+
+---
+
+### Что было в сессии (2026-04-11b)
 
 1. **Added `events` table** to `schema.sql`:
    - 7 event types: promise, debt, contradiction, risk, task, fact, smalltalk
