@@ -94,3 +94,23 @@ CREATE TRIGGER IF NOT EXISTS transcripts_ai AFTER INSERT ON transcripts BEGIN
     SELECT NEW.segment_id, NEW.text, NEW.speaker, NEW.call_id,
            (SELECT user_id FROM calls WHERE call_id = NEW.call_id);
 END;
+
+CREATE TABLE IF NOT EXISTS events (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       TEXT NOT NULL REFERENCES users(user_id),
+    contact_id    INTEGER REFERENCES contacts(contact_id),
+    call_id       INTEGER NOT NULL REFERENCES calls(call_id),
+    event_type    TEXT NOT NULL CHECK(event_type IN (
+        'promise','debt','contradiction','risk','task','fact','smalltalk'
+    )),
+    who           TEXT CHECK(who IN ('OWNER','OTHER','UNKNOWN')),
+    payload       TEXT NOT NULL,
+    source_quote  TEXT,
+    confidence    REAL DEFAULT 1.0,
+    deadline      TEXT,
+    status        TEXT DEFAULT 'open' CHECK(status IN ('open','fulfilled','broken','expired','resolved')),
+    created_at    TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_contact ON events(user_id, contact_id, event_type);
+CREATE INDEX IF NOT EXISTS idx_events_status ON events(user_id, status);

@@ -34,6 +34,132 @@ _SHORT_CALL_THRESHOLD = 50
 _BATCH_SIZE = 5
 
 
+def _extract_events_from_analysis(
+    analysis: Analysis,
+    user_id: str,
+    contact_id: int | None,
+    call_id: int,
+) -> list[dict]:
+    """Extract structured events from LLM analysis result.
+
+    Converts analysis fields into event records:
+    - promises → 'promise' events (who: Me→OWNER, S2→OTHER)
+    - action_items → 'task' events
+    - bs_evidence → 'contradiction' events
+    - amounts → 'debt' events
+    - Handles role mapping and graceful error handling.
+
+    If extraction fails for any field, log and continue (don't fail the enrichment).
+    """
+    events = []
+
+    try:
+        # Promises → event type 'promise'
+        if hasattr(analysis, "promises") and analysis.promises:
+            for p in analysis.promises:
+                try:
+                    if isinstance(p, dict):
+                        who_raw = p.get("who", "UNKNOWN")
+                        # Map Me→OWNER, S2→OTHER
+                        who_mapped = "OWNER" if who_raw == "Me" else (
+                            "OTHER" if who_raw == "S2" else "UNKNOWN"
+                        )
+                        events.append({
+                            "user_id": user_id,
+                            "contact_id": contact_id,
+                            "call_id": call_id,
+                            "event_type": "promise",
+                            "who": who_mapped,
+                            "payload": p.get("what", ""),
+                            "deadline": p.get("due"),
+                            "confidence": 0.9,
+                            "status": "open",
+                        })
+                except Exception as e:
+                    log.warning("[enricher] Ошибка при извлечении promise: %s", e)
+                    continue
+
+        # Action items → event type 'task'
+        if hasattr(analysis, "action_items") and analysis.action_items:
+            for item in analysis.action_items:
+                try:
+                    if isinstance(item, str):
+                        events.append({
+                            "user_id": user_id,
+                            "contact_id": contact_id,
+                            "call_id": call_id,
+                            "event_type": "task",
+                            "who": "OWNER",  # Actions are for owner
+                            "payload": item,
+                            "confidence": 0.85,
+                            "status": "open",
+                        })
+                except Exception as e:
+                    log.warning("[enricher] Ошибка при извлечении action_item: %s", e)
+                    continue
+
+        # bs_evidence → 'contradiction' events
+        try:
+            raw_resp = getattr(analysis, "raw_response", "") or ""
+            if raw_resp:
+                # Try to extract bs_evidence from raw JSON response
+                import json
+                try:
+                    parsed = json.loads(raw_resp)
+                    bs_evidence = parsed.get("bs_evidence", [])
+                    if bs_evidence and isinstance(bs_evidence, list):
+                        for evidence in bs_evidence:
+                            if isinstance(evidence, str) and len(evidence) > 0:
+                                events.append({
+                                    "user_id": user_id,
+                                    "contact_id": contact_id,
+                                    "call_id": call_id,
+                                    "event_type": "contradiction",
+                                    "who": "UNKNOWN",
+                                    "payload": evidence,
+                                    "source_quote": evidence[:100],  # First 100 chars as quote
+                                    "confidence": 0.8,
+                                    "status": "open",
+                                })
+                except (json.JSONDecodeError, TypeError):
+                    pass  # raw_response не распарсился или не JSON
+        except Exception as e:
+            log.warning("[enricher] Ошибка при извлечении bs_evidence: %s", e)
+
+        # Amounts → 'debt' events
+        try:
+            raw_resp = getattr(analysis, "raw_response", "") or ""
+            if raw_resp:
+                import json
+                try:
+                    parsed = json.loads(raw_resp)
+                    amounts = parsed.get("amounts", [])
+                    if amounts and isinstance(amounts, list):
+                        for amount in amounts:
+                            if isinstance(amount, str) and len(amount) > 0:
+                                events.append({
+                                    "user_id": user_id,
+                                    "contact_id": contact_id,
+                                    "call_id": call_id,
+                                    "event_type": "debt",
+                                    "who": "UNKNOWN",
+                                    "payload": f"Сумма упомянута: {amount}",
+                                    "source_quote": amount[:100],
+                                    "confidence": 0.75,
+                                    "status": "open",
+                                })
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        except Exception as e:
+            log.warning("[enricher] Ошибка при извлечении amounts: %s", e)
+
+    except Exception as e:
+        log.error("[enricher] Неожиданная ошибка при извлечении events: %s", e)
+        # Don't fail enrichment, just skip events for this call
+
+    return events
+
+
 def _format_transcript(segments: list[dict]) -> str:
     """Форматировать и сжать транскрипт для промпта.
 
@@ -93,6 +219,10 @@ def _flush_batch(repo: Repository, batch: list[dict]) -> int:
     try:
         repo.save_batch(batch)
         log.debug("[enricher] Батч записан (%d элементов)", len(batch))
+        # Сохранить события отдельно (save_batch их не трогает)
+        for item in batch:
+            if item.get("events"):
+                repo.save_events(item["call_id"], item["events"])
         return 0
     except Exception as e:
         log.error("[enricher] Ошибка batch-записи: %s — пробуем по одному", e)
@@ -105,6 +235,8 @@ def _flush_batch(repo: Repository, batch: list[dict]) -> int:
                         item["user_id"], item["contact_id"],
                         item["call_id"], item["promises"],
                     )
+                if item.get("events"):
+                    repo.save_events(item["call_id"], item["events"])
             except Exception as ie:
                 log.error("[enricher] ✗ call_id=%d: ошибка записи: %s", item["call_id"], ie)
                 failed += 1
@@ -252,12 +384,18 @@ def bulk_enrich(
                 else:
                     stats["processed"] += 1
 
+                # Extract events from analysis
+                events = _extract_events_from_analysis(
+                    analysis, user_id, call.get("contact_id"), call_id
+                )
+
                 pending_batch.append({
                     "call_id": call_id,
                     "analysis": analysis,
                     "user_id": user_id,
                     "contact_id": call.get("contact_id"),
                     "promises": getattr(analysis, "promises", []),
+                    "events": events,
                 })
 
                 # Промежуточная статистика каждые 50 файлов

@@ -433,3 +433,76 @@ class Repository:
             (user_id, contact_id),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Events (structured extraction from transcripts and analyses)
+    # ------------------------------------------------------------------
+
+    def save_events(self, call_id: int, events: list[dict]) -> None:
+        """Save list of events extracted from call analysis.
+
+        Each event dict should contain: user_id, contact_id (nullable),
+        event_type, who, payload, source_quote (optional), confidence (optional),
+        deadline (optional), status (optional).
+        """
+        if not events:
+            return
+        conn = self._get_conn()
+        conn.executemany(
+            """INSERT INTO events
+               (user_id, contact_id, call_id, event_type, who, payload,
+                source_quote, confidence, deadline, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [(
+                e.get("user_id", ""),
+                e.get("contact_id"),
+                call_id,
+                e.get("event_type", "fact"),
+                e.get("who", "UNKNOWN"),
+                e.get("payload", ""),
+                e.get("source_quote"),
+                e.get("confidence", 1.0),
+                e.get("deadline"),
+                e.get("status", "open"),
+             ) for e in events],
+        )
+        conn.commit()
+
+    def get_open_events(self, user_id: str, contact_id: int | None = None,
+                        event_type: str | None = None) -> list[dict]:
+        """Get open events for a user, optionally filtered by contact and type."""
+        query = "SELECT * FROM events WHERE user_id = ? AND status = 'open'"
+        params = [user_id]
+
+        if contact_id is not None:
+            query += " AND contact_id = ?"
+            params.append(contact_id)
+
+        if event_type is not None:
+            query += " AND event_type = ?"
+            params.append(event_type)
+
+        query += " ORDER BY deadline, created_at DESC"
+
+        rows = self._get_conn().execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_events_for_contact(self, user_id: str, contact_id: int,
+                                limit: int = 50) -> list[dict]:
+        """Get all events for a contact, newest first."""
+        rows = self._get_conn().execute(
+            """SELECT * FROM events
+               WHERE user_id = ? AND contact_id = ?
+               ORDER BY created_at DESC LIMIT ?""",
+            (user_id, contact_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_event_status(self, event_id: int, status: str) -> None:
+        """Update status of an event (open → fulfilled/broken/expired/resolved)."""
+        conn = self._get_conn()
+        conn.execute(
+            "UPDATE events SET status = ? WHERE id = ?",
+            (status, event_id),
+        )
+        conn.commit()

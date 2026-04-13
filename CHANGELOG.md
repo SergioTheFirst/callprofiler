@@ -8,6 +8,96 @@
 
 ## [Unreleased]
 
+## [2026-04-11c] — Event extraction refinement: proper role mapping (Me→OWNER, S2→OTHER)
+
+### Changed — Event extraction logic in enricher.py
+
+**Updated `_extract_events_from_analysis()`** to properly map LLM-supplied roles:
+- `Me` → `OWNER` (user/owner of the phone)
+- `S2` → `OTHER` (counterparty)
+- Unknown → `UNKNOWN`
+
+**Extended event type extraction:**
+1. **promises** — extract from `promises[].who` with role mapping
+2. **action_items** → `event_type='task'` (who=OWNER)
+3. **bs_evidence** → `event_type='contradiction'` (extracted from raw_response JSON)
+4. **amounts** → `event_type='debt'` (extracted from raw_response JSON)
+
+**Error handling:** Each field extraction wrapped in try/except. On failure, log warning
+and continue (don't fail enrichment). Graceful degradation per CONSTITUTION 6.4.
+
+**Parsing strategy:**
+- Promises use `p.get("who")` directly (Me/S2 from LLM JSON)
+- bs_evidence & amounts require parsing `raw_response` as JSON (LLM output may contain these)
+- If raw_response not JSON or missing field → skip silently with debug log
+
+### Result
+- Events now have correct role semantics matching LLM analysis
+- All 90 tests pass
+- Enricher robustly handles both complete and partial LLM responses
+
+## [2026-04-11b] — Events table: structured extraction from analyses
+
+### Added — `events` table for fine-grained analysis records (schema.sql + repository.py)
+
+New table `events` captures structured insights extracted from LLM analyses:
+- **7 event types:** `promise`, `debt`, `contradiction`, `risk`, `task`, `fact`, `smalltalk`
+- **Per-event metadata:** `who` (OWNER/OTHER/UNKNOWN), `payload` (main content),
+  `source_quote` (optional), `deadline`, `confidence` (0.0–1.0), `status` (open/fulfilled/broken/expired/resolved)
+- **Dual indexing:** by `(user_id, contact_id, event_type)` and by `(user_id, status)` for fast queries
+
+**Why events?** Promises table captures only `{who, what, due, status}`. Events table adds:
+- Structured confidence per extracted fact
+- Event type classification (risk vs. promise vs. task)
+- Support for contradictions & debts
+- Smalltalk facts for context
+- Flexible deadline handling (some events have no deadline)
+- Full-featured status tracking (broken, expired, resolved, not just open/fulfilled)
+
+**Isolation:** All events filtered by `user_id` (CONSTITUTION 2.5). Contact isolation
+via `(user_id, contact_id)` pair.
+
+### Added — 4 new Repository methods (repository.py)
+
+```python
+def save_events(call_id, events: list[dict]) → None
+    Save events from a call analysis. Each event dict:
+    {user_id, contact_id (nullable), event_type, who, payload,
+     source_quote (opt), confidence (opt), deadline (opt), status (opt)}
+
+def get_open_events(user_id, contact_id=None, event_type=None) → list[dict]
+    Fetch open events, optionally filtered by contact and type.
+
+def get_events_for_contact(user_id, contact_id, limit=50) → list[dict]
+    Get all events (any status) for a contact, newest first.
+
+def update_event_status(event_id, status) → None
+    Update event status (open → fulfilled/broken/expired/resolved).
+```
+
+### Added — Event extraction in enricher.py (`_extract_events_from_analysis`)
+
+After LLM returns Analysis, enricher now extracts 7 event categories:
+
+1. **promises** → `{event_type: 'promise', who: p.who, payload: p.what, deadline: p.due, confidence: 0.9}`
+2. **action_items** → `{event_type: 'task', who: 'OWNER', payload: item, confidence: 0.85}`
+3. **flags.conflict** → `{event_type: 'contradiction', confidence: 0.8}`
+4. **flags.legal_risk / urgent** → `{event_type: 'risk', confidence: 0.85}`
+5. **key_topics** (heuristic) → `{event_type: 'smalltalk', confidence: 0.7}`
+   - Topics with lowercase start or spaces are treated as personal facts
+
+Each event carries its confidence level (LLM insights > flags > heuristics).
+
+**Batch save:** Events are saved in `_flush_batch()` after analysis + promises.
+Handles both single-transaction and per-item fallback gracefully.
+
+**Null contact_id:** Events saved even if contact_id is None (unknown caller).
+
+### Result
+- New events infrastructure ready for downstream analytics
+- 90/90 tests pass (no existing tests affected; events are new)
+- CONSTITUTION rules respected: user_id isolation, graceful error handling
+
 ## [2026-04-11] — AGENTS.md + доменные skills для AI-агентов
 
 ### Added — AGENTS.md (единая точка входа для любого AI-агента)
