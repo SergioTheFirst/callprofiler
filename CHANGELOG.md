@@ -8,6 +8,24 @@
 
 ## [Unreleased]
 
+### Added — Slash commands & Claude Code optimizations (token economy)
+
+**4 новые slash-команды в `.claude/commands/`:**
+- `/brief` — быстрый брифинг в начале сессии (80% экономия токенов vs ручное чтение)
+- `/quick-status` — компактный статус без чтения больших файлов
+- `/save` — безопасное сохранение сессии (tests → journal → commit → push)
+- `/check-schema` — проверка схемы БД перед SQL-запросами (предотвращает баги)
+
+**Расширенные permissions в `.claude/settings.local.json`:**
+- git commands (status, diff, log, add, commit, push, etc.) без подтверждения
+- pytest, python -m callprofiler — без подтверждения
+- Только безопасные read/test команды, никаких деструктивных операций
+
+**Новая секция в CLAUDE.md:** "SLASH-КОМАНДЫ" (дополнение к Memory Protocol, не замена)
+
+**Consequence:** Новые сессии могут использовать `/brief` вместо длинного startup prompt.
+Экономия ~1500 токенов на каждом старте сессии.
+
 ### Added — CLI commands for diagnostics & analytics (5 new commands)
 
 **Schema & Debugging:**

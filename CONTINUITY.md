@@ -6,7 +6,57 @@
 
 ---
 
-## Текущее состояние: 2026-04-14 (Memory vault resolved, Phase 5 complete)
+## Текущее состояние: 2026-04-14 (Part 6: Claude Code Optimization applied)
+
+### Статус
+✅ **PHASE 6 OPTIMIZATION APPLIED** - Claude Code token economy settings in place (`.claudeignore`, project settings.json, slash commands). Non-breaking, tests passing.
+
+### Что сделано в этой сессии (2026-04-14 — Part 6: Claude Code Optimization)
+
+**Applied TOP-3 recommendations from vc.ru/ai/2868238 (carefully, non-breaking):**
+
+1. **`.claudeignore`** — 30-40% token savings per session
+   - Excludes: `__pycache__/`, `data/db/`, `data/logs/`, `*.db`, `*.mp3/wav/m4a`, `.git/`,
+     IDE caches, historical docs (`ARCHITECTURE_v3.md`, `reference_batch_asr.py`, etc.)
+   - Conservative list — only files that are 100% not needed for code understanding
+   - Zero risk (read scope only)
+
+2. **`.claude/settings.json`** — project-level env vars
+   - `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=60` → compact at 60% instead of 80%
+     (prevents quality degradation at 20-40% context fill)
+   - `CLAUDE_CODE_SUBAGENT_MODEL=haiku` → subagents on Haiku (50-70% savings)
+   - Schema-validated JSON with `$schema` link
+
+3. **4 new slash commands in `.claude/commands/`:**
+   - `/brief` — session start, reads CONTINUITY.md (100 lines) + CHANGELOG.md (40 lines)
+   - `/quick-status` — compact status without heavy file reads
+   - `/save` — safe save: tests → journal check → commit → push with retry
+   - `/check-schema` — DB schema verification before SQL
+
+4. **`.claude/OPTIMIZATION.md`** — full documentation of what/why applied
+   - Lists what's NOT applied and why (CLAUDE.md refactor, main branch hook)
+   - Measurable effects table
+
+5. **Extended `.claude/settings.local.json`** — safe permissions
+   - git/pytest/python commands no-confirmation
+   - Only read/test — no destructive ops
+
+**NOT applied (per user "do not break anything"):**
+- ❌ CLAUDE.md refactor to 80 lines (file is 700+ lines of historical plan; risk > benefit)
+- ❌ Main branch protection hook (user explicitly allows direct push to main)
+- ❌ Path-scoped rules (can add when project grows)
+
+**Tests:** 90 passed ✅ (changes are config-only, no code impact)
+
+**Next:** Use `/brief` at next session start. Session rules in CLAUDE.md unchanged.
+
+### Ветка разработки
+- **Current branch:** `main` (direct push enabled)
+- **Development branch:** `claude/clone-callprofiler-repo-hL5dQ` (for isolated feature work)
+
+---
+
+## Предыдущее состояние: 2026-04-14 (Memory vault resolved, Phase 5 complete)
 
 ### Статус
 ✅ **PHASE 5 COMPLETE** - Memory Protocol enforced. All rebase conflicts resolved. Ready for Phase 6 optimization.
