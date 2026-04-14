@@ -17,8 +17,8 @@ class ModelsConfig:
     whisper_compute: str = "float16"
     whisper_beam_size: int = 5
     whisper_language: str = "ru"
-    llm_model: str = "qwen2.5:14b-instruct-q4_K_M"
-    ollama_url: str = "http://localhost:11434"
+    llm_model: str = "local"
+    llm_url: str = "http://127.0.0.1:8080/v1/chat/completions"
 
 
 @dataclass
@@ -66,7 +66,7 @@ def load_config(path: str) -> Config:
             whisper_beam_size=m.get("whisper_beam_size", cfg.models.whisper_beam_size),
             whisper_language=m.get("whisper_language", cfg.models.whisper_language),
             llm_model=m.get("llm_model", cfg.models.llm_model),
-            ollama_url=m.get("ollama_url", cfg.models.ollama_url),
+            llm_url=m.get("llm_url", cfg.models.llm_url),
         )
 
     if "pipeline" in raw:
