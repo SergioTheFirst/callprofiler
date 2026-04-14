@@ -148,3 +148,20 @@ Say: "Briefing complete. Last state: [one line summary]"
  
 At END of every session update CONTINUITY.md and CHANGELOG.md 
 Say: "Memory updated. Ready to commit." 
+
+
+## Session Memory Files
+
+Before ANY work, read these files in order:
+1. `CONTINUITY.md` — current state, blockers, next step
+2. Last 30 lines of `CHANGELOG.md` — recent changes
+
+Obsidian vault: `C:\pro\callprofiler-obsidian\sessions\`
+Session logs are stored there by date (YYYY-MM-DD.md)
+
+After completing work, ALWAYS:
+1. Update `CONTINUITY.md` — what state we are in NOW
+2. Add entry to `CHANGELOG.md` — what changed and why
+3. Say exactly: "Memory updated. Run save-session.bat to commit."
+
+NEVER skip this — it is the only continuity between sessions.
