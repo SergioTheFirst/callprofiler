@@ -6,10 +6,54 @@
 
 ---
 
-## Текущее состояние: 2026-04-11e (Telegram bot: full command suite + notifications)
+## Текущее состояние: 2026-04-14 (Audit + Memory Protocol + Automation fixes)
+
+### Статус
+**Audit complete.** Все критические файлы памяти и автоматизации на месте.
 
 ### Ветка разработки
 `claude/clone-callprofiler-repo-hL5dQ` (синхронизирована с origin)
+
+### Что сделано в этой сессии (2026-04-14) — Аудит памяти и автоматизации
+
+**FIXES APPLIED:**
+
+1. **CLAUDE.md** — Добавлена обязательная секция `🧠 MEMORY PROTOCOL`
+   - RULE 1: Контекст стирается, память только в журналах
+   - RULE 2: Начало сессии — прочитать CONTINUITY.md + CHANGELOG.md, сказать статус
+   - RULE 3: Сразу после кода — обновить CONTINUITY.md и CHANGELOG.md (без запроса)
+   - RULE 4: Конец ответа с кодом — `[Memory updated]`
+   - RULE 5: Лимит контекста — сохранить CONTINUITY.md ПЕРВЫМ
+   - RULE 6: НИКОГДА не пропускать обновление памяти
+
+2. **Автоматизация Windows (3 .bat файла):**
+   - `new-session.bat` — инициализация сессии (показать статус, CONTINUITY, CHANGELOG, ветка)
+   - `save-session.bat` — полное сохранение (тесты + commit + push)
+   - `emergency-save.bat` — срочное сохранение (без тестов, с timestamp)
+
+3. **start-prompt.txt** — Начальный prompt для новых сессий
+   - Напоминает о Memory Protocol
+   - Инструкции READ: CONTINUITY.md → CHANGELOG.md → SAY status
+   - Ссылки на ключевые файлы (CLAUDE, CONSTITUTION, AGENTS)
+   - Checklist перед финальным commit
+
+4. **CONTINUITY.md** — Обновлена с данными аудита
+
+**VERIFIED:**
+- ✓ CLAUDE.md tracked in git (как надо)
+- ✓ CHANGELOG.md tracked in git (как надо)
+- ✓ CONTINUITY.md tracked in git (как надо)
+- ✓ AGENTS.md tracked in git (как надо)
+- ✓ AGENTS.md section 3.3 правильно описывает обновление журналов
+- ✓ .gitignore не блокирует критические файлы
+
+**NOT FOUND (созданы в этой сессии):**
+- ✗ new-session.bat → CREATED
+- ✗ save-session.bat → CREATED
+- ✗ emergency-save.bat → CREATED
+- ✗ start-prompt.txt → CREATED
+
+---
 
 ### Что сделано в этой сессии (2026-04-11e)
 

@@ -1,31 +1,63 @@
 @echo off
-chcp 65001 > nul
+REM emergency-save.bat — Срочное сохранение перед потенциальной потерей контекста
+REM
+REM Используйте когда:
+REM - Быстро заканчивается токен контекста
+REM - Планируется перезагрузка машины
+REM - Нужно срочно сохраниться но нет времени на полный цикл save-session.bat
+REM
+REM ВНИМАНИЕ: этот скрипт НЕ проверяет тесты!
+REM Полная проверка должна быть в следующей сессии.
+
 echo.
-echo ========================================
-echo   EMERGENCY SAVE (Claude hit limits)
-echo ========================================
-echo.
-set /p MSG="What was done before limit hit: "
+echo ============================================
+echo  EMERGENCY SAVE — СРОЧНОЕ СОХРАНЕНИЕ
+echo ============================================
 echo.
 
-cd C:\pro\callprofiler
+REM Показать что произойдёт
+echo Будут сохранены ВСЕ изменения:
+git status --short
+echo.
+
+echo ВНИМАНИЕ: тесты НЕ проверяются!
+echo Проверьте в следующей сессии: pytest tests/
+echo.
+
+set /p CONFIRM="Продолжить срочное сохранение? (y/n) >> "
+if /i "%CONFIRM%" neq "y" (
+    echo Отмена.
+    pause
+    exit /b 0
+)
+
+REM Сразу добавляем всё
 git add -A
-git commit -m "emergency: %MSG%"
-git push origin main
-echo [OK] Code saved.
 
-for /f %%a in ('powershell -command "Get-Date -Format yyyy-MM-dd_HH-mm"') do set DT=%%a
-set NOTE=C:\pro\callprofiler-obsidian\sessions\EMERGENCY-%DT%.md
-powershell -command "$t = '# EMERGENCY %DT%' + [char]10 + [char]10 + '## Was doing:' + [char]10 + '%MSG%' + [char]10 + [char]10 + '## Next session start with:' + [char]10 + 'new-session.bat then Ctrl+V into Claude' + [char]10; [System.IO.File]::WriteAllText('%NOTE%', $t, [System.Text.Encoding]::UTF8)"
+REM Делаем коммит с timestamp
+for /f "tokens=2-4 delims=/ " %%a in ('date /t') do (set date=%%c-%%a-%%b)
+for /f "tokens=1-2 delims=/:" %%a in ('time /t') do (set time=%%a-%%b)
 
-cd C:\pro\callprofiler-obsidian
-git add -A
-git commit -m "emergency: %MSG%"
-git push origin main
-echo [OK] Notes saved.
+set COMMIT_MSG=EMERGENCY SAVE: %date% %time% (untested - check in next session)
+
 echo.
-echo ========================================
-echo  NEXT SESSION: just run new-session.bat
-echo  and press Ctrl+V in Claude as usual
-echo ========================================
+echo Commit: %COMMIT_MSG%
+git commit -m "%COMMIT_MSG%"
+
+REM Push если возможно
+echo.
+echo Попытка push...
+git push -u origin HEAD 2>nul
+if %ERRORLEVEL% equ 0 (
+    echo ✓ Push успешен
+) else (
+    echo ⚠ Push не удался (сохранено локально)
+    echo   Попробуйте push позже: git push -u origin HEAD
+)
+
+echo.
+echo ============================================
+echo ✓ АВАРИЙНОЕ СОХРАНЕНИЕ ЗАВЕРШЕНО
+echo ============================================
+echo.
 pause
