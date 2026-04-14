@@ -1,0 +1,9 @@
+Read CONTINUITY.md fully and the last 20 lines of CHANGELOG.md.
+Then say in one line: "Last state: [what was done] / Next: [what to do]"
+
+IMPORTANT RULES FOR THIS SESSION:
+- After every working code block: silently update CONTINUITY.md with current state
+- After every significant change: add one line to CHANGELOG.md [Unreleased] section
+- Do NOT ask me to remind you — do it automatically
+- If you are close to context limit: update CONTINUITY.md immediately, then warn me
+- End every response where code changed with: "[Memory updated]"
