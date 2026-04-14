@@ -188,6 +188,11 @@ Say: "Briefing complete. Last state: [one line summary]"
 At END of every session update CONTINUITY.md and CHANGELOG.md 
 Say: "Memory updated. Ready to commit." 
 
+## Git Branch Policy
+
+- Default branch for development: claude/clone-callprofiler-repo-hL5dQ
+- Can push directly to: main (no PR required)
+- All commits go to main branch
 
 ## Session Memory Files
 
