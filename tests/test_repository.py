@@ -98,6 +98,45 @@ def test_get_contact_by_phone_wrong_user(repo):
     assert repo.get_contact_by_phone("u2", "+79161234567") is None
 
 
+def test_phonebook_name_overwrites_existing_empty_name(repo):
+    """Имя из имени файла (телефонной книги) заполняет пустой контакт."""
+    add_user(repo)
+    # Первый звонок — контакт создан без имени (формат без имени в файле)
+    contact_id = repo.get_or_create_contact("user1", "+79161234567")
+    # Второй звонок — тот же номер, но уже с именем из телефонной книги
+    contact_id2 = repo.get_or_create_contact("user1", "+79161234567", "Иванов Иван")
+    assert contact_id == contact_id2  # тот же контакт
+    c = repo.get_contact_by_phone("user1", "+79161234567")
+    assert c["display_name"] == "Иванов Иван"
+    assert c["name_confirmed"] == 1
+
+
+def test_phonebook_name_overwrites_guessed_name(repo):
+    """Имя из телефонной книги перезаписывает guessed_name и предыдущий display_name."""
+    add_user(repo)
+    # Контакт с именем из предыдущего звонка
+    contact_id = repo.get_or_create_contact("user1", "+79161234567", "Иван")
+    # LLM угадал другое имя в guessed_name
+    repo.update_contact_guessed_name(contact_id, "Ваня", "llm", 1, "medium")
+    # Новый звонок с обновлённым именем из телефонной книги
+    repo.get_or_create_contact("user1", "+79161234567", "Иванов Иван Петрович")
+    c = repo.get_contact_by_phone("user1", "+79161234567")
+    assert c["display_name"] == "Иванов Иван Петрович"  # обновилось
+    assert c["name_confirmed"] == 1
+
+
+def test_no_name_in_filename_does_not_clear_existing(repo):
+    """Файл без имени в названии НЕ стирает уже существующий display_name."""
+    add_user(repo)
+    # Первый звонок с именем
+    repo.get_or_create_contact("user1", "+79161234567", "Иванов")
+    # Второй звонок без имени в файле (только номер)
+    repo.get_or_create_contact("user1", "+79161234567", None)
+    c = repo.get_contact_by_phone("user1", "+79161234567")
+    assert c["display_name"] == "Иванов"  # имя сохранилось
+    assert c["name_confirmed"] == 1
+
+
 # ---- Calls ----
 
 def test_create_and_get_call(repo):

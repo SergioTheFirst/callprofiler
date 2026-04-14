@@ -11,11 +11,17 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS contacts (
-    contact_id     INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id        TEXT NOT NULL REFERENCES users(user_id),
-    phone_e164     TEXT,
-    display_name   TEXT,
-    created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    contact_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id          TEXT NOT NULL REFERENCES users(user_id),
+    phone_e164       TEXT,
+    display_name     TEXT,
+    guessed_name     TEXT,
+    guessed_company  TEXT,
+    guess_source     TEXT,
+    guess_call_id    INTEGER REFERENCES calls(call_id),
+    guess_confidence TEXT,
+    name_confirmed   INTEGER NOT NULL DEFAULT 0,
+    created_at       TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(user_id, phone_e164)
 );
 
@@ -65,7 +71,7 @@ CREATE TABLE IF NOT EXISTS analyses (
 CREATE TABLE IF NOT EXISTS promises (
     promise_id     INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id        TEXT NOT NULL REFERENCES users(user_id),
-    contact_id     INTEGER NOT NULL REFERENCES contacts(contact_id),
+    contact_id     INTEGER REFERENCES contacts(contact_id),
     call_id        INTEGER NOT NULL REFERENCES calls(call_id),
     who            TEXT NOT NULL,
     what           TEXT NOT NULL,
@@ -88,3 +94,39 @@ CREATE TRIGGER IF NOT EXISTS transcripts_ai AFTER INSERT ON transcripts BEGIN
     SELECT NEW.segment_id, NEW.text, NEW.speaker, NEW.call_id,
            (SELECT user_id FROM calls WHERE call_id = NEW.call_id);
 END;
+
+CREATE TABLE IF NOT EXISTS events (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       TEXT NOT NULL REFERENCES users(user_id),
+    contact_id    INTEGER REFERENCES contacts(contact_id),
+    call_id       INTEGER NOT NULL REFERENCES calls(call_id),
+    event_type    TEXT NOT NULL CHECK(event_type IN (
+        'promise','debt','contradiction','risk','task','fact','smalltalk'
+    )),
+    who           TEXT CHECK(who IN ('OWNER','OTHER','UNKNOWN')),
+    payload       TEXT NOT NULL,
+    source_quote  TEXT,
+    confidence    REAL DEFAULT 1.0,
+    deadline      TEXT,
+    status        TEXT DEFAULT 'open' CHECK(status IN ('open','fulfilled','broken','expired','resolved')),
+    created_at    TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_contact ON events(user_id, contact_id, event_type);
+CREATE INDEX IF NOT EXISTS idx_events_status ON events(user_id, status);
+
+CREATE TABLE IF NOT EXISTS contact_summaries (
+    contact_id    INTEGER PRIMARY KEY REFERENCES contacts(contact_id),
+    user_id       TEXT NOT NULL REFERENCES users(user_id),
+    total_calls   INTEGER DEFAULT 0,
+    last_call_date TEXT,
+    global_risk   INTEGER DEFAULT 0,
+    avg_bs_score  INTEGER DEFAULT 0,
+    top_hook      TEXT,
+    open_promises TEXT,
+    open_debts    TEXT,
+    personal_facts TEXT,
+    contact_role  TEXT,
+    advice        TEXT,
+    updated_at    TEXT DEFAULT CURRENT_TIMESTAMP
+);
