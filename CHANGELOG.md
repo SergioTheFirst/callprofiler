@@ -8,10 +8,29 @@
 
 ## [Unreleased]
 
-### Added — CLI commands: search and promises
-- `search <query> --user ID`: FTS5 search across transcripts (up to 10 results with date/contact/text)
-- `promises --user ID`: show all open promises grouped by contact with status emoji
-- Both commands follow existing CLI patterns with proper user validation
+### Added — CLI commands for diagnostics & analytics (5 new commands)
+
+**Schema & Debugging:**
+- `inspect-schema`: PRAGMA table_info for all tables, shows columns/types/constraints/indices
+- `backfill-events --user ID`: Fill missing events from existing analyses (promises→promise, action_items→task, bs_evidence→contradiction, amounts→debt)
+
+**Search & Promises:**
+- `search <query> --user ID`: FTS5 search in transcripts (max 10 results with date, best contact name, text fragment, call_id)
+- `promises --user ID`: Open promises grouped by contact with proper who translation (Me→"Я (Сергей)", S2→contact_name)
+
+**Analytics:**
+- `analytics --user ID`: Statistics on contacts/calls/events/promises with top-5 by calls/risk/bs_score
+
+### Added — Helper functions for better UX
+- `_get_best_contact_name()`: Selects display_name → guessed_name → phone_e164 (first non-empty)
+- `_translate_who()`: Translates Me/S2/OWNER/OTHER to human-readable format
+- Both applied in search, promises, and analytics commands
+
+### Fixed — Data display consistency
+- All commands now use same contact name selection logic
+- Proper who field translation across all outputs
+- Call datetime and due date formatting
+- User validation on all commands
 
 ### Fixed — Memory vault rebase conflict resolved
 - Resolved 4-way merge conflict in memory/{business,decisions,roadmap,bugs}.md

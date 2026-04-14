@@ -64,24 +64,49 @@
    - Phase 5 automation complete ✓
    - Next: Phase 6 optimization (GPU memory, DB indexing, Telegram search pagination)
 
-### Что сделано в этой сессии (2026-04-14 — Part 4: CLI Commands)
+### Что сделано в этой сессии (2026-04-14 — Part 5: 5 CLI Commands, Schema Inspection, Events Backfill)
 
-**NEW COMMANDS ADDED:**
+**ПРОБЛЕМА 1: РЕШЕНО - Events таблица пуста**
+- ✓ Проверен enricher.py → уже вызывает repo.save_events() на строках 225, 239
+- ✓ Создана команда `backfill-events --user ID` для заполнения пропущенных событий
+  - Парсит raw_response из существующих анализов
+  - Извлекает: promises, action_items, bs_evidence, amounts
+  - Маппирует: Me→OWNER, S2→OTHER
+  - Сохраняет в таблицу events
 
-1. **search <query> --user ID**
-   - FTS5 search across all transcripts for user
-   - Displays up to 10 results with: date, contact name/phone, text fragment (120 chars)
-   - Properly formats output with contact lookup
-   - Handles user validation
+**ПРОБЛЕМА 2: РЕШЕНО - SQL-запросы неизвестных колонок**
+- ✓ Создана команда `inspect-schema`
+  - Выводит PRAGMA table_info для всех таблиц
+  - Показывает колонки, типы, constraints, индексы
+  - Поддержка виртуальных таблиц (FTS5)
 
-2. **promises --user ID**
-   - Shows all open promises (status='open')
-   - Grouped by contact (by contact_id)
-   - Displays: contact name, phone, who made promise, what was promised, due date
-   - Status emoji: ✓ for closed, ⏳ for open
-   - Shows total count
+**ПРОБЛЕМА 3: РЕШЕНО - Отсутствовали search и promises**
+- ✓ Добавлена команда `search <query> --user ID`
+  - FTS5 поиск по транскриптам (до 10 результатов)
+  - Выводит: дата | лучшее имя контакта | телефон | фрагмент | call_id
+  - Выбор имени: display_name → guessed_name → phone_e164
 
-**Commit:** `503b13a` - Added to main
+- ✓ Добавлена команда `promises --user ID`
+  - Открытые promises, сгруппированные по контакту
+  - Выводит: контакт | кто | что | когда | из звонка
+  - Перевод who: Me→"Я (Сергей)", S2→имя контакта, OWNER→"Я", OTHER→имя контакта
+
+**ПРОБЛЕМА 4: РЕШЕНО - Who поле неинформативно**
+- ✓ Добавлена функция `_get_best_contact_name()` - выбирает display_name→guessed_name→phone_e164
+- ✓ Добавлена функция `_translate_who()` - переводит Me/S2/OWNER/OTHER в человеческий формат
+- ✓ Применена во всех командах (search, promises, analytics)
+
+**ПРОБЛЕМА 5: РЕШЕНО - Аналитические запросы**
+- ✓ Создана команда `analytics --user ID`
+  - Всего контактов, звонков, анализов
+  - События по типам (promise, debt, task, risk, etc.)
+  - Promises: open / всего
+  - Топ-5 контактов по кол-ву звонков
+  - Топ-5 по risk_score (average)
+  - Топ-5 по bs_score (average)
+  - Контакты с guessed_name
+
+**Все 90 тестов PASSED ✅**
 
 ### Текущий workflow (going forward)
 
