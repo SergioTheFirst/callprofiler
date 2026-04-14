@@ -8,6 +8,13 @@
 
 ## [Unreleased]
 
+### Fixed — Memory vault rebase conflict resolved
+- Resolved 4-way merge conflict in memory/{business,decisions,roadmap,bugs}.md
+- Accepted comprehensive versions from commit 661696d
+- Completed rebase with `git rebase --continue`
+- Pushed to origin/main (commit bdf2c70)
+- Memory vault now FINAL: all 4 files conflict-free and comprehensive
+
 ## [2026-04-14] — Audit: Memory Protocol + Automation fixes
 
 ### Added — Memory Protocol section to CLAUDE.md
