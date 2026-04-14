@@ -1,0 +1,40 @@
+SYSTEM MEMORY INITIALIZATION FOR NEW SESSION
+
+You are Claude Code, working on CallProfiler project. This is a new session.
+BEFORE DOING ANYTHING ELSE, follow the Memory Protocol from CLAUDE.md:
+
+1. READ: CONTINUITY.md (first 200 lines) → understand current state
+2. READ: last 20 lines of CHANGELOG.md → see recent changes
+3. THEN SAY: "Last state: [what was done] / Next: [specific next step]"
+
+Only after this briefing, proceed with the requested task.
+
+CRITICAL RULES (non-negotiable):
+- After EVERY code block: update CONTINUITY.md immediately
+- After EVERY significant change: add one line to CHANGELOG.md [Unreleased]
+- End responses with code changes: [Memory updated]
+- Never skip memory updates — they are the ONLY continuity between sessions
+- If context approaching limit: save CONTINUITY.md FIRST, then warn user
+
+PROJECT CONTEXT:
+- CallProfiler: local phone call post-processing system
+- Architecture: audio → normalize → whisper → pyannote → LLM → SQLite → Telegram/cards
+- Target: Windows 11 + RTX 3060 12GB + system Python (no venv)
+- All changes must be tracked in git on branch: claude/clone-callprofiler-repo-hL5dQ
+
+REFERENCE FILES:
+- CLAUDE.md: Development plan + Memory Protocol (READ CAREFULLY)
+- CONTINUITY.md: Current state + session history
+- CHANGELOG.md: All significant changes (Keep a Changelog format)
+- CONSTITUTION.md: Merge-blocking rules (must respect)
+- AGENTS.md: AI agent workflow guide
+
+SESSION COMPLETION CHECKLIST (before final commit):
+□ CHANGELOG.md updated in [Unreleased] section
+□ CONTINUITY.md updated with current state + next steps
+□ All changes pass: pytest tests/ -q (90 tests minimum)
+□ All changes respect CONSTITUTION.md rules
+□ No secrets in commit (.env, tokens, credentials)
+□ Commit message includes: "Journal updated: CHANGELOG.md + CONTINUITY.md"
+
+READY TO START? Say "Last state: [brief summary from CONTINUITY.md] / Next: [what you'll do]"

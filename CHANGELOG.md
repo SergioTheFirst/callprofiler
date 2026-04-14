@@ -8,6 +8,70 @@
 
 ## [Unreleased]
 
+## [2026-04-14] — Audit: Memory Protocol + Automation fixes
+
+### Added — Memory Protocol section to CLAUDE.md
+
+**CRITICAL:** Added mandatory `🧠 MEMORY PROTOCOL` section with 6 binding rules:
+1. Context erasure — memory only in journals (CONTINUITY.md, CHANGELOG.md, AGENTS.md)
+2. START of session — read CONTINUITY + CHANGELOG, say "Last state: X / Next: Y"
+3. AFTER code block — update CONTINUITY + CHANGELOG immediately (don't ask)
+4. END response with code — append "[Memory updated]"
+5. CONTEXT LIMIT — save CONTINUITY.md FIRST, then warn user
+6. NEVER skip memory updates — only continuity between sessions
+
+This prevents context loss and ensures every session can resume from exact state.
+
+### Added — Windows automation batch files
+
+**`new-session.bat`**: Initialize session by reading:
+- git status
+- CONTINUITY.md (current state)
+- CHANGELOG.md (recent changes)
+- current branch
+Shows: "READY TO WORK, use save-session.bat when done"
+
+**`save-session.bat`**: Full session save:
+1. Show changes (git status --short)
+2. Run pytest tests/ -q (aborts if tests fail)
+3. Verify CHANGELOG.md + CONTINUITY.md changed
+4. Stage all changes
+5. Commit with user message
+6. Push to origin
+
+**`emergency-save.bat`**: Quick emergency save (untested):
+1. Confirm with user
+2. Commit with timestamp
+3. Push if possible (or save locally)
+Use when context running out or system going down
+
+### Added — start-prompt.txt
+
+Initial prompt for new sessions enforcing Memory Protocol:
+- Mandatory briefing: read CONTINUITY.md → CHANGELOG.md → state status
+- Links to CLAUDE.md, CONSTITUTION.md, AGENTS.md
+- Pre-commit checklist
+- Reminder: "Say 'Last state: X / Next: Y' before starting work"
+
+### Verified — No memory files in .gitignore
+
+Checked that critical files are tracked in git:
+- ✓ CLAUDE.md (tracked)
+- ✓ CHANGELOG.md (tracked)
+- ✓ CONTINUITY.md (tracked)
+- ✓ AGENTS.md (tracked)
+- ✗ *.bat files not in .gitignore (will be tracked)
+- ✗ start-prompt.txt not in .gitignore (will be tracked)
+
+### Result
+
+Memory and automation system now complete and robust:
+- Strong Memory Protocol binding all AI sessions to journals
+- Windows-friendly automation for session init/save/emergency
+- Clear guidance in start-prompt.txt for every new session
+- All critical files tracked in git
+- Prevents context loss and ensures continuity between sessions
+
 ## [2026-04-11e] — Telegram bot: commands, notifications, and feedback integration
 
 ### Added — `TelegramNotifier` class with full command suite (deliver/telegram_bot.py)
