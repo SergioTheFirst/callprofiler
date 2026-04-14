@@ -1,50 +1,45 @@
-@echo off
-REM new-session.bat — Инициализация новой рабочей сессии
-REM
-REM Что делает:
-REM 1. Проверяет статус git
-REM 2. Выводит последнее состояние (CONTINUITY.md + CHANGELOG.md)
-REM 3. Показывает следующий шаг
-REM 4. Готовит к работе (ls files, pytest status)
-
+﻿@echo off
+chcp 65001 > nul
 echo.
-echo ============================================
-echo  CallProfiler — новая рабочая сессия
-echo ============================================
+echo ========================================
+echo   CALLPROFILER - START SESSION
+echo ========================================
 echo.
 
-REM Проверить git статус
-echo [1/4] Проверка git статуса...
-git status
+echo [1/4] Git status...
+cd C:\pro\callprofiler
+git pull origin main
 echo.
 
-REM Показать текущее состояние
-echo [2/4] CONTINUITY.md (последнее состояние):
-echo ────────────────────────────────────────
-for /f "tokens=*" %%A in ('findstr /N "^" CONTINUITY.md ^| findstr /B "9:" ^| findstr /v "^9:$"') do (
-    setlocal enabledelayedexpansion
-    set line=%%A
-    echo !line:~2!
+echo [2/4] Obsidian pull...
+cd C:\pro\callprofiler-obsidian
+git pull origin main
+echo.
+
+echo [3/4] Creating today log...
+cd C:\pro\callprofiler-obsidian
+for /f %%a in ('powershell -command "Get-Date -Format yyyy-MM-dd"') do set D=%%a
+set FILE=C:\pro\callprofiler-obsidian\sessions\%D%.md
+if not exist "%FILE%" (
+    powershell -command "$t = '# Session %D%' + [char]10 + [char]10 + '## Goal' + [char]10 + [char]10 + '## Done' + [char]10 + [char]10 + '## Problems' + [char]10 + [char]10 + '## Next Step' + [char]10; [System.IO.File]::WriteAllText('%FILE%', $t, [System.Text.Encoding]::UTF8)"
+    echo [OK] Created: %FILE%
+) else (
+    echo [OK] Log exists: %FILE%
 )
 echo.
 
-REM Показать последние изменения в CHANGELOG
-echo [3/4] CHANGELOG.md (последние 10 строк):
-echo ────────────────────────────────────────
-powershell -Command "Get-Content CHANGELOG.md -Tail 10"
+echo [4/4] Copying start prompt to clipboard...
+cd C:\pro\callprofiler
+powershell -command "Get-Content 'start-prompt.txt' -Encoding UTF8 | Set-Clipboard"
+echo [OK] Prompt copied - go to Claude and press Ctrl+V
 echo.
 
-REM Показать текущую ветку
-echo [4/4] Текущая ветка:
-git branch --show-current
+echo ========================================
+echo   LAST 5 COMMITS:
+echo ========================================
+git log --oneline -5
 echo.
-
-REM Готовность к работе
-echo ============================================
-echo Статус: ГОТОВ К РАБОТЕ
-echo.
-echo Используйте после работы:
-echo   save-session.bat   — сохранить изменения
-echo   emergency-save.bat — срочное сохранение
-echo ============================================
-echo.
+echo ========================================
+echo   READY. Press Ctrl+V in Claude.
+echo ========================================
+pause
