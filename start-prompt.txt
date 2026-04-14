@@ -1,18 +1,18 @@
-You are working on CallProfiler project. Read these files IN ORDER before doing anything:
+﻿You are working on CallProfiler project. Read these files IN ORDER before doing anything:
 
-1. CONTINUITY.md — current state and next step
-2. Last 20 lines of CHANGELOG.md — recent changes
-3. C:\pro\callprofiler-obsidian\context\business.md — what this system does
-4. C:\pro\callprofiler-obsidian\architecture\decisions.md — why things are built this way
-5. C:\pro\callprofiler-obsidian\roadmap.md — phases and current phase
-6. C:\pro\callprofiler-obsidian\bugs.md — known bugs and ideas
+1. CONTINUITY.md вЂ” current state and next step
+2. Last 20 lines of CHANGELOG.md вЂ” recent changes
+3. memory/business.md вЂ” what this system does
+4. memory/decisions.md вЂ” why things are built this way
+5. memory/roadmap.md вЂ” phases and current phase
+6. memory/bugs.md вЂ” known bugs and ideas
 
 After reading say ONE line: "Last state: [what was done] / Next: [exact next action]"
 
 RULES FOR THIS SESSION (no exceptions):
 - After every working code block: update CONTINUITY.md immediately
 - After every significant change: add one line to CHANGELOG.md [Unreleased]
-- If you see a new bug or idea: add it to C:\pro\callprofiler-obsidian\bugs.md
-- If you make an architecture decision: add it to C:\pro\callprofiler-obsidian\architecture\decisions.md
+- If you see a new bug or idea: add it to memory/bugs.md
+- If you make an architecture decision: add it to memory/decisions.md
 - If approaching context limit: update CONTINUITY.md FIRST, then warn me
 - End every response where code changed with: "[Memory updated]"
