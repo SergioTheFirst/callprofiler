@@ -673,3 +673,17 @@ python -m callprofiler watch
 8. **При ошибке на любом шаге** — не ронять pipeline, логировать и идти дальше.
 9. **Каждый модуль** должен работать автономно (можно протестировать отдельно).
 10. **Не добавлять** то, чего нет в плане. Никаких Docker, Redis, WhisperX, ECAPA enrollment.
+
+---
+
+## Git Branch Policy
+
+**РАЗРЕШЕНИЕ (2026-04-14):** Claude может пушить напрямую в `main` БЕЗ PR.
+
+- **Development branch:** `claude/clone-callprofiler-repo-hL5dQ` (для промежуточной работы)
+- **Push destination:** `main` (прямой пуш, без PR)
+- **Strategy:**
+  1. Работать на feature branch (для отдельных задач)
+  2. При готовности: merge в `main` и push
+  3. Все critical files (CLAUDE.md, CHANGELOG.md, CONTINUITY.md, AGENTS.md) ВСЕГДА обновлены перед push
+  4. Каждый коммит включает "Journal updated: CHANGELOG.md + CONTINUITY.md"
