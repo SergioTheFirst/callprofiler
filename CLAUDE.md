@@ -140,3 +140,11 @@ Read these when working on specific areas:
 - Strategic plan and phases: @STRATEGIC_PLAN_v4.md
 - Working ASR/diarize prototype: @reference_batch_asr.py
 - LLM analysis prompt: @configs/prompts/analyze_v001.txt
+ 
+## Memory Protocol 
+ 
+At START of every session read CONTINUITY.md and last 20 lines of CHANGELOG.md 
+Say: "Briefing complete. Last state: [one line summary]" 
+ 
+At END of every session update CONTINUITY.md and CHANGELOG.md 
+Say: "Memory updated. Ready to commit." 
