@@ -8,6 +8,11 @@
 
 ## [Unreleased]
 
+### Added — CLI commands: search and promises
+- `search <query> --user ID`: FTS5 search across transcripts (up to 10 results with date/contact/text)
+- `promises --user ID`: show all open promises grouped by contact with status emoji
+- Both commands follow existing CLI patterns with proper user validation
+
 ### Fixed — Memory vault rebase conflict resolved
 - Resolved 4-way merge conflict in memory/{business,decisions,roadmap,bugs}.md
 - Accepted comprehensive versions from commit 661696d

@@ -64,6 +64,25 @@
    - Phase 5 automation complete ✓
    - Next: Phase 6 optimization (GPU memory, DB indexing, Telegram search pagination)
 
+### Что сделано в этой сессии (2026-04-14 — Part 4: CLI Commands)
+
+**NEW COMMANDS ADDED:**
+
+1. **search <query> --user ID**
+   - FTS5 search across all transcripts for user
+   - Displays up to 10 results with: date, contact name/phone, text fragment (120 chars)
+   - Properly formats output with contact lookup
+   - Handles user validation
+
+2. **promises --user ID**
+   - Shows all open promises (status='open')
+   - Grouped by contact (by contact_id)
+   - Displays: contact name, phone, who made promise, what was promised, due date
+   - Status emoji: ✓ for closed, ⏳ for open
+   - Shows total count
+
+**Commit:** `503b13a` - Added to main
+
 ### Текущий workflow (going forward)
 
 **Mode: Direct push to main**
