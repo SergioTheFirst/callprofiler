@@ -6,15 +6,53 @@
 
 ---
 
-## Текущее состояние: 2026-04-14 (Audit + Memory Protocol + Automation fixes)
+## Текущее состояние: 2026-04-14 (Direct push to main enabled)
 
 ### Статус
-**Audit complete.** Все критические файлы памяти и автоматизации на месте.
+✅ **OPERATIONAL** - All systems go. Claude now pushing directly to main.
 
 ### Ветка разработки
-`claude/clone-callprofiler-repo-hL5dQ` (синхронизирована с origin)
+- **Feature branch:** `claude/clone-callprofiler-repo-hL5dQ` (for isolated work)
+- **Push destination:** `main` (direct push, no PR)
 
-### Что сделано в этой сессии (2026-04-14) — Аудит памяти и автоматизации
+### Что сделано в этой сессии (2026-04-14 — Part 2)
+
+**MERGED TO MAIN AND PUSHED:**
+
+1. **Permission activated:** Claude Code can now push directly to `main`
+   - Updated CLAUDE.md with Git Branch Policy section
+   - All changes merged from feature branch to main
+   - All work now on main branch
+
+2. **Commits merged (5 total):**
+   - `8d62300` Audit: Memory Protocol + Automation fixes
+   - `1d165bd` Implement Telegram bot (6 commands + notifications)
+   - `bc4fd6f` Contact summaries infrastructure (weighted risk)
+   - `80c3b57` Event extraction refinement
+   - `fd862d3` Events table and extraction
+   - Plus: audit + policy update commits
+
+3. **Files on main:**
+   - ✓ CLAUDE.md (with Memory Protocol + Git Policy)
+   - ✓ CHANGELOG.md (comprehensive history)
+   - ✓ CONTINUITY.md (state tracking)
+   - ✓ AGENTS.md (AI workflow)
+   - ✓ 3 .bat files (new-session, save-session, emergency-save)
+   - ✓ start-prompt.txt (session initialization)
+   - ✓ All source code (contact_summaries, telegram_bot, etc.)
+
+### Текущий workflow (going forward)
+
+**Mode: Direct push to main**
+
+1. Work on `claude/clone-callprofiler-repo-hL5dQ` for isolated tasks
+2. When ready: merge to `main` and push
+3. Keep journals updated ALWAYS (CHANGELOG + CONTINUITY)
+4. Every commit includes: "Journal updated: CHANGELOG.md + CONTINUITY.md"
+
+---
+
+### Что сделано в этой сессии (2026-04-14 — Part 1)
 
 **FIXES APPLIED:**
 
