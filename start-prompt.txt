@@ -1,40 +1,18 @@
-SYSTEM MEMORY INITIALIZATION FOR NEW SESSION
+You are working on CallProfiler project. Read these files IN ORDER before doing anything:
 
-You are Claude Code, working on CallProfiler project. This is a new session.
-BEFORE DOING ANYTHING ELSE, follow the Memory Protocol from CLAUDE.md:
+1. CONTINUITY.md — current state and next step
+2. Last 20 lines of CHANGELOG.md — recent changes
+3. C:\pro\callprofiler-obsidian\context\business.md — what this system does
+4. C:\pro\callprofiler-obsidian\architecture\decisions.md — why things are built this way
+5. C:\pro\callprofiler-obsidian\roadmap.md — phases and current phase
+6. C:\pro\callprofiler-obsidian\bugs.md — known bugs and ideas
 
-1. READ: CONTINUITY.md (first 200 lines) → understand current state
-2. READ: last 20 lines of CHANGELOG.md → see recent changes
-3. THEN SAY: "Last state: [what was done] / Next: [specific next step]"
+After reading say ONE line: "Last state: [what was done] / Next: [exact next action]"
 
-Only after this briefing, proceed with the requested task.
-
-CRITICAL RULES (non-negotiable):
-- After EVERY code block: update CONTINUITY.md immediately
-- After EVERY significant change: add one line to CHANGELOG.md [Unreleased]
-- End responses with code changes: [Memory updated]
-- Never skip memory updates — they are the ONLY continuity between sessions
-- If context approaching limit: save CONTINUITY.md FIRST, then warn user
-
-PROJECT CONTEXT:
-- CallProfiler: local phone call post-processing system
-- Architecture: audio → normalize → whisper → pyannote → LLM → SQLite → Telegram/cards
-- Target: Windows 11 + RTX 3060 12GB + system Python (no venv)
-- All changes must be tracked in git on branch: claude/clone-callprofiler-repo-hL5dQ
-
-REFERENCE FILES:
-- CLAUDE.md: Development plan + Memory Protocol (READ CAREFULLY)
-- CONTINUITY.md: Current state + session history
-- CHANGELOG.md: All significant changes (Keep a Changelog format)
-- CONSTITUTION.md: Merge-blocking rules (must respect)
-- AGENTS.md: AI agent workflow guide
-
-SESSION COMPLETION CHECKLIST (before final commit):
-□ CHANGELOG.md updated in [Unreleased] section
-□ CONTINUITY.md updated with current state + next steps
-□ All changes pass: pytest tests/ -q (90 tests minimum)
-□ All changes respect CONSTITUTION.md rules
-□ No secrets in commit (.env, tokens, credentials)
-□ Commit message includes: "Journal updated: CHANGELOG.md + CONTINUITY.md"
-
-READY TO START? Say "Last state: [brief summary from CONTINUITY.md] / Next: [what you'll do]"
+RULES FOR THIS SESSION (no exceptions):
+- After every working code block: update CONTINUITY.md immediately
+- After every significant change: add one line to CHANGELOG.md [Unreleased]
+- If you see a new bug or idea: add it to C:\pro\callprofiler-obsidian\bugs.md
+- If you make an architecture decision: add it to C:\pro\callprofiler-obsidian\architecture\decisions.md
+- If approaching context limit: update CONTINUITY.md FIRST, then warn me
+- End every response where code changed with: "[Memory updated]"
