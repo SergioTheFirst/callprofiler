@@ -3,12 +3,14 @@
 main.py — точка входа CLI для CallProfiler.
 
 Использование:
-  python -m callprofiler watch                    # watchdog + обработка
-  python -m callprofiler process <file> --user ID # обработать один файл
-  python -m callprofiler reprocess                # повторить ошибки
-  python -m callprofiler add-user ID ...          # добавить пользователя
-  python -m callprofiler digest <user> [--days N] # дайджест звонков
-  python -m callprofiler status                   # состояние очереди
+  python -m callprofiler watch                         # watchdog + обработка
+  python -m callprofiler process <file> --user ID      # обработать один файл
+  python -m callprofiler reprocess                     # повторить ошибки
+  python -m callprofiler add-user ID ...               # добавить пользователя
+  python -m callprofiler digest <user> [--days N]      # дайджест звонков
+  python -m callprofiler search <query> --user ID      # FTS5 поиск
+  python -m callprofiler promises --user ID            # показать открытые promises
+  python -m callprofiler status                        # состояние очереди
 """
 
 from __future__ import annotations
@@ -458,6 +460,105 @@ def cmd_rebuild_cards(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_search(args: argparse.Namespace) -> int:
+    """search <query> --user <user_id> — FTS5 поиск по транскриптам."""
+    cfg, repo = _load_config_and_repo(args.config)
+    _setup_logging(None, args.verbose)
+
+    log = logging.getLogger(__name__)
+
+    user = repo.get_user(args.user_id)
+    if not user:
+        log.error("Пользователь '%s' не найден", args.user_id)
+        return 1
+
+    results = repo.search_transcripts(args.user_id, args.query)
+    if not results:
+        print(f"\nПо запросу '{args.query}' ничего не найдено")
+        return 0
+
+    # Показать до 10 результатов
+    print(f"\n🔍 Результаты поиска по запросу '{args.query}' ({len(results)} найдено)\n")
+    print("─" * 80)
+
+    for i, result in enumerate(results[:10], 1):
+        call_id = result.get("call_id")
+        call = repo._get_conn().execute(
+            "SELECT call_id, contact_id, created_at, call_datetime FROM calls WHERE call_id = ?",
+            (call_id,)
+        ).fetchone()
+
+        if not call:
+            continue
+
+        contact_id = call["contact_id"]
+        contact = repo.get_contact(contact_id) if contact_id else None
+        name = contact.get("display_name", "?") if contact else "?"
+        phone = contact.get("phone_e164", "?") if contact else "?"
+        call_date = (call.get("call_datetime") or "")[:16]
+
+        text = (result.get("text") or "")[:120]
+
+        print(f"{i}. [{call_date}] {name} ({phone})")
+        print(f"   {text}")
+        print()
+
+    return 0
+
+
+def cmd_promises(args: argparse.Namespace) -> int:
+    """promises --user <user_id> — показать открытые promises, сгруппированные по контакту."""
+    cfg, repo = _load_config_and_repo(args.config)
+    _setup_logging(None, args.verbose)
+
+    log = logging.getLogger(__name__)
+
+    user = repo.get_user(args.user_id)
+    if not user:
+        log.error("Пользователь '%s' не найден", args.user_id)
+        return 1
+
+    promises = repo.get_open_promises(args.user_id)
+    if not promises:
+        print(f"\nНет открытых promises для пользователя '{args.user_id}'")
+        return 0
+
+    # Сгруппировать по контакту
+    by_contact = {}
+    for promise in promises:
+        contact_id = promise.get("contact_id")
+        if contact_id not in by_contact:
+            by_contact[contact_id] = []
+        by_contact[contact_id].append(promise)
+
+    print(f"\n📋 Открытые promises для '{args.user_id}'\n")
+    print("─" * 80)
+
+    total = 0
+    for contact_id in sorted(by_contact.keys()):
+        contact = repo.get_contact(contact_id) if contact_id else None
+        name = contact.get("display_name", "?") if contact else "?"
+        phone = contact.get("phone_e164", "?") if contact else "?"
+
+        print(f"\n📞 {name} ({phone})")
+
+        for promise in by_contact[contact_id]:
+            who = promise.get("who", "?")
+            what = promise.get("what", "?")
+            due = promise.get("due", "")
+            status = promise.get("status", "open")
+
+            due_str = f" | due: {due}" if due else ""
+            status_emoji = "✓" if status == "closed" else "⏳"
+
+            print(f"  {status_emoji} {who}: {what}{due_str}")
+            total += 1
+
+    print(f"\n─" * 80)
+    print(f"Всего: {total} promise(s)")
+    return 0
+
+
 def cmd_bot(args: argparse.Namespace) -> int:
     """bot — запустить Telegram-бот (long polling)."""
     cfg, repo = _load_config_and_repo(args.config)
@@ -653,7 +754,30 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Идентификатор пользователя",
     )
 
-    # ── bot ────────────────────────────────────────────────────
+    # ── search ────────────────────────────────────────────────────
+    p_search = sub.add_parser(
+        "search",
+        help="FTS5 поиск по транскриптам",
+    )
+    p_search.add_argument(
+        "query", help="Текст для поиска",
+    )
+    p_search.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+
+    # ── promises ───────────────────────────────────────────────────
+    p_promises = sub.add_parser(
+        "promises",
+        help="Показать открытые promises, сгруппированные по контакту",
+    )
+    p_promises.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+
+    # ── bot ────────────────────────────────────────────────────────
     sub.add_parser(
         "bot",
         help="Запустить Telegram-бот (long polling, requires TELEGRAM_BOT_TOKEN)",
@@ -679,6 +803,8 @@ def main() -> None:
         "bulk-enrich": cmd_bulk_enrich,
         "rebuild-summaries": cmd_rebuild_summaries,
         "rebuild-cards": cmd_rebuild_cards,
+        "search": cmd_search,
+        "promises": cmd_promises,
         "bot": cmd_bot,
     }
 
