@@ -36,6 +36,10 @@ IF architectural_decision:
   → write to .claude/rules/decisions.md
 ```
 
+## Before Writing Code
+
+THINK (what files affected, what depends on them) → PLAN (3-5 steps) → IMPLEMENT → VERIFY (run tests) → LOG (update CONTINUITY.md)
+
 ## Commands
 
 ```bash
@@ -100,4 +104,5 @@ Architectural decisions log:   @.claude/rules/decisions.md
 - Ollama API (use llama-server)
 - Auto-merge contacts
 - Verbose user-facing output
+- User-facing output longer than 300 chars or more than 3 facts per item
 - Adding components not in current phase plan

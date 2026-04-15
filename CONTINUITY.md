@@ -6,7 +6,16 @@
 
 ---
 
-## Текущее состояние: 2026-04-15 17:00 (Parse Status Enum + Diarization Rules + Centralized Rules)
+## Status
+
+DONE: parse_status enum (4 states), fallback strategy, idempotency rules documented  
+NOW: memory journal updates (@file guard rule added to CLAUDE.md)  
+NEXT: Phase 2 bulk-enrich optimizations, Telegram bot integration  
+BLOCKERS: None currently
+
+---
+
+## Текущое состояние: 2026-04-15 17:00 (Parse Status Enum + Diarization Rules + Centralized Rules)
 
 ### Статус
 ✅ **PARSE STATUS IMPLEMENTATION DONE** — Enum tracking for JSON parsing (4 states), diarization failure handling rules added, rules documentation centralized in .claude/rules/ directory.
