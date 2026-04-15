@@ -6,12 +6,27 @@
 
 ---
 
-## Текущее состояние: 2026-04-14 (Part 6: Claude Code Optimization applied)
+## Текущее состояние: 2026-04-15 (Phase 1.5-2: call_type, hook, cards, backfill-calltypes)
 
 ### Статус
-✅ **PHASE 6 OPTIMIZATION APPLIED** - Claude Code token economy settings in place (`.claudeignore`, project settings.json, slash commands). Non-breaking, tests passing.
+✅ **PHASE 1.5-2 DONE** — call_type + hook columns, structured cards (MacroDroid format), backfill-calltypes command, 93 tests pass.
 
-### Что сделано в этой сессии (2026-04-14 — Part 6: Claude Code Optimization)
+### Что сделано в этой сессии (2026-04-15 — Phase 1.5-2)
+
+**4 задачи реализованы:**
+
+1. **`analyses.call_type` + `_migrate()`** — новая колонка, `enricher._stub_analysis()` ставит 'short', `backfill-calltypes` ретроактивно заполняет
+2. **`analyses.hook` + `response_parser`** — парсится из LLM JSON, валидируется, хранится в БД
+3. **`card_generator.py`** — полная перепись: MacroDroid key:value format, данные из `contact_summaries`, ≤512 UTF-8 байт
+4. **`cmd_rebuild_cards`** исправлен (был вызов несуществующего `write_all_cards`), **`backfill-calltypes`** — новая команда
+
+**Тесты:** 93 passed ✅ (было 90 до этой сессии)
+
+**Следующий шаг:** Phase 2 — bulk_enrich доработки или следующая фаза по STRATEGIC_PLAN_v4.md.
+
+---
+
+### Что сделано в предыдущей сессии (2026-04-14 — Part 6: Claude Code Optimization)
 
 **Applied TOP-3 recommendations from vc.ru/ai/2868238 (carefully, non-breaking):**
 

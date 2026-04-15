@@ -209,6 +209,8 @@ def _stub_analysis() -> Analysis:
         raw_response="",
         model="stub",
         prompt_version="v001",
+        call_type="short",
+        hook=None,
     )
 
 

@@ -276,6 +276,11 @@ def _build_analysis(
     Возвращает:
         Analysis с дефолтами для отсутствующих полей
     """
+    _VALID_CALL_TYPES = {"business", "smalltalk", "short", "spam", "personal", "unknown"}
+    call_type = _get_str(parsed, "call_type", "unknown").lower()
+    if call_type not in _VALID_CALL_TYPES:
+        call_type = "unknown"
+
     return Analysis(
         priority=_get_int(parsed, "priority", 50, 0, 100),
         risk_score=_get_int(parsed, "risk_score", 0, 0, 100),
@@ -287,6 +292,8 @@ def _build_analysis(
         raw_response=raw_response,
         model=model,
         prompt_version=prompt_version,
+        call_type=call_type,
+        hook=_get_str(parsed, "hook", None) or None,
     )
 
 
@@ -308,6 +315,8 @@ def _default_analysis(
         raw_response=raw_response,
         model=model,
         prompt_version=prompt_version,
+        call_type="unknown",
+        hook=None,
     )
 
 

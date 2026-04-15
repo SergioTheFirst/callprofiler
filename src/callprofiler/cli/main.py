@@ -452,13 +452,79 @@ def cmd_rebuild_cards(args: argparse.Namespace) -> int:
         return 1
 
     from callprofiler.aggregate.summary_builder import SummaryBuilder
+    from callprofiler.deliver.card_generator import CardGenerator
 
-    log.info("Переиздание caller cards для пользователя '%s'...", args.user_id)
+    log.info("Пересчёт summaries + запись карточек для '%s'...", args.user_id)
 
-    builder = SummaryBuilder(repo)
-    builder.write_all_cards(args.user_id)
+    SummaryBuilder(repo).rebuild_all(args.user_id)
+    CardGenerator(repo).update_all_cards(args.user_id)
 
-    log.info("✓ Caller cards переиданы для пользователя '%s'", args.user_id)
+    log.info("✓ Caller cards обновлены для пользователя '%s'", args.user_id)
+    return 0
+
+
+def cmd_backfill_calltypes(args: argparse.Namespace) -> int:
+    """backfill-calltypes --user ID — заполнить call_type из raw_response."""
+    cfg, repo = _load_config_and_repo(args.config)
+    _setup_logging(cfg.log_file, args.verbose)
+
+    log = logging.getLogger(__name__)
+
+    user = repo.get_user(args.user_id)
+    if not user:
+        log.error("Пользователь '%s' не найден", args.user_id)
+        return 1
+
+    import json as _json
+
+    conn = repo._get_conn()
+
+    # Получить анализы с call_type='unknown' для пользователя
+    analyses = conn.execute(
+        """
+        SELECT a.analysis_id, a.raw_response
+        FROM analyses a
+        JOIN calls c ON a.call_id = c.call_id
+        WHERE c.user_id = ? AND (a.call_type IS NULL OR a.call_type = 'unknown')
+        """,
+        (args.user_id,),
+    ).fetchall()
+
+    if not analyses:
+        log.info("Нет анализов с call_type='unknown' для '%s'", args.user_id)
+        return 0
+
+    log.info("Обработка %d анализов...", len(analyses))
+
+    _VALID_CALL_TYPES = {"business", "smalltalk", "short", "spam", "personal", "unknown"}
+    updated = 0
+    skipped = 0
+
+    for analysis_id, raw_response in analyses:
+        if not raw_response:
+            skipped += 1
+            continue
+        try:
+            parsed = _json.loads(raw_response)
+        except (_json.JSONDecodeError, ValueError):
+            skipped += 1
+            continue
+
+        call_type = str(parsed.get("call_type", "unknown")).lower()
+        if call_type not in _VALID_CALL_TYPES:
+            call_type = "unknown"
+
+        if call_type != "unknown":
+            conn.execute(
+                "UPDATE analyses SET call_type = ? WHERE analysis_id = ?",
+                (call_type, analysis_id),
+            )
+            updated += 1
+        else:
+            skipped += 1
+
+    conn.commit()
+    log.info("✓ Обновлено: %d, пропущено: %d", updated, skipped)
     return 0
 
 
@@ -1201,6 +1267,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Идентификатор пользователя",
     )
 
+    # ── backfill-calltypes ─────────────────────────────────────────
+    p_backfill_ct = sub.add_parser(
+        "backfill-calltypes",
+        help="Заполнить call_type в analyses из raw_response JSON",
+    )
+    p_backfill_ct.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+
     # ── analytics ──────────────────────────────────────────────────
     p_analytics = sub.add_parser(
         "analytics",
@@ -1241,6 +1317,7 @@ def main() -> None:
         "promises": cmd_promises,
         "inspect-schema": cmd_inspect_schema,
         "backfill-events": cmd_backfill_events,
+        "backfill-calltypes": cmd_backfill_calltypes,
         "analytics": cmd_analytics,
         "bot": cmd_bot,
     }
