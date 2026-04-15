@@ -8,3 +8,13 @@
 - FTS5 index on transcripts for full-text search.
 - Integer milliseconds for all timestamps in segments.
 - MD5 hash for deduplication (per user_id).
+
+## Idempotency
+
+All operations must be idempotent:
+- **bulk-load:** skip files with existing MD5 hash (per user_id)
+- **bulk-enrich:** skip calls that already have analysis
+- **extract-names:** skip contacts that already have guessed_name
+- **save_events:** check for duplicate (call_id + event_type + payload) before insert
+
+Repeated runs must never duplicate data.
