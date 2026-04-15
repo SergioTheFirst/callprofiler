@@ -65,6 +65,8 @@ CREATE TABLE IF NOT EXISTS analyses (
     model          TEXT NOT NULL DEFAULT '',
     prompt_version TEXT NOT NULL DEFAULT '',
     feedback       TEXT,
+    call_type      TEXT DEFAULT 'unknown',
+    hook           TEXT,
     created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

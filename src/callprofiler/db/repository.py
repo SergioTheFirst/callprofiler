@@ -43,7 +43,9 @@ class Repository:
     def _migrate(self) -> None:
         """Применить ALTER TABLE для колонок, добавленных после первого релиза."""
         conn = self._get_conn()
-        new_cols = [
+
+        # contacts migrations
+        contacts_cols = [
             ("guessed_name",    "TEXT"),
             ("guessed_company", "TEXT"),
             ("guess_source",    "TEXT"),
@@ -51,15 +53,31 @@ class Repository:
             ("guess_confidence","TEXT"),
             ("name_confirmed",  "INTEGER NOT NULL DEFAULT 0"),
         ]
-        existing = {
+        existing_contacts = {
             row[1]
             for row in conn.execute("PRAGMA table_info(contacts)").fetchall()
         }
-        for col_name, col_def in new_cols:
-            if col_name not in existing:
+        for col_name, col_def in contacts_cols:
+            if col_name not in existing_contacts:
                 conn.execute(
                     f"ALTER TABLE contacts ADD COLUMN {col_name} {col_def}"
                 )
+
+        # analyses migrations
+        analyses_cols = [
+            ("call_type", "TEXT DEFAULT 'unknown'"),
+            ("hook",      "TEXT"),
+        ]
+        existing_analyses = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(analyses)").fetchall()
+        }
+        for col_name, col_def in analyses_cols:
+            if col_name not in existing_analyses:
+                conn.execute(
+                    f"ALTER TABLE analyses ADD COLUMN {col_name} {col_def}"
+                )
+
         conn.commit()
 
     def close(self) -> None:
@@ -306,8 +324,9 @@ class Repository:
         conn.execute(
             """INSERT OR REPLACE INTO analyses
                (call_id, priority, risk_score, summary, action_items,
-                flags, key_topics, raw_response, model, prompt_version)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                flags, key_topics, raw_response, model, prompt_version,
+                call_type, hook)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 call_id,
                 analysis.priority,
@@ -319,6 +338,8 @@ class Repository:
                 analysis.raw_response,
                 analysis.model,
                 analysis.prompt_version,
+                getattr(analysis, "call_type", "unknown"),
+                getattr(analysis, "hook", None),
             ),
         )
         conn.commit()
@@ -378,8 +399,9 @@ class Repository:
             conn.execute(
                 """INSERT OR REPLACE INTO analyses
                    (call_id, priority, risk_score, summary, action_items,
-                    flags, key_topics, raw_response, model, prompt_version)
-                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                    flags, key_topics, raw_response, model, prompt_version,
+                    call_type, hook)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     call_id,
                     a.priority,
@@ -391,6 +413,8 @@ class Repository:
                     a.raw_response,
                     a.model,
                     a.prompt_version,
+                    getattr(a, "call_type", "unknown"),
+                    getattr(a, "hook", None),
                 ),
             )
             contact_id = item.get("contact_id")

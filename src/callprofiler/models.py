@@ -36,3 +36,5 @@ class Analysis:
     raw_response: str = ""
     model: str = ""
     prompt_version: str = ""
+    call_type: str = "unknown"  # business/smalltalk/short/spam/personal/unknown
+    hook: str | None = None     # одна фраза-напоминание для следующего звонка

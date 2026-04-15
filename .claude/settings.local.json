@@ -1,12 +1,29 @@
 {
   "permissions": {
     "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git branch:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(git fetch:*)",
       "Bash(git config:*)",
+      "Bash(git rebase:*)",
+      "Bash(git checkout:*)",
+      "Bash(git stash:*)",
+      "Bash(pytest:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(python -m callprofiler:*)",
+      "Bash(python:*)",
+      "Bash(mkdir:*)",
+      "Bash(ls:*)",
       "Bash(for f:*)",
       "Bash(do)",
       "Bash(touch \"$f\")",
-      "Bash(done)",
-      "Bash(python:*)"
+      "Bash(done)"
     ]
   }
 }
