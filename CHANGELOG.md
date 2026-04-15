@@ -8,6 +8,15 @@
 
 ## [Unreleased]
 
+### Added — Parse Status Enum & Centralized Rules (2026-04-15)
+
+- **`parse_status`** enum field (parsed_ok/parsed_partial/parse_failed/output_truncated) — added to `Analysis` dataclass, `analyses` table schema, and database migration
+- **`response_parser.py`** refactored: early-return pattern for each parse attempt, new `_is_json_truncated()` helper, new `_check_parse_completeness()` validator, all parse attempts now track and return `parse_status`
+- **`repository.py`** — auto-migration for `parse_status` column via PRAGMA table_info, backward-compatible `getattr()` with "unknown" default
+- **`enricher.py`** progress logging — now includes `parse_status=%s` for debugging
+- **`.claude/rules/pipeline.md`** (NEW) — diarization failure handling rule: when diarization fails/returns 0 segments → mark speaker=UNKNOWN, diarization_failed=true, continue pipeline
+- **Centralized rules** — moved memory/bugs.md → .claude/rules/bugs.md, memory/decisions.md → .claude/rules/decisions.md (single source of truth)
+
 ### Added — Phase 1.5-2: call_type, hook, structured cards, backfill-calltypes (2026-04-15)
 
 - **`analyses.call_type`** column (business/smalltalk/short/spam/personal/unknown) — schema + migration in `_migrate()`

@@ -6,23 +6,39 @@
 
 ---
 
-## Текущее состояние: 2026-04-15 (Phase 1.5-2: call_type, hook, cards, backfill-calltypes)
+## Текущее состояние: 2026-04-15 17:00 (Parse Status Enum + Diarization Rules + Centralized Rules)
 
 ### Статус
-✅ **PHASE 1.5-2 DONE** — call_type + hook columns, structured cards (MacroDroid format), backfill-calltypes command, 93 tests pass.
+✅ **PARSE STATUS IMPLEMENTATION DONE** — Enum tracking for JSON parsing (4 states), diarization failure handling rules added, rules documentation centralized in .claude/rules/ directory.
 
-### Что сделано в этой сессии (2026-04-15 — Phase 1.5-2)
+### Что сделано в этой сессии (2026-04-15 — Parse Status + Rules)
 
-**4 задачи реализованы:**
+**Три точечных улучшения реализованы и закоммичены:**
 
-1. **`analyses.call_type` + `_migrate()`** — новая колонка, `enricher._stub_analysis()` ставит 'short', `backfill-calltypes` ретроактивно заполняет
-2. **`analyses.hook` + `response_parser`** — парсится из LLM JSON, валидируется, хранится в БД
-3. **`card_generator.py`** — полная перепись: MacroDroid key:value format, данные из `contact_summaries`, ≤512 UTF-8 байт
-4. **`cmd_rebuild_cards`** исправлен (был вызов несуществующего `write_all_cards`), **`backfill-calltypes`** — новая команда
+1. **Parse Status Enum** (parsed_ok/parsed_partial/parse_failed/output_truncated)
+   - Added `parse_status: str` field to `Analysis` dataclass in models.py
+   - Added `parse_status TEXT DEFAULT 'unknown'` column to analyses table
+   - Refactored `response_parser.py`: early-return pattern, `_is_json_truncated()` detector, `_check_parse_completeness()` validator
+   - Auto-migration in `repository.py` via PRAGMA table_info (backward-compatible)
+   - Enricher logging includes `parse_status=%s` for debugging
 
-**Тесты:** 93 passed ✅ (было 90 до этой сессии)
+2. **Diarization Failure Rules** (graceful degradation)
+   - Created `.claude/rules/pipeline.md` documenting error handling strategy
+   - Rule: diarization fails or 0 segments → mark speaker=UNKNOWN, set diarization_failed=true, **continue pipeline** (not fail)
+   - LLM can still extract meaning from undiarized transcript
 
-**Следующий шаг:** Phase 2 — bulk_enrich доработки или следующая фаза по STRATEGIC_PLAN_v4.md.
+3. **Centralized Rules Documentation**
+   - Moved memory/bugs.md → .claude/rules/bugs.md (centralized bug tracking)
+   - Moved memory/decisions.md → .claude/rules/decisions.md (architectural ADRs)
+   - Created .claude/rules/pipeline.md (pipeline rules, error handling)
+   - Single source of truth for operational guidelines
+
+**Commit:** `ad97190` (merged after resolving conflicts with origin/main)
+**Push:** ✅ `16d3cc8..ad97190` → origin/main
+
+**Тесты:** 93 passed ✅ (no regression)
+
+**Следующий шаг:** Next user request or continue with Phase 2 optimization.
 
 ---
 

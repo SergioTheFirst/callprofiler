@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS analyses (
     feedback       TEXT,
     call_type      TEXT DEFAULT 'unknown',
     hook           TEXT,
+    parse_status   TEXT DEFAULT 'unknown',
     created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
