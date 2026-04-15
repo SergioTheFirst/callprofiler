@@ -38,3 +38,4 @@ class Analysis:
     prompt_version: str = ""
     call_type: str = "unknown"  # business/smalltalk/short/spam/personal/unknown
     hook: str | None = None     # одна фраза-напоминание для следующего звонка
+    parse_status: str = "unknown"  # parsed_ok/parsed_partial/parse_failed/output_truncated

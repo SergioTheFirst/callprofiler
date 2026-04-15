@@ -67,6 +67,7 @@ class Repository:
         analyses_cols = [
             ("call_type", "TEXT DEFAULT 'unknown'"),
             ("hook",      "TEXT"),
+            ("parse_status", "TEXT DEFAULT 'unknown'"),
         ]
         existing_analyses = {
             row[1]
@@ -325,8 +326,8 @@ class Repository:
             """INSERT OR REPLACE INTO analyses
                (call_id, priority, risk_score, summary, action_items,
                 flags, key_topics, raw_response, model, prompt_version,
-                call_type, hook)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                call_type, hook, parse_status)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 call_id,
                 analysis.priority,
@@ -340,6 +341,7 @@ class Repository:
                 analysis.prompt_version,
                 getattr(analysis, "call_type", "unknown"),
                 getattr(analysis, "hook", None),
+                getattr(analysis, "parse_status", "unknown"),
             ),
         )
         conn.commit()
@@ -400,8 +402,8 @@ class Repository:
                 """INSERT OR REPLACE INTO analyses
                    (call_id, priority, risk_score, summary, action_items,
                     flags, key_topics, raw_response, model, prompt_version,
-                    call_type, hook)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    call_type, hook, parse_status)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     call_id,
                     a.priority,
@@ -415,6 +417,7 @@ class Repository:
                     a.prompt_version,
                     getattr(a, "call_type", "unknown"),
                     getattr(a, "hook", None),
+                    getattr(a, "parse_status", "unknown"),
                 ),
             )
             contact_id = item.get("contact_id")

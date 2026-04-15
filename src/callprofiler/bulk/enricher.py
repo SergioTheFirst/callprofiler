@@ -366,6 +366,7 @@ def bulk_enrich(
 
                     analysis = parse_llm_response(llm_response)
                     is_partial = not analysis.summary  # Если summary пусто — парсинг частичный
+                    parse_status = getattr(analysis, "parse_status", "unknown")
 
                     # ETA по всем завершённым (включая skipped/failed)
                     completed = stats["processed"] + stats["partial"] + stats["skipped"] + stats["failed"]
@@ -375,8 +376,8 @@ def bulk_enrich(
 
                     status = "[partial]" if is_partial else "✓"
                     log.info(
-                        "[enricher] %d/%d call_id=%d | %s | %.1fс/файл | ~%.0f tok/с | ETA %.0fс",
-                        idx, total, call_id, status,
+                        "[enricher] %d/%d call_id=%d | %s | parse_status=%s | %.1fс/файл | ~%.0f tok/с | ETA %.0fс",
+                        idx, total, call_id, status, parse_status,
                         time.time() - call_start, tps, eta,
                     )
 
