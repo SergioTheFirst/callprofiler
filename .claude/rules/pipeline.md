@@ -74,3 +74,28 @@ if not diarization:
 - Errors with full exception trace
 
 This helps user monitor long-running batches and diagnose failures.
+
+---
+
+## Fallback Strategy
+
+**Rule:** One file failure must NEVER block the entire batch.
+
+| Stage | Failure | Action |
+|-------|---------|--------|
+| Audio normalization | Any exception | status=error, skip file, continue |
+| Whisper | Any exception | status=error, skip file, continue |
+| Diarization | Exception OR 0 segments | mark all segments speaker=UNKNOWN, continue pipeline |
+| LLM request | Timeout / HTTP error | retry once; if still fails → save transcript without analysis, status=error |
+| LLM JSON parse | parse_status=parse_failed | save raw_response, set parse_status=parse_failed, continue |
+
+**Implementation pattern:**
+```python
+for call in calls:
+    try:
+        process_call(call)
+    except Exception as e:
+        logger.error("Call %s failed: %s", call.call_id, e, exc_info=True)
+        repo.set_status(call.call_id, "error", error_message=str(e))
+        continue  # never raise, never break
+```

@@ -77,6 +77,8 @@ Ref voice:   C:\pro\mbot\ref\manager.wav   Prototype:   reference_batch_asr.py
 
 ## Progressive Disclosure
 
+IF referenced @file does not exist → ignore, do not infer its contents.
+
 ```
 Architecture & pipeline:       @ARCHITECTURE_v4.md
 Strategy & phases:             @STRATEGIC_PLAN_v4.md
