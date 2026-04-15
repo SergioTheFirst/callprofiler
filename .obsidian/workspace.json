@@ -178,6 +178,12 @@
   },
   "active": "730a40c52425518c",
   "lastOpenFiles": [
+    "CLAUDE.md",
+    "memory/roadmap.md",
+    "memory/decisions.md",
+    "memory/bugs.md",
+    "ARCHITECTURE_v4.md",
+    "ARCHITECTURE_v3.md",
     "src/callprofiler/bulk/__pycache__/__init__.cpython-310.pyc",
     "src/callprofiler/bulk/__pycache__/loader.cpython-310.pyc",
     "src/callprofiler/bulk/__pycache__",
