@@ -106,3 +106,13 @@ Architectural decisions log:   @.claude/rules/decisions.md
 - Verbose user-facing output
 - User-facing output longer than 300 chars or more than 3 facts per item
 - Adding components not in current phase plan
+
+## Git Push Authorization
+
+**Push to: `main` branch (not feature branches)**
+
+All commits and pushes should go directly to `main`. Feature branches are not used for this repository.
+
+```bash
+git push origin main
+```
