@@ -120,7 +120,8 @@ echo ================================================================
 echo.
 
 :: Собираем аргументы Python
-set BIO_ARGS=--config "%CONFIG%" biography-run --user %USER_ID% --max-retries %MAX_RETRIES% --verbose
+:: ВАЖНО: -v должен идти ДО имени подкоманды (глобальный флаг парсера)
+set BIO_ARGS=--config "%CONFIG%" -v biography-run --user %USER_ID% --max-retries %MAX_RETRIES%
 if not "%PASSES%"=="" set BIO_ARGS=%BIO_ARGS% --passes %PASSES%
 
 :: Запуск с дублированием stdout+stderr в лог через PowerShell Tee-Object
