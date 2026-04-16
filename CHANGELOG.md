@@ -40,6 +40,11 @@
   - User-isolated: all queries filter by user_id
   - Local-only: uses existing llama-server (http://127.0.0.1:8080/v1/chat/completions)
 
+### Fixed — Biography Pipeline Bug Fixes (2026-04-16)
+
+- **`src/callprofiler/cli/main.py`** `cmd_biography_export()` — rewrote to bypass `_load_config_and_repo()` (which calls `_validate()` → `shutil.which("ffmpeg")` → `EnvironmentError` when ffmpeg not in PATH); now reads YAML directly and opens sqlite3 connection directly; ffmpeg not needed for export
+- **`src/callprofiler/biography/p4_arcs.py`** — added `bio.start_checkpoint(user_id, PASS_NAME, 0)` before early-return on no scenes; previously `finish_checkpoint` UPDATE matched 0 rows (no prior INSERT), leaving checkpoint status as 'not_started' silently
+
 ### Changed — Git Authorization & Memory Protocol (2026-04-16)
 
 - **`CLAUDE.md`** — Added `## Git Push Authorization` section: push to `main` (overrides feature-branch rule for this project)

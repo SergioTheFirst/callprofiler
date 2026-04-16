@@ -8,8 +8,8 @@
 
 ## Status
 
-DONE: 8-pass biography pipeline (all passes + orchestrator + CLI), Git push auth to main, project memory protocol added to CONSTITUTION  
-NOW: session journal maintenance (CONTINUITY.md + CHANGELOG.md)  
+DONE: 8-pass biography pipeline, CLI wiring, Git push auth, memory protocol, two post-review bug fixes committed+pushed  
+NOW: idle — pipeline ready for real run  
 NEXT: Phase 2 bulk-enrich optimizations, biography testing on real transcripts  
 BLOCKERS: None currently
 
