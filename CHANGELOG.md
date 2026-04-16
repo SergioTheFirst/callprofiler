@@ -8,6 +8,47 @@
 
 ## [Unreleased]
 
+### Added — 8-Pass Biography Pipeline (2026-04-16)
+
+**Complete multi-day book-generation system from call transcripts:**
+
+- **`src/callprofiler/biography/`** (15 new files, ~3200 LOC)
+  - `schema.py` (252L) — 7 bio_* tables (scenes, entities, threads, arcs, portraits, chapters, books) + bio_checkpoints (resume) + bio_llm_calls (prompt memoization)
+  - `repo.py` (652L) — BiographyRepo: user_id-scoped idempotent upserts, sqlite3 direct (no ORM), WAL mode
+  - `llm_client.py` (230L) — ResilientLLMClient: MD5-keyed prompt cache, exponential-backoff retry (5 attempts), every attempt logged to bio_llm_calls
+  - `prompts.py` (672L) — 8 Russian prompt builders (p1_scene, p2_entities, ..., p8_editorial), strict JSON contracts, head+tail clipping for context
+  - `json_utils.py` (73L) — extract_json(): markdown fence stripping + lenient brace-balanced recovery for truncated JSON
+  - `p1_scene.py` — Extract per-call narrative units (synopsis, tone, themes, entities)
+  - `p2_entities.py` — Canonicalize entity names (Васяа/Вася/Василий → canonical), cross-chunk dedup
+  - `p3_threads.py` — Build temporal entity threads with tension curves
+  - `p4_arcs.py` — Detect multi-call problem→investigation→resolution arcs via sliding window
+  - `p5_portraits.py` — Generate character sketches (traits, relationship, pivotal scenes)
+  - `p6_chapters.py` — Monthly chapter generation from bucketed scenes
+  - `p7_book.py` — Assemble book frame (title/TOC/prologue/epilogue) + full stitched markdown
+  - `p8_editorial.py` — Polish chapters + re-assemble as final version
+  - `orchestrator.py` (119L) — Orchestrator: 8-pass runner with per-pass try/except (one pass crash → only its checkpoint fails, continues)
+
+- **CLI commands** (`src/callprofiler/cli/main.py`)
+  - `biography-run [--passes p1,p2,...] [--max-retries 5]` — Run biography pipeline (all or subset)
+  - `biography-status` — Show per-pass checkpoint status (processed/total/failed/updated_at)
+  - `biography-export --out FILE.md` — Export latest assembled book to markdown
+
+- **Architecture features**
+  - Resume-safe: all work tracked in bio_checkpoints; re-run skips completed passes
+  - Resilient: every LLM call memoized by prompt hash; crash → restart picks up where it left off
+  - Multi-day capable: exponential backoff retry, no single-call timeout, graceful degradation on LLM failure
+  - User-isolated: all queries filter by user_id
+  - Local-only: uses existing llama-server (http://127.0.0.1:8080/v1/chat/completions)
+
+### Changed — Git Authorization & Memory Protocol (2026-04-16)
+
+- **`CLAUDE.md`** — Added `## Git Push Authorization` section: push to `main` (overrides feature-branch rule for this project)
+- **`CONSTITUTION.md`** — Added **Статья 19** "Память проекта и сессионный протокол":
+  - CONTINUITY.md: mandatory update after every session (Status/NOW/NEXT/DONE)
+  - CHANGELOG.md: Keep a Changelog format (Added/Fixed/Changed/Removed by session)
+  - Session protocol: read journals at start, update at end
+  - Violation = violation of CONSTITUTION
+
 ### Added — Parse Status Enum & Centralized Rules (2026-04-15)
 
 - **`parse_status`** enum field (parsed_ok/parsed_partial/parse_failed/output_truncated) — added to `Analysis` dataclass, `analyses` table schema, and database migration

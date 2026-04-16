@@ -8,17 +8,92 @@
 
 ## Status
 
-DONE: parse_status enum (4 states), fallback strategy, idempotency rules documented  
-NOW: memory journal updates (@file guard rule added to CLAUDE.md)  
-NEXT: Phase 2 bulk-enrich optimizations, Telegram bot integration  
+DONE: 8-pass biography pipeline (all passes + orchestrator + CLI), Git push auth to main, project memory protocol added to CONSTITUTION  
+NOW: session journal maintenance (CONTINUITY.md + CHANGELOG.md)  
+NEXT: Phase 2 bulk-enrich optimizations, biography testing on real transcripts  
 BLOCKERS: None currently
 
 ---
 
-## Текущое состояние: 2026-04-15 17:00 (Parse Status Enum + Diarization Rules + Centralized Rules)
+## Текущое состояние: 2026-04-16 14:00 (8-Pass Biography Pipeline + Memory Protocol)
+
+### Что сделано в этой сессии (2026-04-16 — Biography Pipeline + Memory Protocol)
+
+**Основной результат: полнофункциональный 8-проходный конвейер генерации биографии из транскриптов, готовый к многодневному прогону на локальном llama-server.**
+
+#### 1. 8-проходный pipeline биографии (src/callprofiler/biography/)
+
+Создано **15 новых файлов** (~3200 строк кода):
+
+- **schema.py** — 7 таблиц (bio_scenes, bio_entities, bio_threads, bio_arcs, bio_portraits, bio_chapters, bio_books) + bio_checkpoints (resume) + bio_llm_calls (memoization)
+- **repo.py** — BiographyRepo: идемпотентные upsert'ы по user_id, FTS-free, переиспользует sqlite3 connection host Repository
+- **llm_client.py** — ResilientLLMClient: MD5-ключ кэша (messages + temp + max_tokens + model), exponential backoff retry, логирование в bio_llm_calls с отслеживанием каждой попытки
+- **prompts.py** — 8 русскоязычных builder'ов (p1..p8), strict JSON contracts, head+tail clipping для соблюдения context window
+- **json_utils.py** — extract_json(): удаление markdown-заборов, lenient brace-balanced JSON recovery при усечении
+- **p1_scene.py** — per-call narrative units (synopsis, tone, themes, entities)
+- **p2_entities.py** — canonicalization + alias merging (Васяа/Вася/Василий), cross-chunk dedup
+- **p3_threads.py** — per-entity chronological threads с tension curves
+- **p4_arcs.py** — sliding-window problem→investigation→outcome arcs
+- **p5_portraits.py** — character sketches (traits, relationship, pivotal scenes)
+- **p6_chapters.py** — monthly chapters, top-40 scenes по importance
+- **p7_book.py** — frame (title/TOC/prologue/epilogue) + full stitched prose
+- **p8_editorial.py** — chapter polish pass + re-stitch as version=final
+- **orchestrator.py** — per-pass try/except (crash in one pass → only its checkpoint fails, continues to next)
+
+#### 2. CLI commands (src/callprofiler/cli/main.py)
+
+Добавлены 3 новые команды в dispatch:
+
+```bash
+python -m callprofiler biography-run --user ID [--passes p1,p2,...] [--max-retries 5]
+python -m callprofiler biography-status --user ID
+python -m callprofiler biography-export --user ID --out book.md
+```
+
+#### 3. Git & Authorization
+
+- Added `## Git Push Authorization` section to CLAUDE.md: push to main (override feature branch rule)
+- Committed and pushed biography pipeline to main (commits c16e0ef + f6161eb)
+- Updated CLAUDE.md with explicit durable authorization
+
+#### 4. Project Memory Protocol (Конституция)
+
+- Added **Статья 19** to CONSTITUTION.md: "Память проекта и сессионный протокол"
+  - CONTINUITY.md structure and rules
+  - CHANGELOG.md format (Keep a Changelog)
+  - Session protocol (start/end)
+  - Mandatory journal updates before push
+
+**Commits:**
+- `c16e0ef` — feat(biography): 8-pass multi-day book-generation pipeline (main)
+- `f6161eb` — docs: Add Git Push Authorization (main)
+- (feature branch: 4d94038, a21c480)
+
+**Tests:** Compiled all 16 files ✅ (syntax check), argparse sanity-check ✅
+
+**Code stats:**
+- `schema.py`: 252 lines
+- `repo.py`: 652 lines
+- `llm_client.py`: 230 lines
+- `prompts.py`: 672 lines
+- `p1_scene.py`: 225 lines
+- `p2_entities.py`: 219 lines (+ cross-chunk merge logic)
+- `p3_threads.py`: 114 lines
+- `p4_arcs.py`: 207 lines
+- `p5_portraits.py`: 142 lines
+- `p6_chapters.py`: 238 lines
+- `p7_book.py`: 179 lines
+- `p8_editorial.py`: 84 lines
+- `orchestrator.py`: 119 lines
+- `json_utils.py`: 73 lines
+- `cli/main.py`: +130 lines (3 new cmd_ functions + parsers)
+
+**Следующий шаг:** Phase 2 optimizations (bulk-enrich improvements, Telegram bot integration), or test biography pipeline on real callprofiler.db
+
+---
 
 ### Статус
-✅ **PARSE STATUS IMPLEMENTATION DONE** — Enum tracking for JSON parsing (4 states), diarization failure handling rules added, rules documentation centralized in .claude/rules/ directory.
+✅ **BIOGRAPHY PIPELINE DONE** — 8 полных проходов, orchestrator с resume-поддержкой, ResilientLLMClient с мемоизацией, CLI готов к использованию.
 
 ### Что сделано в этой сессии (2026-04-15 — Parse Status + Rules)
 
