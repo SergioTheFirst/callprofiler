@@ -1081,6 +1081,107 @@ def cmd_bot(args: argparse.Namespace) -> int:
         return 0
 
 
+# ── biography ──────────────────────────────────────────────────────────────
+
+
+def cmd_biography_run(args: argparse.Namespace) -> int:
+    """biography-run --user ID [--passes ...] — многодневный прогон 8-проходного
+    конвейера построения биографии по БД и транскриптам."""
+    cfg, repo = _load_config_and_repo(args.config)
+    _setup_logging(cfg.log_file, args.verbose)
+
+    from callprofiler.analyze.llm_client import LLMClient
+    from callprofiler.biography.llm_client import ResilientLLMClient
+    from callprofiler.biography.orchestrator import Orchestrator
+    from callprofiler.biography.repo import BiographyRepo
+
+    log = logging.getLogger(__name__)
+
+    user = repo.get_user(args.user_id)
+    if not user:
+        log.error("Пользователь '%s' не найден", args.user_id)
+        return 1
+
+    try:
+        llm_core = LLMClient(base_url=cfg.models.llm_url, timeout=300)
+    except ConnectionError as e:
+        log.error("Ошибка подключения к LLM %s: %s", cfg.models.llm_url, e)
+        return 1
+
+    bio = BiographyRepo(repo)
+    rllm = ResilientLLMClient(
+        llm_core, bio,
+        model_name=cfg.models.llm_model or "local",
+        max_retries=args.max_retries,
+    )
+    orch = Orchestrator(args.user_id, bio, rllm)
+
+    if args.passes:
+        passes = [p.strip() for p in args.passes.split(",") if p.strip()]
+        log.info("Запуск проходов: %s", passes)
+        result = orch.run_passes(passes)
+    else:
+        log.info("Запуск всех 8 проходов для пользователя %s", args.user_id)
+        result = orch.run_all()
+
+    log.info("Итог: %s", result)
+    return 0
+
+
+def cmd_biography_status(args: argparse.Namespace) -> int:
+    """biography-status --user ID — показать состояние всех checkpoint'ов."""
+    cfg, repo = _load_config_and_repo(args.config)
+    _setup_logging(cfg.log_file, args.verbose)
+
+    from callprofiler.biography.orchestrator import Orchestrator
+    from callprofiler.biography.repo import BiographyRepo
+
+    bio = BiographyRepo(repo)
+    # Use a dummy llm since status() only queries checkpoints.
+    orch = Orchestrator.__new__(Orchestrator)
+    orch.user_id = args.user_id
+    orch.bio = bio
+    orch.llm = None  # type: ignore[assignment]
+
+    rows = orch.status()
+    print(f"{'Pass':<16}{'Status':<12}{'Items':<14}{'Failed':<8}Updated")
+    print("-" * 72)
+    for r in rows:
+        items = f"{r['processed']}/{r['total']}"
+        print(
+            f"{r['pass']:<16}{r['status']:<12}{items:<14}"
+            f"{r['failed']:<8}{r['updated_at'] or ''}"
+        )
+    return 0
+
+
+def cmd_biography_export(args: argparse.Namespace) -> int:
+    """biography-export --user ID --out FILE — выгрузить последний собранный
+    book в markdown-файл."""
+    cfg, repo = _load_config_and_repo(args.config)
+    _setup_logging(cfg.log_file, args.verbose)
+
+    from callprofiler.biography.repo import BiographyRepo
+
+    log = logging.getLogger(__name__)
+    bio = BiographyRepo(repo)
+    book = bio.latest_book(args.user_id)
+    if not book:
+        log.error("Для пользователя '%s' нет собранного book — "
+                  "запустите biography-run", args.user_id)
+        return 1
+
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(book.get("prose_full") or "", encoding="utf-8")
+    log.info(
+        "Экспорт завершён: %s (title=%r, version=%s, word_count=%s)",
+        out_path, book.get("title"), book.get("version_label"),
+        book.get("word_count"),
+    )
+    return 0
+
+
 # ── Построение парсера ────────────────────────────────────────────────────
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -1293,6 +1394,50 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Запустить Telegram-бот (long polling, requires TELEGRAM_BOT_TOKEN)",
     )
 
+    # ── biography-run ──────────────────────────────────────────────
+    p_bio_run = sub.add_parser(
+        "biography-run",
+        help="Запустить многодневный 8-проходный конвейер построения биографии",
+    )
+    p_bio_run.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_bio_run.add_argument(
+        "--passes", default="", metavar="p1,p2,...",
+        help="Список проходов через запятую; пусто = все 8 по порядку "
+             "(p1_scene,p2_entities,p3_threads,p4_arcs,"
+             "p5_portraits,p6_chapters,p7_book,p8_editorial)",
+    )
+    p_bio_run.add_argument(
+        "--max-retries", type=int, default=5, dest="max_retries",
+        help="Максимум попыток LLM-запроса перед отказом (по умолчанию: 5)",
+    )
+
+    # ── biography-status ───────────────────────────────────────────
+    p_bio_status = sub.add_parser(
+        "biography-status",
+        help="Состояние checkpoint'ов всех 8 проходов биографии",
+    )
+    p_bio_status.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+
+    # ── biography-export ───────────────────────────────────────────
+    p_bio_export = sub.add_parser(
+        "biography-export",
+        help="Экспортировать последний собранный book в markdown-файл",
+    )
+    p_bio_export.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_bio_export.add_argument(
+        "--out", required=True, metavar="FILE",
+        help="Путь к выходному .md файлу",
+    )
+
     return parser
 
 
@@ -1320,6 +1465,9 @@ def main() -> None:
         "backfill-calltypes": cmd_backfill_calltypes,
         "analytics": cmd_analytics,
         "bot": cmd_bot,
+        "biography-run": cmd_biography_run,
+        "biography-status": cmd_biography_status,
+        "biography-export": cmd_biography_export,
     }
 
     handler = dispatch.get(args.command)
