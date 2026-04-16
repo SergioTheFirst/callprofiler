@@ -34,6 +34,11 @@ set LOG_DIR=D:\calls\data\logs
 set BIO_LOG=%LOG_DIR%\biography_%USER_ID%.log
 :: ── END CONFIG ──────────────────────────────────────────────────
 
+:: UTF-8 для всех Python-процессов: исправляет UnicodeEncodeError на CP1251-консоли
+:: и устраняет "эяэяэяэяэяэя" при передаче кириллицы через пайп в PowerShell.
+set PYTHONUTF8=1
+set PYTHONIOENCODING=utf-8
+
 :: Фиксируем время старта
 set T0=%TIME%
 set D0=%DATE%
@@ -106,7 +111,7 @@ echo.
 
 :: Открыть окно мониторинга лога в реальном времени
 start "Biography Log  [tail -f]" powershell -NoProfile -NoExit -Command ^
-    "Get-Content -Path '%BIO_LOG%' -Wait -Tail 30"
+    "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-Content -Path '%BIO_LOG%' -Wait -Tail 30 -Encoding UTF8"
 
 timeout /t 1 /nobreak > nul
 
@@ -124,11 +129,12 @@ echo.
 set BIO_ARGS=--config "%CONFIG%" -v biography-run --user %USER_ID% --max-retries %MAX_RETRIES%
 if not "%PASSES%"=="" set BIO_ARGS=%BIO_ARGS% --passes %PASSES%
 
-:: Запуск с дублированием stdout+stderr в лог через PowerShell Tee-Object
+:: Запуск с дублированием stdout+stderr в лог через PowerShell Tee-Object.
+:: [Console]::InputEncoding = UTF-8 — читаем пайп от Python как UTF-8.
 :: ERRORLEVEL здесь ненадёжен (его захватывает PowerShell), поэтому
 :: успех проверяем через biography-status ниже.
 %PYTHON% -m callprofiler %BIO_ARGS% 2>&1 | powershell -NoProfile -Command ^
-    "$input | Tee-Object -FilePath '%BIO_LOG%' -Append"
+    "[Console]::InputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $input | Tee-Object -FilePath '%BIO_LOG%' -Append"
 
 echo.
 
