@@ -308,13 +308,25 @@ class Repository:
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def search_transcripts(self, user_id: str, query: str) -> list[dict]:
+    def search_transcripts(self, user_id: str, query: str, limit: int = 50) -> list[dict]:
+        # FTS5 phrase search; escape " in user input
+        fts_query = '"' + query.replace('"', '""') + '"'
+        # Subquery gets ranked rowids from FTS5; outer JOIN adds user_id filter
         rows = self._get_conn().execute(
-            """SELECT t.*, c.user_id FROM transcripts t
+            """SELECT t.*, c.user_id
+               FROM (
+                   SELECT rowid, rank
+                   FROM transcripts_fts
+                   WHERE transcripts_fts MATCH ?
+                   ORDER BY rank
+                   LIMIT 200
+               ) ranked
+               JOIN transcripts t ON t.segment_id = ranked.rowid
                JOIN calls c ON c.call_id = t.call_id
-               WHERE c.user_id = ? AND t.text LIKE ?
-               ORDER BY t.call_id, t.start_ms""",
-            (user_id, f"%{query}%"),
+               WHERE c.user_id = ?
+               ORDER BY ranked.rank
+               LIMIT ?""",
+            (fts_query, user_id, limit),
         ).fetchall()
         return [dict(r) for r in rows]
 

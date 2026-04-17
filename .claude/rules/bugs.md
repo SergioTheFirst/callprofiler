@@ -8,12 +8,10 @@ None currently identified.
 
 ### 🟡 Medium Priority
 
-1. **Telegram /search slow for large transcripts** (2026-04-14)
-   - **Issue:** FTS5 search on transcripts_fts might be slow with 1000+ segments
-   - **Impact:** /search command could timeout if user has many calls
-   - **Solution:** Add pagination to search results, implement LIMIT+OFFSET
-   - **Test:** Search with 100+ matching results
-   - **Status:** BACKLOG (Phase 6 optimization)
+1. **FTS5 index not used in /search — FIXED** (2026-04-17)
+   - **Issue:** `search_transcripts()` used `LIKE` O(n) scan; FTS5 table existed but was never queried
+   - **Fix:** Replaced with FTS5 MATCH subquery + BM25 ranking + LIMIT 50
+   - **Status:** RESOLVED (2026-04-17)
 
 2. **.bat file encoding** (2026-04-14)
    - **Issue:** new-session.bat, save-session.bat might have BOM on Windows
