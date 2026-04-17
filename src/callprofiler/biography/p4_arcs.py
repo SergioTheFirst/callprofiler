@@ -59,6 +59,7 @@ def run(
                 name_to_id[a.strip().lower()] = int(e["entity_id"])
 
     if not scenes:
+        bio.start_checkpoint(user_id, PASS_NAME, 0)
         bio.finish_checkpoint(user_id, PASS_NAME, "done")
         return {"windows": 0, "arcs": 0, "elapsed_sec": 0}
 

@@ -1158,26 +1158,49 @@ def cmd_biography_status(args: argparse.Namespace) -> int:
 def cmd_biography_export(args: argparse.Namespace) -> int:
     """biography-export --user ID --out FILE — выгрузить последний собранный
     book в markdown-файл."""
-    cfg, repo = _load_config_and_repo(args.config)
-    _setup_logging(cfg.log_file, args.verbose)
+    _setup_logging(None, args.verbose)
 
-    from callprofiler.biography.repo import BiographyRepo
+    import sqlite3
+    import yaml
+    from callprofiler.biography.schema import apply_biography_schema
 
     log = logging.getLogger(__name__)
-    bio = BiographyRepo(repo)
-    book = bio.latest_book(args.user_id)
-    if not book:
+
+    try:
+        with open(args.config, encoding="utf-8") as f:
+            raw = yaml.safe_load(f)
+        data_dir = raw.get("data_dir", "")
+    except Exception as exc:
+        log.error("Не удалось прочитать конфиг %s: %s", args.config, exc)
+        return 1
+
+    db_path = Path(data_dir) / "db" / "callprofiler.db" if data_dir else Path("db/callprofiler.db")
+    if not db_path.exists():
+        log.error("БД не найдена: %s", db_path)
+        return 1
+
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    apply_biography_schema(conn)
+
+    import json
+    row = conn.execute(
+        "SELECT * FROM bio_books WHERE user_id=? ORDER BY generated_at DESC LIMIT 1",
+        (args.user_id,),
+    ).fetchone()
+    conn.close()
+
+    if not row:
         log.error("Для пользователя '%s' нет собранного book — "
                   "запустите biography-run", args.user_id)
         return 1
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(book.get("prose_full") or "", encoding="utf-8")
+    out_path.write_text(row["prose_full"] or "", encoding="utf-8")
     log.info(
         "Экспорт завершён: %s (title=%r, version=%s, word_count=%s)",
-        out_path, book.get("title"), book.get("version_label"),
-        book.get("word_count"),
+        out_path, row["title"], row["version_label"], row["word_count"],
     )
     return 0
 

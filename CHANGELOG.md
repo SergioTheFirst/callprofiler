@@ -8,6 +8,61 @@
 
 ## [Unreleased]
 
+### Added — Profanity Detector + Feature Flags (2026-04-17)
+
+**1. Dictionary-based Russian profanity detector (no LLM):**
+
+- **`src/callprofiler/analyze/profanity_detector.py`** (107 lines, new)
+  - `_MAT_ROOTS` tuple — ~50 Russian profanity roots (большая четвёрка + производные + лёгкий мат + жаргон)
+  - Single compiled regex: `\b\w*(root1|root2|…)\w*\b` with `re.IGNORECASE | re.UNICODE`
+  - `count_profanity(text) -> {"count": int, "unique": int, "density": float}` — density = matches per 100 words
+  - `find_profanity(text) -> list[str]` (debug helper)
+  - Deliberate over-match: false positives on «схуяли»-like words acceptable; miss is worse than false hit
+
+- **DB migration — `analyses` table** (auto via `_migrate()` + `schema.sql`):
+  - `profanity_count INTEGER DEFAULT 0`
+  - `profanity_density REAL DEFAULT 0`
+  - `save_analysis()` / `save_batch()` now persist 15 columns (was 13)
+
+- **`src/callprofiler/models.py`** — `Analysis` dataclass extended: `profanity_count: int = 0`, `profanity_density: float = 0.0`
+
+- **`src/callprofiler/bulk/enricher.py`** — profanity computed BEFORE stub/LLM branch (both paths save metric). On LLM path, injected as hint into user_message:
+  ```
+  Сигнал детектора (не LLM): мат=N (уникальных=M, плотность=D/100слов).
+  Учти при оценке bs_score и call_type.
+  ```
+  LLM may use it or ignore — typically raises risk/bs_score on high density.
+
+**2. Feature flags system:**
+
+- **`configs/features.yaml`** (new) — 6 flags with inline docs:
+  - `enable_diarization: true` — pyannote speaker attribution
+  - `enable_llm_analysis: true` — llama-server call; off → empty Analysis
+  - `enable_profanity_detection: true` — dictionary detector above
+  - `enable_name_extraction: true` — auto-extract names from transcript
+  - `enable_event_extraction: true` — events table population from LLM JSON
+  - `enable_telegram_notification: false` — default OFF until bot is set up
+
+- **`src/callprofiler/config.py`**:
+  - New `FeaturesConfig` dataclass (6 bool fields)
+  - `Config.features: FeaturesConfig`
+  - New `_load_features(config_dir, inline)` — priority: inline `features:` section in base.yaml > adjacent `features.yaml` > defaults
+  - Missing file → graceful defaults (no crash)
+
+- **`src/callprofiler/pipeline/orchestrator.py`** — stages gated per flag:
+  - `process_call()` / `process_batch()`: diarize skipped when disabled (segments remain unannotated, pipeline continues)
+  - LLM analyze skipped when disabled (logged at INFO level)
+  - Telegram notifier called only when `self.telegram and self.config.features.enable_telegram_notification`
+
+- **`src/callprofiler/bulk/enricher.py`** — `enable_profanity_detection` + `enable_event_extraction` gated (disabled → skip compute/save, empty metric/events)
+
+**Testing:** `pytest tests/ -v` — **93/93 pass** ✅ (no regressions).
+
+**Design notes:**
+- Feature flags are *graceful degradation*, not fatal errors: disabled stage = silent skip + INFO log
+- Profanity detector deliberately uses root-based regex to catch morphological variants (хуй → хуёвый, охуеть, хуйня); obfuscation (х*й, x_y) out of scope
+- DB metric persisted even when LLM analysis is off — allows decoupling detector from LLM usage
+
 ### Added — 8-Pass Biography Pipeline (2026-04-16)
 
 **Complete multi-day book-generation system from call transcripts:**
@@ -39,6 +94,11 @@
   - Multi-day capable: exponential backoff retry, no single-call timeout, graceful degradation on LLM failure
   - User-isolated: all queries filter by user_id
   - Local-only: uses existing llama-server (http://127.0.0.1:8080/v1/chat/completions)
+
+### Fixed — Biography Pipeline Bug Fixes (2026-04-16)
+
+- **`src/callprofiler/cli/main.py`** `cmd_biography_export()` — rewrote to bypass `_load_config_and_repo()` (which calls `_validate()` → `shutil.which("ffmpeg")` → `EnvironmentError` when ffmpeg not in PATH); now reads YAML directly and opens sqlite3 connection directly; ffmpeg not needed for export
+- **`src/callprofiler/biography/p4_arcs.py`** — added `bio.start_checkpoint(user_id, PASS_NAME, 0)` before early-return on no scenes; previously `finish_checkpoint` UPDATE matched 0 rows (no prior INSERT), leaving checkpoint status as 'not_started' silently
 
 ### Changed — Git Authorization & Memory Protocol (2026-04-16)
 

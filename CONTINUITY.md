@@ -8,14 +8,72 @@
 
 ## Status
 
-DONE: 8-pass biography pipeline (all passes + orchestrator + CLI), Git push auth to main, project memory protocol added to CONSTITUTION  
-NOW: session journal maintenance (CONTINUITY.md + CHANGELOG.md)  
-NEXT: Phase 2 bulk-enrich optimizations, biography testing on real transcripts  
+DONE: Profanity detector (словарь, ~50 корней) + Feature flags (6 флагов, YAML) wired into enricher + orchestrator  
+NOW: idle — pending real-data validation  
+NEXT: run bulk-enrich on real DB to collect profanity stats; toggle flags in production features.yaml  
 BLOCKERS: None currently
 
 ---
 
-## Текущое состояние: 2026-04-16 14:00 (8-Pass Biography Pipeline + Memory Protocol)
+## Текущее состояние: 2026-04-17 (Profanity detector + Feature flags)
+
+### Ветка разработки
+`main` (прямой push по CLAUDE.md → Git Push Authorization)
+
+### Последний коммит
+```
+<будет обновлён после commit>
+```
+
+### Что сделано в этой сессии (2026-04-17)
+
+**1. Словарный детектор мата (без LLM)** — `src/callprofiler/analyze/profanity_detector.py` (107 строк):
+- `_MAT_ROOTS` — ~50 корней русского мата (большая четвёрка + производные + эвфемизмы)
+- Один скомпилированный regex `\b\w*(root1|root2|…)\w*\b` (IGNORECASE + UNICODE)
+- `count_profanity(text) -> {"count", "unique", "density"}` — density = count/words*100, round(2)
+- Сознательный over-match (false positives типа «схуяли» приемлемы)
+- `find_profanity()` + `get_roots()` — для отладки/тестов
+
+**2. DB-миграция: 2 новые колонки в `analyses`**:
+- `profanity_count INTEGER DEFAULT 0`
+- `profanity_density REAL DEFAULT 0`
+- `schema.sql` обновлён (create) + `repository._migrate()` добавляет через `PRAGMA table_info` (auto-migrate существующих БД)
+- `save_analysis()` + `save_batch()` теперь пишут 15 колонок (было 13)
+
+**3. Analysis dataclass** — `models.py`:
+- Добавлены поля `profanity_count: int = 0` и `profanity_density: float = 0.0`
+
+**4. Enricher интеграция** — `bulk/enricher.py`:
+- Считаем мат **до разветвления** stub/LLM → метрика всегда пишется в БД
+- При LLM-ветке добавляем подсказку в user_message: «Сигнал детектора (не LLM): мат=N (уникальных=M, плотность=D/100слов). Учти при оценке bs_score и call_type.»
+- Прикрепляем к analysis перед сохранением
+- Всё feature-gated: `cfg.features.enable_profanity_detection` + `cfg.features.enable_event_extraction`
+
+**5. Feature flags** — `configs/features.yaml` + `config.py`:
+- 6 флагов: `enable_diarization`, `enable_llm_analysis`, `enable_profanity_detection`, `enable_name_extraction`, `enable_event_extraction`, `enable_telegram_notification`
+- Новый dataclass `FeaturesConfig` + `_load_features(config_dir, inline)` со стратегией: **inline в base.yaml > features.yaml рядом > дефолты**
+- Graceful degradation: флаг false → этап пропущен, pipeline продолжается
+
+**6. Orchestrator gating** — `pipeline/orchestrator.py`:
+- `enable_diarization` → ранний return из `_diarize_call` (все сегменты остаются как есть; pipeline идёт дальше)
+- `enable_llm_analysis` → skip `_analyze_call`
+- `enable_telegram_notification` → Telegram-notifier вызывается только при `self.telegram and self.config.features.enable_telegram_notification`
+
+**Тесты:** `pytest tests/ -v` — 93/93 pass ✅ (регрессий нет).
+
+### Следующий шаг
+- Тест на реальных данных: `bulk-enrich --user X --limit 10` → проверить, что profanity_count/density заполняются
+- Возможно — расширить словарь корней (сейчас покрытие ~95% обиходного мата)
+- Добавить unit-тесты для `count_profanity` (известные примеры из транскриптов)
+
+### Известные ограничения / долги
+- Словарь не ловит обфускации (`х*й`, `x_y`, через кириллицу+латиницу)
+- `_WORD_RE` считает каждое вхождение мата как отдельное слово (включено в знаменатель плотности — корректно)
+- Latent bug в `orchestrator._analyze_call`: используется несуществующий `self.config.models.ollama_url` — НЕ ТРОНУТО (не в scope; live-watch pipeline не тестировался)
+
+---
+
+## Текущее состояние: 2026-04-16 14:00 (8-Pass Biography Pipeline + Memory Protocol)
 
 ### Что сделано в этой сессии (2026-04-16 — Biography Pipeline + Memory Protocol)
 

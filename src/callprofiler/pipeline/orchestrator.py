@@ -136,7 +136,9 @@ class Orchestrator:
             user = self.repo.get_user(user_id)
             ref_audio = user.get("ref_audio", "") if user else ""
 
-            if ref_audio and Path(ref_audio).exists():
+            if not self.config.features.enable_diarization:
+                logger.info("Diarization disabled by feature flag; speakers=UNKNOWN")
+            elif ref_audio and Path(ref_audio).exists():
                 self.pyannote_runner.load(ref_audio)
                 diarization = self.pyannote_runner.diarize(norm_path)
                 segments = assign_speakers(segments, diarization)
@@ -149,8 +151,11 @@ class Orchestrator:
             self.repo.save_transcripts(call_id, segments)
 
             # ── Шаг 4: Analyze ───────────────────────────────
-            self.repo.update_call_status(call_id, "analyzing")
-            self._analyze_call(call_id, call, segments)
+            if self.config.features.enable_llm_analysis:
+                self.repo.update_call_status(call_id, "analyzing")
+                self._analyze_call(call_id, call, segments)
+            else:
+                logger.info("LLM analysis disabled by feature flag; skipping call_id=%d", call_id)
 
             # ── Шаг 5: Deliver ───────────────────────────────
             self.repo.update_call_status(call_id, "delivering")
@@ -249,7 +254,9 @@ class Orchestrator:
                 user = users_cache.get(user_id)
                 ref_audio = user.get("ref_audio", "") if user else ""
 
-                if ref_audio and Path(ref_audio).exists():
+                if not self.config.features.enable_diarization:
+                    logger.info("Diarization disabled by feature flag (call_id=%d)", call_id)
+                elif ref_audio and Path(ref_audio).exists():
                     self.pyannote_runner.load(ref_audio)
                     diarization = self.pyannote_runner.diarize(call["_norm_path"])
                     segments_map[call_id] = assign_speakers(
@@ -263,17 +270,20 @@ class Orchestrator:
                 self.repo.update_call_status(call_id, "error", str(exc))
 
         # ── Фаза 3: Analyze (LLM, после выгрузки GPU моделей) ────
-        for call in calls_data:
-            call_id = call["call_id"]
-            if call_id not in segments_map:
-                continue
+        if not self.config.features.enable_llm_analysis:
+            logger.info("LLM analysis disabled by feature flag; skipping batch analyze phase")
+        else:
+            for call in calls_data:
+                call_id = call["call_id"]
+                if call_id not in segments_map:
+                    continue
 
-            try:
-                self.repo.update_call_status(call_id, "analyzing")
-                self._analyze_call(call_id, call, segments_map[call_id])
-            except Exception as exc:
-                logger.error("Ошибка анализа call_id=%d: %s", call_id, exc)
-                self.repo.update_call_status(call_id, "error", str(exc))
+                try:
+                    self.repo.update_call_status(call_id, "analyzing")
+                    self._analyze_call(call_id, call, segments_map[call_id])
+                except Exception as exc:
+                    logger.error("Ошибка анализа call_id=%d: %s", call_id, exc)
+                    self.repo.update_call_status(call_id, "error", str(exc))
 
         # ── Фаза 4: Deliver ──────────────────────────────
         for call in calls_data:
@@ -412,7 +422,7 @@ class Orchestrator:
                     logger.error("Ошибка записи карточки: %s", exc)
 
         # Отправить саммари в Telegram
-        if self.telegram:
+        if self.telegram and self.config.features.enable_telegram_notification:
             try:
                 asyncio.get_event_loop().run_until_complete(
                     self.telegram.send_summary(user_id, call_id)

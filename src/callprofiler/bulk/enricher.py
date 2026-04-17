@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 from callprofiler.analyze.llm_client import LLMClient
+from callprofiler.analyze.profanity_detector import count_profanity
 from callprofiler.analyze.response_parser import parse_llm_response
 from callprofiler.config import load_config
 from callprofiler.db.repository import Repository
@@ -325,6 +326,15 @@ def bulk_enrich(
                 transcript_text = _format_transcript(segments)
                 is_partial = False  # По умолчанию полный успех
 
+                # Словарный детектор мата (без LLM, дешёвый): считаем
+                # ДО разветвления, чтобы и stub-путь, и LLM-путь сохраняли метрику.
+                # Feature flag: можно полностью отключить (например, на анонимизированных
+                # данных или если результат не используется).
+                if cfg.features.enable_profanity_detection:
+                    profanity = count_profanity(transcript_text)
+                else:
+                    profanity = {"count": 0, "unique": 0, "density": 0.0}
+
                 # Короткий звонок — не отправлять в LLM
                 if len(transcript_text) < _SHORT_CALL_THRESHOLD:
                     log.info(
@@ -334,11 +344,22 @@ def bulk_enrich(
                     analysis = _stub_analysis()
                     is_partial = True
                 else:
+                    # Подсказка LLM: метрика мата как доп. сигнал для bs_score / call_type.
+                    # Модель всё ещё может игнорировать, но в JSON-ответе обычно
+                    # повышает risk/bs при высокой плотности.
+                    profanity_hint = (
+                        f"Сигнал детектора (не LLM): "
+                        f"мат={profanity['count']} ("
+                        f"уникальных={profanity['unique']}, "
+                        f"плотность={profanity['density']}/100слов). "
+                        f"Учти при оценке bs_score и call_type."
+                    )
                     user_message = (
                         f"Метаданные звонка:\n"
                         f"Контакт: {name} ({phone})\n"
                         f"Дата: {call.get('call_datetime', 'unknown')}\n"
-                        f"Направление: {call.get('direction', 'UNKNOWN')}\n\n"
+                        f"Направление: {call.get('direction', 'UNKNOWN')}\n"
+                        f"{profanity_hint}\n\n"
                         f"Стенограмма:\n{transcript_text}"
                     )
 
@@ -381,16 +402,23 @@ def bulk_enrich(
                         time.time() - call_start, tps, eta,
                     )
 
+                # Прикрепить метрику мата к анализу (сохраняется в БД)
+                analysis.profanity_count = profanity["count"]
+                analysis.profanity_density = profanity["density"]
+
                 # Счётчик partial успехов
                 if is_partial:
                     stats["partial"] += 1
                 else:
                     stats["processed"] += 1
 
-                # Extract events from analysis
-                events = _extract_events_from_analysis(
-                    analysis, user_id, call.get("contact_id"), call_id
-                )
+                # Extract events from analysis (feature-gated)
+                if cfg.features.enable_event_extraction:
+                    events = _extract_events_from_analysis(
+                        analysis, user_id, call.get("contact_id"), call_id
+                    )
+                else:
+                    events = []
 
                 pending_batch.append({
                     "call_id": call_id,

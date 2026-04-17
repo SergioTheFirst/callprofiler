@@ -68,6 +68,8 @@ class Repository:
             ("call_type", "TEXT DEFAULT 'unknown'"),
             ("hook",      "TEXT"),
             ("parse_status", "TEXT DEFAULT 'unknown'"),
+            ("profanity_count",   "INTEGER DEFAULT 0"),
+            ("profanity_density", "REAL DEFAULT 0"),
         ]
         existing_analyses = {
             row[1]
@@ -326,8 +328,9 @@ class Repository:
             """INSERT OR REPLACE INTO analyses
                (call_id, priority, risk_score, summary, action_items,
                 flags, key_topics, raw_response, model, prompt_version,
-                call_type, hook, parse_status)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                call_type, hook, parse_status,
+                profanity_count, profanity_density)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 call_id,
                 analysis.priority,
@@ -342,6 +345,8 @@ class Repository:
                 getattr(analysis, "call_type", "unknown"),
                 getattr(analysis, "hook", None),
                 getattr(analysis, "parse_status", "unknown"),
+                int(getattr(analysis, "profanity_count", 0) or 0),
+                float(getattr(analysis, "profanity_density", 0.0) or 0.0),
             ),
         )
         conn.commit()
@@ -402,8 +407,9 @@ class Repository:
                 """INSERT OR REPLACE INTO analyses
                    (call_id, priority, risk_score, summary, action_items,
                     flags, key_topics, raw_response, model, prompt_version,
-                    call_type, hook, parse_status)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    call_type, hook, parse_status,
+                    profanity_count, profanity_density)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     call_id,
                     a.priority,
@@ -418,6 +424,8 @@ class Repository:
                     getattr(a, "call_type", "unknown"),
                     getattr(a, "hook", None),
                     getattr(a, "parse_status", "unknown"),
+                    int(getattr(a, "profanity_count", 0) or 0),
+                    float(getattr(a, "profanity_density", 0.0) or 0.0),
                 ),
             )
             contact_id = item.get("contact_id")
