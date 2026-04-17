@@ -1,0 +1,30 @@
+# features.yaml — feature flags для pipeline-этапов.
+#
+# Назначение: гранулярно отключать тяжёлые/нестабильные этапы без правки
+# кода. Flag = false → этап пропускается, pipeline продолжается со
+# следующего шага (graceful degradation, не fatal error).
+#
+# Загружается callprofiler.config.load_config рядом с base.yaml.
+# Если файла нет — все флаги дефолтят к значениям FeaturesConfig.
+
+# Диаризация (pyannote) — определение, кто говорит. Если выключена,
+# все сегменты получают speaker=UNKNOWN, LLM работает по тексту.
+enable_diarization: true
+
+# LLM-анализ через llama-server. Если выключен — звонки получают пустой
+# Analysis (только транскрипт + метаданные).
+enable_llm_analysis: true
+
+# Словарный детектор русского мата (без LLM). Считает count/unique/density.
+enable_profanity_detection: true
+
+# Авто-извлечение имён собеседников из транскрипта (extract-names).
+enable_name_extraction: true
+
+# Извлечение структурированных событий (promises, debts, contradictions)
+# из ответа LLM в таблицу events.
+enable_event_extraction: true
+
+# Отправка саммари в Telegram-бот после обработки. По умолчанию OFF —
+# включать только когда бот настроен и токен в окружении.
+enable_telegram_notification: false

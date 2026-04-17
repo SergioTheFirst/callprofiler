@@ -39,3 +39,5 @@ class Analysis:
     call_type: str = "unknown"  # business/smalltalk/short/spam/personal/unknown
     hook: str | None = None     # одна фраза-напоминание для следующего звонка
     parse_status: str = "unknown"  # parsed_ok/parsed_partial/parse_failed/output_truncated
+    profanity_count: int = 0    # всего матов в стенограмме (словарный детектор, без LLM)
+    profanity_density: float = 0.0  # матов на 100 слов

@@ -68,6 +68,8 @@ CREATE TABLE IF NOT EXISTS analyses (
     call_type      TEXT DEFAULT 'unknown',
     hook           TEXT,
     parse_status   TEXT DEFAULT 'unknown',
+    profanity_count   INTEGER DEFAULT 0,
+    profanity_density REAL DEFAULT 0,
     created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
