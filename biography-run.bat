@@ -78,8 +78,8 @@ if %ERRORLEVEL% neq 0 (
     echo   FAIL  llama-server не отвечает на %LLM_HOST%:%LLM_PORT%
     echo.
     echo   Запусти в отдельном окне:
-    echo     llama-server.exe -m "C:\models\Qwen3.5-9B.Q5_K_M.gguf" ^
-    echo       -ngl 99 -c 16384 --host 127.0.0.1 --port 8080
+    echo     llama-server.exe -m "C:\models\Qwen3.5-9B.Q8_0.gguf" ^
+    echo       -ngl 99 -c 16384 -np 1 --host 127.0.0.1 --port 8080
     echo.
     goto :ABORT
 )
