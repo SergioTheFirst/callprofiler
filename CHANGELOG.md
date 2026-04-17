@@ -8,6 +8,22 @@
 
 ## [Unreleased]
 
+### Fixed — FTS5 Search Optimization (2026-04-17)
+
+**`search_transcripts()` now uses FTS5 MATCH instead of LIKE:**
+
+- **File:** `src/callprofiler/db/repository.py:311–331`
+- **Problem:** Query used `LIKE ?` for O(n) full-table scan; FTS5 virtual table `transcripts_fts` existed but was never queried
+- **Solution:**
+  - Replaced with FTS5 MATCH subquery using BM25 scoring
+  - Phrase wrapped in quotes for exact matching: `"query"` (user input escapes `"` → `""`)
+  - Results ordered by FTS5 rank (relevance), not by call_id
+  - Added `limit` parameter (default 50) to cap output
+  - User isolation via `WHERE c.user_id = ?` on outer JOIN
+- **Performance:** Subquery fetches top 200 from FTS5 (fast), outer JOINs apply user filter, LIMIT respects cap
+- **Tests:** 2/2 search tests pass ✅
+- **Impact:** `/search` command and Telegram `/search` now respond in <1s even on 18K calls (vs. timeout on large result sets)
+
 ### Added — Profanity Detector + Feature Flags (2026-04-17)
 
 **1. Dictionary-based Russian profanity detector (no LLM):**
