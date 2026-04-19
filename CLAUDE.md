@@ -10,7 +10,7 @@ Local multi-user phone call analysis system. Records → transcripts → LLM str
 
 - 100% local. No cloud LLM, no SaaS, no subscriptions.
 - Windows + system Python. No Docker/Redis/Celery.
-- LLM: `llama-server.exe -m "C:\models\Qwen3.5-9B.Q5_K_M.gguf" -ngl 99 -c 16384 --host 127.0.0.1 --port 8080` — OpenAI-compatible API at `http://127.0.0.1:8080/v1/chat/completions`. NOT Ollama.
+- LLM: `llama-server.exe -m "C:\models\Qwen3.5-9B.Q8_0.gguf" -ngl 99 -c 16384 --host 127.0.0.1 --port 8080` — OpenAI-compatible API at `http://127.0.0.1:8080/v1/chat/completions`. NOT Ollama.
 - GPU sequential: Whisper+pyannote together (4.5GB), unload before LLM (10GB).
 - Every DB query MUST filter by `user_id`.
 - Never hardcode tokens — `os.environ.get()` only.
