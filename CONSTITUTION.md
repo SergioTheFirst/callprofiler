@@ -85,7 +85,7 @@ RTX 3060 12GB. Две модели одновременно в VRAM запрещ
 |-----------|---------|----------------------|
 | ASR | faster-whisper large-v3 | WER > 25% на реальных звонках |
 | Диаризация | pyannote 3.3.2 + ref embedding | Ошибка ролей > 15% |
-| LLM | Ollama + Qwen 2.5 14B Q4 | Качество JSON < 70% |
+| LLM | Ollama + Qwen3.5-9B.Q8_0 | Качество JSON < 70% |
 | БД | SQLite + FTS5 | Contention при > 100K записей |
 | Бот | python-telegram-bot | — |
 | Overlay | MacroDroid + FolderSync + .txt | Не работает на целевом Android |
@@ -182,7 +182,7 @@ data/
 
 ```
 Whisper (~3GB) + pyannote (~1.5GB) = ~4.5GB  → помещаются вместе → OK
-Ollama Qwen 14B Q4 (~10GB)                    → только один → выгрузить остальное
+Ollama Qwen3.5-9B.Q8_0 (~10GB)                    → только один → выгрузить остальное
 ```
 
 Перед загрузкой LLM обязательно:
