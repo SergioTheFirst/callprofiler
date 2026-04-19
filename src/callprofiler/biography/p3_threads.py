@@ -63,7 +63,7 @@ def run(
             context_key=f"thread:entity:{entity_id}",
             messages=messages,
             temperature=0.35,
-            max_tokens=1500,
+            max_tokens=2500,
         )
         data = extract_json(response) if response else None
 

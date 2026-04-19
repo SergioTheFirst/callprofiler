@@ -78,7 +78,7 @@ def run(
             context_key=f"portrait:entity:{entity_id}",
             messages=messages,
             temperature=0.5,
-            max_tokens=1400,
+            max_tokens=2500,
         )
         data = extract_json(response) if response else None
         if not isinstance(data, dict):

@@ -8,6 +8,92 @@
 
 ## [Unreleased]
 
+### Changed — Biography Module: max_tokens + non-fiction style for 45+ audience (2026-04-19)
+
+**Контекст:** владелец указал целевую аудиторию книги — русскоязычные
+взрослые 45+, технически прогрессивные, с широким кругозором. Стиль —
+non-fiction со спокойным достоинством, эмпатией к собеседникам и
+умеренной самоиронией владельца. Предыдущие 500-1200 слов/главу были
+рассчитаны на короткие ответы; для полноценной главы книги нужно
+2500-4500 слов.
+
+**1. Bumped `PROMPT_VERSION`: `bio-v1` → `bio-v2`**
+
+- Memoization cache (`bio_llm_calls`) автоматически игнорирует старые
+  ответы; новые запросы пересчитываются. Старые записи остаются для
+  аудита.
+
+**2. `max_tokens` увеличены во всех 8 проходах:**
+
+| Pass            | Было | Стало | Зачем                                |
+|-----------------|------|-------|--------------------------------------|
+| p1_scene        | 1200 | 1800  | richer synopsis + `insight` поле     |
+| p2_entities     | 2500 | 3800  | полные aliases + описания            |
+| p3_threads      | 1500 | 2500  | 3-6 абзацев summary + turning_points |
+| p4_arcs         | 2800 | 4200  | до 20 арок с подробными synopsis     |
+| p5_portraits    | 1400 | 2500  | 3-5 абзацев prose                    |
+| **p6_chapters** | 3200 | 5500  | **2500-4500 слов/глава (КРИТИЧНО)**  |
+| p7_book         | 2000 | 3500  | 3-5 абзацев prologue + epilogue      |
+| p8_editorial    | 3200 | 5500  | редактура с сохранением объёма ±15%  |
+
+**3. Переписаны system prompts в `prompts.py`:**
+
+- Добавлен общий `_STYLE_GUIDE` (подключается в p6/p7/p8): non-fiction,
+  аудитория 45+, спокойное достоинство, эмпатия, умеренная самоирония,
+  запрет на «звонок/созвон/телефонный разговор» и цифры количества.
+- **p1 Scene**: добавлено поле `insight`, `synopsis` расширен до 2-4
+  предложений, `emotional_tone` получил значение `reflective`,
+  `key_quote` расширен до 240 символов.
+- **p3 Thread**: добавлены поля `turning_points` (со scene_index + why)
+  и `open_questions`, `summary` расширен до 3-6 абзацев.
+- **p5 Portrait**: добавлено поле `what_owner_learned`, `prose` расширен
+  до 3-5 абзацев, явный запрет на ярлыки-диагнозы.
+- **p6 Chapter**: структура обязательна (вводный → 2-4 блока `## …` →
+  закрывающий), требование 1-3 прямых цитат, ≥1 эмпатическая нота,
+  ≤1 самоироничная реплика, длина 2500-4500 слов.
+- **p7 Book frame**: prologue/epilogue расширены до 3-5 абзацев,
+  subtitle до 140 символов, разрешена аккуратная самоирония в прологе.
+- **p8 Editorial**: подключён полный `_STYLE_GUIDE`, явные критерии
+  усиления (прямая цитата, эмпатия, самоирония), разрешено расширять
+  короткий черновик до 3000-3500 слов.
+
+**4. JSON data-budgets для p6 увеличены:**
+- portraits prose excerpt: 500 → 1200 симв.
+- portraits blob: 4000 → 6000 симв.
+- arcs blob: 3000 → 4500 симв.
+- scenes blob: 6000 → 9000 симв.
+
+**5. p8 editorial input clip: 12000 → 20000 символов** (глава целиком,
+а не обрезок).
+
+**6. Memory files (Progressive Disclosure):**
+
+- **`src/callprofiler/biography/CLAUDE.md`** (new, 71 lines) — обзор
+  модуля: mission, inputs, outputs, 8-pass pipeline, chapter types,
+  принципы.
+- **`.claude/rules/biography-data.md`** (new) — SQL-запросы для каждого
+  прохода, пороги (importance, mention_count, MIN_MENTIONS), правила
+  анонимизации PII, idempotency invariants, resume protocol.
+- **`.claude/rules/biography-style.md`** (new) — целевая аудитория
+  (45+ кругозор), жанр non-fiction, тон (спокойное достоинство),
+  эмпатия, самоирония, длины всех сущностей, структура главы,
+  список запрещённых слов/форматов, sanity checklist.
+- **`.claude/rules/biography-prompts.md`** (new) — контракт каждого
+  prompt'а: input signature, output JSON/markdown, constraints, quote
+  extraction rules, versioning workflow.
+- **`CLAUDE.md`** — добавлены 4 новые ссылки в Progressive Disclosure.
+
+**Файлы:** `prompts.py`, `p1_scene.py`, `p2_entities.py`, `p3_threads.py`,
+`p4_arcs.py`, `p5_portraits.py`, `p6_chapters.py`, `p7_book.py`,
+`p8_editorial.py`; 4 новых memory-файла + root `CLAUDE.md`.
+
+**Side effect:** текущий biography-run (p1_scene на 58%) продолжит работу
+на **старом** `bio-v1` промпте — его hash уже закэширован. Новые проходы
+(p2-p8) запустятся уже на `bio-v2`. Для полного пересчёта p1 нужно
+`DELETE FROM bio_checkpoints WHERE pass_name='p1_scene'` и рестарт.
+
+---
+
 ### Fixed — FTS5 Search Optimization (2026-04-17)
 
 **`search_transcripts()` now uses FTS5 MATCH instead of LIKE:**

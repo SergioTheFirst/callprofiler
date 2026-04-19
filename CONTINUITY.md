@@ -8,14 +8,114 @@
 
 ## Status
 
-DONE: Profanity detector + Feature flags (5e74a50) + FTS5 search optimization (82e9b03)  
-NOW: idle — biography-run на 58% (p1_scene, ~27 часов осталось)  
-NEXT: biography-export после p1-p8; тестирование bulk-enrich на реальных данных  
+DONE: Biography module v2 — max_tokens + non-fiction style для 45+ + memory files (2026-04-19)  
+LAST: Profanity detector + Feature flags (5e74a50) + FTS5 search optimization (82e9b03)  
+NOW: idle — biography-run продолжает работать на `bio-v1` (кэш); новые проходы пойдут на `bio-v2`  
+NEXT: дождаться окончания p1 → p2-p8 на новых промптах → biography-export  
 BLOCKERS: None currently
 
 ---
 
-## Текущое состояние: 2026-04-17 19:00 (FTS5 search fix + Profanity detector + Feature flags)
+## Текущее состояние: 2026-04-19 (Biography v2 — стиль, токены, memory files)
+
+### Ветка разработки
+`main` (прямой push по CLAUDE.md → Git Push Authorization)
+
+### Последний коммит (ожидается)
+```
+<pending> feat(biography): bio-v2 — max_tokens + non-fiction style + memory files
+```
+
+### Что сделано в этой сессии (2026-04-19)
+
+**Все изменения в модуле `src/callprofiler/biography/`:**
+
+1. **`PROMPT_VERSION`: `bio-v1` → `bio-v2`** — memoization сам переключится.
+
+2. **`max_tokens` увеличены** во всех 8 проходах:
+   - p1=1800 (было 1200), p2=3800 (было 2500), p3=2500 (было 1500),
+     p4=4200 (было 2800), p5=2500 (было 1400), **p6=5500** (было 3200),
+     p7=3500 (было 2000), p8=5500 (было 3200).
+   - Главное — p6 (chapter) для 2500-4500 слов/глава.
+
+3. **`prompts.py` переписан**:
+   - Общий `_STYLE_GUIDE` в p6/p7/p8: non-fiction для 45+, спокойное
+     достоинство, эмпатия, умеренная самоирония, запрет на
+     «звонок/созвон» и цифры количества.
+   - p1 Scene: новое поле `insight`, synopsis 2-4 предл., tone
+     `reflective`, key_quote 240 симв.
+   - p3 Thread: новые поля `turning_points`, `open_questions`, summary
+     3-6 абзацев.
+   - p5 Portrait: новое поле `what_owner_learned`, prose 3-5 абзацев,
+     запрет на ярлыки-диагнозы.
+   - p6 Chapter: структура (вводный → 2-4 блока `## …` → закрывающий),
+     1-3 цитаты, ≥1 эмпатическая нота, ≤1 самоироничная реплика.
+   - p7 Frame: prologue/epilogue 3-5 абзацев.
+   - p8 Editorial: подключён полный style guide, разрешено расширять
+     короткие главы.
+   - JSON budgets в p6: portraits 4000→6000, arcs 3000→4500,
+     scenes 6000→9000, prose excerpt 500→1200.
+   - p8 input clip: 12000→20000 симв.
+
+4. **Новые memory-файлы (Progressive Disclosure):**
+   - `src/callprofiler/biography/CLAUDE.md` (71 стр.) — обзор модуля.
+   - `.claude/rules/biography-data.md` — SQL, пороги, анонимизация,
+     idempotency, resume protocol.
+   - `.claude/rules/biography-style.md` — аудитория, тон, длины,
+     структура, запрещённое, sanity checklist.
+   - `.claude/rules/biography-prompts.md` — контракты каждого промпта
+     (input/output/constraints/quote rules).
+   - Root `CLAUDE.md` — добавлены 4+1 ссылки в Progressive Disclosure.
+
+**Тесты:** `prompts.py` импортируется без ошибок (`PYTHONPATH=src python -c "..."` → `OK bio-v2`).
+
+### Текущий процесс
+
+- **biography-run** для `serhio`: p1_scene на **58%**, идёт на старом
+  `bio-v1` (кэш не сброшен, новые промпты не применяются к уже
+  начатому проходу).
+- Скорость: ~4 сцены/минута, ETA p1 ~27 часов.
+- Проходы p2-p8 стартуют после p1 и сразу получат новые промпты
+  и новые `max_tokens`.
+
+### Следующий шаг
+
+1. Дождаться p1 завершения (вечер 2026-04-18 по старому ETA;
+   теперь — примерно 2026-04-20).
+2. Проверить качество p2-p8 на `bio-v2` (одна глава-пробник из
+   реальных данных до полного run).
+3. Если стиль просел — подправить `_STYLE_GUIDE` и поднять до `bio-v3`.
+4. `biography-export --user serhio --out book.md`.
+
+### Известные ограничения / долги
+
+- Активный p1_scene использует старые промпты (кэш). Пересчёт только
+  через `DELETE FROM bio_checkpoints WHERE pass_name='p1_scene'`.
+- Словарный детектор мата не ловит обфускации (см. сессию 2026-04-17).
+- Windows file-lock в test_integration.py (6 failures, не в scope).
+
+---
+
+## Сессия 2026-04-19: Biography v2 — стиль + токены + memory
+
+### Что изменено
+Файлы: `prompts.py` (переписаны 7 system prompts), `p1-p8_*.py` (max_tokens),
+новые `biography/CLAUDE.md` + 3 rules + обновлённый root `CLAUDE.md`.
+
+### Почему
+Владелец уточнил аудиторию и стиль: non-fiction для 45+ с широким
+кругозором, спокойное достоинство, эмпатия, умеренная самоирония.
+Текущие главы слишком короткие (500-1200 слов) — нужны 2500-4500.
+Промпты не кодировали тон, из-за чего риск сухих или неловких глав.
+
+### Что проверить потом
+- Длина реальной главы от p6 на `bio-v2` (целевое 2500-4500 слов).
+- Наличие прямых цитат и эмпатических нот в сгенерированных главах.
+- Работа editorial (p8): не сжимает ли главу обратно.
+
+---
+
+## Предыдущее состояние: 2026-04-17 19:00 (FTS5 search fix + Profanity detector + Feature flags)
 
 ### Ветка разработки
 `main` (прямой push по CLAUDE.md → Git Push Authorization)

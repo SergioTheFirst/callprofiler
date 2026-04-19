@@ -133,7 +133,7 @@ def run(
             context_key=f"chapter:{ym}",
             messages=messages,
             temperature=0.55,
-            max_tokens=3200,
+            max_tokens=5500,
         )
 
         if not response or len(response.strip()) < 200:

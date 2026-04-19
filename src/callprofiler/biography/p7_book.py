@@ -59,7 +59,7 @@ def run(
         context_key=f"book:frame:{version_label}",
         messages=messages,
         temperature=0.6,
-        max_tokens=2000,
+        max_tokens=3500,
     )
     frame = extract_json(response) if response else None
     if not isinstance(frame, dict):

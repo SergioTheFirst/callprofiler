@@ -116,7 +116,7 @@ def run(
             context_key=f"scene:{call_id}",
             messages=messages,
             temperature=0.3,
-            max_tokens=1200,
+            max_tokens=1800,
         )
 
         data = extract_json(response) if response else None

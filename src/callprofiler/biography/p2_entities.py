@@ -92,7 +92,7 @@ def run(
                 context_key=ctx_key,
                 messages=messages,
                 temperature=0.2,
-                max_tokens=2500,
+                max_tokens=3800,
             )
             data = extract_json(response) if response else None
             if not isinstance(data, dict):
