@@ -8,6 +8,34 @@
 
 ## [Unreleased]
 
+### Fixed — Biography: architecture findings P1+P2 resolved (2026-04-20)
+
+**4 исправления по результатам архитектурного ревью:**
+
+**[P1a] biography-export отдавал yearly_summary вместо основной книги**
+- `repo.latest_book()`: добавлен параметр `book_type='main'`, SQL фильтрует
+  `AND book_type=?`. До этого после p9_yearly наружу уходил годовой итог.
+- `cli/main.py` biography-export: SQL-запрос добавил `AND book_type='main'`.
+
+**[P1b] p8_editorial не был идемпотентным**
+- `p8_editorial.py`: `status="edited"` → `status="final"`. Теперь повторный
+  запуск корректно пропускает уже отредактированные главы (фильтр `!= 'final'`).
+- `p8_editorial.py`: `reassemble` default `True` → `False`. В стандартном
+  pipeline p7_book запускается отдельно после p8b_doc_dedup.
+
+**[P2a] start_checkpoint() не сбрасывал счётчики**
+- `repo.start_checkpoint()` ON CONFLICT DO UPDATE: добавлено
+  `processed_items=0, failed_items=0, last_item_key=NULL`. Повторный старт
+  прохода теперь показывает реальные, а не накопленные числа.
+
+**[P2b] Новый проход p8b_doc_dedup — межглавный параграфный дедуп**
+- `p8b_doc_dedup.py`: детерминированный дедуп без LLM (exact-hash MD5 +
+  Jaccard similarity ≥ 0.72 на word-sets). Единица — абзац ≥ 80 символов.
+  Главы обходятся по chapter_num, первое вхождение побеждает.
+- `orchestrator.py`: новый ORDER — `…p6 → p8_editorial → p8b_doc_dedup
+  → p7_book → p9_yearly`. p7 собирает книгу из уже очищенных глав.
+- `__init__.py`: обновлён docstring (10 проходов).
+
 ### Added — Biography: p9_yearly wired + insight field pipeline (2026-04-20)
 
 **Архитектурный аудит biography модуля → две подтверждённых проблемы исправлены:**

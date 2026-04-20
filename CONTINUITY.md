@@ -8,14 +8,13 @@
 
 ## Status
 
+DONE: Biography arch-fixes — export filter, p8 idempotency, checkpoint reset, p8b dedup (2026-04-20)
+DONE: D:\calls → C:\calls path migration (2026-04-20)
 DONE: Biography p9 wired + insight field pipeline (2026-04-20)
 DONE: Biography module v6 — время звонка + годовой итог p9 (2026-04-20)  
-DONE: Biography module v5 — аудит противоречий, чистка промптов (2026-04-20)  
-DONE: Biography module v4 — smart name handling + flexible word counts (2026-04-20)  
-DONE: Biography module v3 — психологическая глубина персонажей (2026-04-20)  
 NOW: committed + pushed to main  
-NEXT: none pending — pipeline complete (p1-p9 all wired)  
-BLOCKERS: None currently
+NEXT: none pending — pipeline complete, all P1/P2 findings resolved  
+BLOCKERS: None
 
 ---
 

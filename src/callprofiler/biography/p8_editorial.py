@@ -4,8 +4,11 @@ p8_editorial.py — Pass 8: Editorial Pass.
 
 Walks every chapter in bio_chapters (status != 'final'), asks the LLM
 to polish it (dedupe, tighten, remove call-count leaks), and writes
-the revised prose back with status='edited'. Then re-runs Pass 7 to
-reassemble the book with version_label='final'.
+the revised prose back with status='final'.
+
+Idempotent: chapters already marked 'final' are skipped on re-run.
+In the standard pipeline p7_book runs *after* p8b_doc_dedup, so
+reassemble defaults to False.
 """
 
 from __future__ import annotations
@@ -26,7 +29,7 @@ def run(
     user_id: str,
     bio: BiographyRepo,
     llm: ResilientLLMClient,
-    reassemble: bool = True,
+    reassemble: bool = False,
 ) -> dict:
     chapters = bio.get_chapters_for_user(user_id)
     todo = [c for c in chapters if c.get("status") != "final"]
@@ -59,7 +62,7 @@ def run(
                                 processed_delta=1, failed_delta=1)
             continue
 
-        bio.set_chapter_prose(chapter_id, response.strip(), status="edited")
+        bio.set_chapter_prose(chapter_id, response.strip(), status="final")
         edited += 1
         bio.tick_checkpoint(user_id, PASS_NAME, f"chapter:{chapter_id}")
 

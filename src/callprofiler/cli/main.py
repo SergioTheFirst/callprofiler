@@ -1185,7 +1185,8 @@ def cmd_biography_export(args: argparse.Namespace) -> int:
 
     import json
     row = conn.execute(
-        "SELECT * FROM bio_books WHERE user_id=? ORDER BY generated_at DESC LIMIT 1",
+        "SELECT * FROM bio_books WHERE user_id=? AND book_type='main'"
+        " ORDER BY generated_at DESC LIMIT 1",
         (args.user_id,),
     ).fetchone()
     conn.close()

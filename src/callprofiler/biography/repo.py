@@ -612,11 +612,11 @@ class BiographyRepo:
         self._conn.commit()
         return int(cur.lastrowid)
 
-    def latest_book(self, user_id: str) -> dict | None:
+    def latest_book(self, user_id: str, book_type: str = "main") -> dict | None:
         row = self._conn.execute(
-            """SELECT * FROM bio_books WHERE user_id=?
+            """SELECT * FROM bio_books WHERE user_id=? AND book_type=?
                 ORDER BY generated_at DESC LIMIT 1""",
-            (user_id,),
+            (user_id, book_type),
         ).fetchone()
         if not row:
             return None
@@ -645,6 +645,9 @@ class BiographyRepo:
                VALUES (?, ?, ?, 0, 0, 'running', datetime('now'), datetime('now'))
                ON CONFLICT(user_id, pass_name) DO UPDATE SET
                     total_items=excluded.total_items,
+                    processed_items=0,
+                    failed_items=0,
+                    last_item_key=NULL,
                     status='running',
                     updated_at=datetime('now')""",
             (user_id, pass_name, total_items),
