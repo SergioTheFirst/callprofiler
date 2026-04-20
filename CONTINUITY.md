@@ -8,13 +8,40 @@
 
 ## Status
 
+DONE: Biography module v6 — время звонка + годовой итог p9 (2026-04-20)  
 DONE: Biography module v5 — аудит противоречий, чистка промптов (2026-04-20)  
 DONE: Biography module v4 — smart name handling + flexible word counts (2026-04-20)  
 DONE: Biography module v3 — психологическая глубина персонажей (2026-04-20)  
 LAST: bio-v2 — max_tokens + non-fiction style для 45+ + memory files (2026-04-19)  
-NOW: ready for commit — bio-v5 contradiction audit complete  
-NEXT: git commit + git push → main  
+NOW: committed + pushed to main — bio-v6 complete  
+NEXT: runner.py — добавить вызов p9 в biography-run --yearly  
 BLOCKERS: None currently
+
+---
+
+## Текущее состояние: 2026-04-20 (Biography v6 — время звонка + годовой итог p9)
+
+### Ветка разработки
+`claude/clone-callprofiler-repo-hL5dQ` (push → main)
+
+### Что сделано в этой сессии (2026-04-20, v6 сессия)
+
+1. **`_call_hour()` helper** — извлекает час из call_datetime (ISO/space sep).
+2. **`_SCENE_SYS` + `build_scene_prompt()`** — time_ctx: ночной/утренний сигнал
+   передаётся LLM явно в user message, инструкция в system prompt.
+3. **`_CHAPTER_SYS`** — правило: упоминать нестандартный час в прозе.
+4. **`_YEARLY_SYS` + `build_yearly_summary_prompt()`** — p9, новый проход:
+   годовой итог в духе Довлатова (3-5 абзацев, сквозные мотивы, без морали).
+5. **Rules обновлены**: biography-style.md, biography-prompts.md, CLAUDE.md.
+6. **PROMPT_VERSION**: bio-v5 → bio-v6. Тесты: OK bio-v6.
+
+### Следующий шаг
+- `runner.py` — добавить вызов p9 в `biography-run --yearly`
+- Добавить `bio_books.book_type` поле если нет в схеме
+
+### Известные ограничения / долги
+- p9 runner ещё не реализован (только промпт)
+- biography/CLAUDE.md: bio-v4; current: bio-v6 — строчка не обновлена
 
 ---
 

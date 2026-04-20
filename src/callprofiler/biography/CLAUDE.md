@@ -29,7 +29,7 @@
 - `bio_checkpoints` — resume-состояние по каждому проходу
 - `bio_llm_calls` — memoization (MD5-ключ → ответ)
 
-## Pipeline (8 passes, all idempotent)
+## Pipeline (9 passes, all idempotent)
 
 ```
 p1_scene     call      → bio_scenes         (per-call narrative unit)
@@ -40,6 +40,7 @@ p5_portraits entity    → bio_portraits      (character sketches)
 p6_chapters  month     → bio_chapters       (thematic prose, 2500-4500 слов при достаточном материале)
 p7_book      all       → bio_books          (frame + TOC + stitched)
 p8_editorial chapter   → bio_chapters       (polish pass, version=final)
+p9_yearly    year      → bio_books          (Dovlatov-style annual retrospective, book_type=yearly_summary)
 ```
 
 ## Chapter types (p6 themes)
@@ -51,6 +52,8 @@ p8_editorial chapter   → bio_chapters       (polish pass, version=final)
 ## Principles
 
 - Никаких цифр, процентов, слов «звонок/созвон/телефонный разговор».
+- Время суток — значимый факт: беседа в 02:00 или в 06:30 несёт сигнал
+  срочности/доверия; p1 передаёт это в LLM, p6 отражает в прозе.
 - Эмпатия к собеседнику, даже трудному. Ярлыки запрещены.
 - Самоирония владельца — не более одной реплики на главу.
 - Факты только из материалов. Лакуны — честные, без домысла.
@@ -64,8 +67,8 @@ p8_editorial chapter   → bio_chapters       (polish pass, version=final)
 - `.claude/rules/biography-prompts.md` — контракты промптов
 - `.claude/rules/narrative-journal.md` — смежная архитектура событий
 
-## Max tokens per pass (bio-v4; current: bio-v5)
+## Max tokens per pass (bio-v6; current: bio-v6)
 
-p1=1800, p2=3800, p3=2500, p4=4200, p5=2500, p6=5500, p7=3500, p8=5500.
+p1=1800, p2=3800, p3=2500, p4=4200, p5=2500, p6=5500, p7=3500, p8=5500, p9=4000.
 При смене промптов — бампни `PROMPT_VERSION` в `prompts.py`, чтобы
 поломать memoization и получить свежие ответы.

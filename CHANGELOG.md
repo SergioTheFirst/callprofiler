@@ -8,6 +8,31 @@
 
 ## [Unreleased]
 
+### Added — Biography Module: время звонка + годовой итог (bio-v6) (2026-04-20)
+
+**Изменения:**
+
+1. **PROMPT_VERSION**: `bio-v5` → `bio-v6`
+
+2. **Время беседы в p1** (`_SCENE_SYS` + `build_scene_prompt()`):
+   - Добавлен хелпер `_call_hour()` — извлекает час из `call_datetime`.
+   - Если час < 6 или ≥ 22 → в user message: «ВРЕМЯ БЕСЕДЫ: NN:xx — ночной
+     час (значимый сигнал)». Если < 8 → «до 8 утра (вероятно, срочно)».
+   - В `_SCENE_SYS`: инструкция повысить importance на 10-20 и отразить в
+     setting («посреди ночи», «ранним утром»).
+   - В `_CHAPTER_SYS`: правило упоминать нестандартный час в прозе.
+
+3. **Новый проход p9** (`_YEARLY_SYS` + `build_yearly_summary_prompt()`):
+   - Годовой итог в духе Довлатова: 3-5 абзацев, без подзаголовков, без морали.
+   - Фокус на сквозных мотивах года, а не пересказе глав.
+   - Input: chapters (с excerpt), top_arcs (≤12), top_entities (≤15).
+   - Output: markdown проза. Хранение: `bio_books` с `book_type="yearly_summary"`.
+   - Промпт короткий (≤400 токенов доп. правил) — под Qwen3.5-9B.
+
+4. **Правила обновлены**: biography-style.md (время суток, p9 sanity checks,
+   length table), biography-prompts.md (p9 contract), biography/CLAUDE.md
+   (p9 в pipeline, принцип времени суток).
+
 ### Changed — Biography Module: аудит противоречий в промптах (bio-v5) (2026-04-20)
 
 **Проблема:** В biography/prompts.py найдено 18 противоречий и нагромождений
