@@ -62,8 +62,8 @@ torch.load = lambda *a, **kw: _orig(*a, **{**kw, "weights_only": kw.get("weights
 ## Key Paths
 
 ```
-Project:     C:\pro\callprofiler\          DB:    D:\calls\data\db\callprofiler.db
-Audio:       D:\calls\audio                Transcripts: D:\calls\out (18K .txt)
+Project:     C:\pro\callprofiler\          DB:    C:\calls\data\db\callprofiler.db
+Audio:       C:\calls\audio                Transcripts: C:\calls\out (18K .txt)
 Ref voice:   C:\pro\mbot\ref\manager.wav   Prototype:   reference_batch_asr.py
 ```
 

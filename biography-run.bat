@@ -26,11 +26,11 @@ set MAX_RETRIES=5
 set PASSES=
 
 :: Выходная книга
-set OUT_DIR=D:\calls\data\biography
+set OUT_DIR=C:\calls\data\biography
 set BOOK_FILE=%OUT_DIR%\book_%USER_ID%.md
 
 :: Лог этого запуска (отдельно от основного pipeline.log)
-set LOG_DIR=D:\calls\data\logs
+set LOG_DIR=C:\calls\data\logs
 set BIO_LOG=%LOG_DIR%\biography_%USER_ID%.log
 :: ── END CONFIG ──────────────────────────────────────────────────
 

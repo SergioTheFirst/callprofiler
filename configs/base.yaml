@@ -1,5 +1,5 @@
-data_dir: "D:\\calls\\data"
-log_file: "D:\\calls\\data\\logs\\pipeline.log"
+data_dir: "C:\\calls\\data"
+log_file: "C:\\calls\\data\\logs\\pipeline.log"
 
 models:
   whisper: "large-v3"

@@ -5,8 +5,8 @@
 - Рабочая машина: Windows 11, Python системный (без venv), cmd
 - Путь проекта: `C:\pro\callprofiler\`
 - Работающий прототип: `C:\pro\mbot\batch_asr.py`
-- Аудио: `D:\calls\audio` (с подпапками)
-- Выход текущий: `D:\calls\out`
+- Аудио: `C:\calls\audio` (с подпапками)
+- Выход текущий: `C:\calls\out`
 - Эталон голоса: `C:\pro\mbot\ref\manager.wav`
 - GPU: RTX 3060 12GB, CUDA 12.4
 - Зависимости уже установлены: torch 2.6.0+cu124, faster-whisper, pyannote.audio 3.3.2
@@ -89,8 +89,8 @@ C:\pro\callprofiler\
 **Файл:** `configs/base.yaml`
 
 ```yaml
-data_dir: "D:\\calls\\data"
-log_file: "D:\\calls\\data\\logs\\pipeline.log"
+data_dir: "C:\\calls\\data"
+log_file: "C:\\calls\\data\\logs\\pipeline.log"
 
 models:
   whisper: "large-v3"
@@ -583,14 +583,14 @@ main()
 cd C:\pro\callprofiler
 
 :: Добавить пользователя
-python -m callprofiler add-user serhio --display-name "Сергей" --incoming "D:\calls\audio" --ref-audio "C:\pro\mbot\ref\manager.wav" --sync-dir "D:\calls\sync\serhio\cards"
+python -m callprofiler add-user serhio --display-name "Сергей" --incoming "C:\calls\audio" --ref-audio "C:\pro\mbot\ref\manager.wav" --sync-dir "C:\calls\sync\serhio\cards"
 
 :: Обработать один файл
-python -m callprofiler process "D:\calls\audio\test_call.mp3" --user serhio
+python -m callprofiler process "C:\calls\audio\test_call.mp3" --user serhio
 
 :: Проверить результат
 :: - запись в БД (calls, transcripts, analyses)
-:: - карточка в D:\calls\sync\serhio\cards\{phone}.txt
+:: - карточка в C:\calls\sync\serhio\cards\{phone}.txt
 :: - (если настроен Telegram) саммари в чат
 
 :: Запустить watchdog

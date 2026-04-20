@@ -154,12 +154,12 @@ ruff check src/ tests/
 # Добавить пользователя
 python -m callprofiler add-user serhio \
     --display-name "Сергей" \
-    --incoming "D:\calls\audio" \
+    --incoming "C:\calls\audio" \
     --ref-audio "C:\pro\mbot\ref\manager.wav" \
-    --sync-dir "D:\calls\sync\serhio\cards"
+    --sync-dir "C:\calls\sync\serhio\cards"
 
 # Обработать один файл
-python -m callprofiler process "D:\calls\audio\test.mp3" --user serhio
+python -m callprofiler process "C:\calls\audio\test.mp3" --user serhio
 
 # Запустить watchdog (основной режим)
 python -m callprofiler watch

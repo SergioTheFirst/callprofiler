@@ -25,9 +25,9 @@ _torch.load = _patched_load
 # =====================================================
 #   NASTROJKI
 # =====================================================
-AUDIO_FOLDER  = r"D:\calls\audio"      # papka s audio (+ podpapki)
+AUDIO_FOLDER  = r"C:\calls\audio"      # papka s audio (+ podpapki)
 REF_AUDIO     = r"C:\pro\mbot\ref\manager.wav"  # etalon golosa menedzhera
-OUTPUT_FOLDER = r"D:\calls\out"        # kuda pisat .txt
+OUTPUT_FOLDER = r"C:\calls\out"        # kuda pisat .txt
 
 REF_NAME      = "Me"
 OTHER_NAME    = "S2"
