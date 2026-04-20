@@ -8,11 +8,55 @@
 
 ## Status
 
-DONE: Biography module v2 — max_tokens + non-fiction style для 45+ + memory files (2026-04-19)  
-LAST: Profanity detector + Feature flags (5e74a50) + FTS5 search optimization (82e9b03)  
-NOW: idle — biography-run продолжает работать на `bio-v1` (кэш); новые проходы пойдут на `bio-v2`  
-NEXT: дождаться окончания p1 → p2-p8 на новых промптах → biography-export  
+DONE: Biography module v3 — психологическая глубина персонажей (bio-v3) (2026-04-20)  
+LAST: bio-v2 — max_tokens + non-fiction style для 45+ + memory files (2026-04-19)  
+NOW: pending commit — bio-v3 prompts + style rules updated  
+NEXT: commit + push → дождаться p1 → p2-p8 получат bio-v3 промпты  
 BLOCKERS: None currently
+
+---
+
+## Текущее состояние: 2026-04-20 (Biography v3 — психологическая глубина)
+
+### Ветка разработки
+`claude/clone-callprofiler-repo-hL5dQ` (push → main)
+
+### Что сделано в этой сессии (2026-04-20)
+
+**Психологическая глубина персонажей — bio-v3:**
+
+1. **`PROMPT_VERSION`: `bio-v2` → `bio-v3`** — memoization сам переключится.
+
+2. **`prompts.py` — 5 изменений:**
+   - `_STYLE_GUIDE`: новый раздел «Психологическая глубина» — разрешает
+     гипотетические интерпретации поведенческих паттернов через «похоже»,
+     «возможно», «судя по всему». Максимум 1-2 на главу. Старое правило
+     «не додумывай мотивы» заменено: мотивы допустимы как версии.
+   - `_SCENE_SYS` → `insight`: расширено — называть психологическую динамику.
+   - `_PORTRAIT_SYS` → `prose`: инструкция на 1 поведенческую интерпретацию
+     паттерна. Правила: «версия мотива — да; диагноз — нет».
+   - `_CHAPTER_SYS`: новый пункт «Психологическое измерение», 1-2 наблюдения.
+   - `_EDITORIAL_SYS`: проверка психологической объёмности при редактуре.
+
+3. **`.claude/rules/biography-style.md`:**
+   - Секция Tone: добавлен раздел «Психологическая глубина» с примерами.
+   - Forbidden/Вымысел: смягчено — гипотезы через условное наклонение допустимы.
+   - Sanity checklist: +2 пункта.
+
+4. **`.claude/rules/biography-prompts.md`:**
+   - p1 insight, p5 Style requirement, p6 требования, p8 задачи — обновлены.
+
+**Тесты:** `OK bio-v3` (import check).
+
+### Следующий шаг
+1. Дождаться p1 → p2-p8 получат bio-v3 промпты.
+2. Проверить качество портрета (p5) — психологическая интерпретация vs плоскость.
+3. Если нужно — подправить примеры в `_PORTRAIT_SYS` и поднять до bio-v4.
+
+### Известные ограничения / долги
+- Активный p1_scene использует кэш (bio-v1). Пересчёт: `DELETE FROM bio_checkpoints WHERE pass_name='p1_scene'`.
+- Словарный детектор мата не ловит обфускации.
+- Windows file-lock в test_integration.py (6 failures, не в scope).
 
 ---
 
