@@ -3,13 +3,15 @@
 biography — multi-pass LLM pipeline turning a corpus of call transcripts
 into a coherent biographical book.
 
-Pipeline (10 passes, all DB-backed, resumable):
+Pipeline (11 passes, all DB-backed, resumable):
 
     P1.  Scene Extractor    — per-call narrative unit (synopsis, tone, entities)
     P2.  Entity Resolver    — canonicalize Vasya/Вася/Василий Петрович
     P3.  Thread Builder     — temporal thread per entity (chronological scenes)
+    P3b. Behavioral Engine  — deterministic: trust_score, volatility, role_type,
+                              contradiction detection (no LLM)
     P4.  Arc Detector       — multi-call arcs (problem → investigation → outcome)
-    P5.  Portrait Writer    — character sketches for recurring entities
+    P5.  Portrait Writer    — character sketches enriched with behavioral context
     P6.  Chapter Writer     — monthly / thematic prose chapters
     P8.  Editorial Pass     — polish, tighten, save status='final' per chapter
     P8b. Doc Dedup          — cross-chapter paragraph dedup (deterministic, no LLM)

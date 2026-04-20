@@ -8,6 +8,37 @@
 
 ## [Unreleased]
 
+### Added — Biography: Behavioral Engine p3b + bio-v7 (2026-04-20)
+
+**Новый детерминированный проход p3b_behavioral между p3 и p4:**
+
+**[p3b] Behavioral Engine — no LLM, pure stats**
+- `p3b_behavioral.py`: новый проход. Для каждой сущности PERSON (≥2 сцен)
+  вычисляет: trust_score (base 50, conflict_ratio×-30, promise_kept×+3,
+  promise_broken×-8, avg_importance>65 → +8, clamp[0,100]), volatility
+  (std_dev importance), initiator_out_ratio → role_type (initiator/responder/mixed).
+- Детекция противоречий: если у сущности ≥2 конфликтных сцены с importance≥40
+  и delta≥14 дней → `bio_contradictions` запись (severity по importance_sum).
+- `schema.py`: новые таблицы `bio_behavior_patterns` и `bio_contradictions`
+  с индексами. ALTER TABLE migration для существующих БД.
+- `repo.py`: 7 новых методов — upsert_behavior_pattern, get_behavior_pattern_for_entity,
+  get_behavior_patterns_for_user, upsert_contradiction, get_contradictions_for_entity,
+  get_calls_for_contact; get_portraits_for_user — LEFT JOIN bio_behavior_patterns.
+- `orchestrator.py`: ORDER обновлён на 11 проходов с p3b_behavioral между p3 и p4.
+- `__init__.py`: docstring «11 passes».
+
+**Portrait enrichment (p5 → bio-v7)**
+- `p5_portraits.py`: перед prompt-строением вызывает get_behavior_pattern_for_entity,
+  передаёт behavior= в build_portrait_prompt.
+- `prompts.build_portrait_prompt()`: новый параметр behavior; если есть —
+  добавляет в user-message блок behavioral сигналов (trust_score, conflict_count,
+  role_type, volatility) с инструкцией использовать как гипотезы через «похоже»/«возможно».
+
+**Chapter enrichment (p6 → bio-v7)**
+- `prompts.build_chapter_prompt()`: portraits_slim теперь включает опциональные
+  поля trust и role (из LEFT JOIN); chapter LLM видит поведенческий контекст.
+- `PROMPT_VERSION = "bio-v7"` — поломан memoization кэш для свежих ответов.
+
 ### Fixed — Biography: architecture findings P1+P2 resolved (2026-04-20)
 
 **4 исправления по результатам архитектурного ревью:**

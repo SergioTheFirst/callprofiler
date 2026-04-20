@@ -27,6 +27,7 @@ from callprofiler.biography import (
     p1_scene,
     p2_entities,
     p3_threads,
+    p3b_behavioral,
     p4_arcs,
     p5_portraits,
     p6_chapters,
@@ -46,23 +47,25 @@ PassRunner = Callable[..., dict]
 
 class Orchestrator:
     PASSES: dict[str, PassRunner] = {
-        "p1_scene":       p1_scene.run,
-        "p2_entities":    p2_entities.run,
-        "p3_threads":     p3_threads.run,
-        "p4_arcs":        p4_arcs.run,
-        "p5_portraits":   p5_portraits.run,
-        "p6_chapters":    p6_chapters.run,
-        "p8_editorial":   p8_editorial.run,
-        "p8b_doc_dedup":  p8b_doc_dedup.run,
-        "p7_book":        p7_book.run,
-        "p9_yearly":      p9_yearly.run,
+        "p1_scene":        p1_scene.run,
+        "p2_entities":     p2_entities.run,
+        "p3_threads":      p3_threads.run,
+        "p3b_behavioral":  p3b_behavioral.run,
+        "p4_arcs":         p4_arcs.run,
+        "p5_portraits":    p5_portraits.run,
+        "p6_chapters":     p6_chapters.run,
+        "p8_editorial":    p8_editorial.run,
+        "p8b_doc_dedup":   p8b_doc_dedup.run,
+        "p7_book":         p7_book.run,
+        "p9_yearly":       p9_yearly.run,
     }
 
     # Canonical execution order:
+    # behavioral engine (p3b) enriches portraits (p5) and chapters (p6)
     # edit chapters (p8) → cross-chapter dedup (p8b) → assemble book (p7) → yearly (p9)
     ORDER = [
-        "p1_scene", "p2_entities", "p3_threads", "p4_arcs",
-        "p5_portraits", "p6_chapters",
+        "p1_scene", "p2_entities", "p3_threads", "p3b_behavioral",
+        "p4_arcs", "p5_portraits", "p6_chapters",
         "p8_editorial", "p8b_doc_dedup", "p7_book",
         "p9_yearly",
     ]

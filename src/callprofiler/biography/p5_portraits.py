@@ -65,12 +65,14 @@ def run(
             bio.tick_checkpoint(user_id, PASS_NAME, f"entity:{entity_id}")
             continue
 
+        behavior = bio.get_behavior_pattern_for_entity(user_id, entity_id)
         messages = build_portrait_prompt(
             entity_name=name,
             entity_type=etype,
             role=role,
             thread_summary=(thread or {}).get("summary"),
             scenes=top,
+            behavior=behavior,
         )
         response = llm.call(
             user_id=user_id,

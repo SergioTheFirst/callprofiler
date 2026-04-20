@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 
-PROMPT_VERSION = "bio-v6"
+PROMPT_VERSION = "bio-v7"
 
 # ---------------------------------------------------------------------------
 # Shared style guide — included (in condensed form) in every prose-producing
@@ -363,6 +363,7 @@ def build_portrait_prompt(
     role: str | None,
     thread_summary: str | None,
     scenes: list[dict],
+    behavior: dict | None = None,
 ) -> list[dict]:
     condensed = [
         {
@@ -375,10 +376,22 @@ def build_portrait_prompt(
         }
         for i, s in enumerate(scenes)
     ]
+    behavior_section = ""
+    if behavior:
+        behavior_section = (
+            f"\nПоведенческие сигналы (вычислены по {behavior.get('call_count', 0)} беседам):\n"
+            f"  trust_score={behavior.get('trust_score', 50.0):.0f}/100"
+            f" | конфликтов={behavior.get('conflict_count', 0)}"
+            f" | роль={behavior.get('role_type', '?')}"
+            f" | волатильность={behavior.get('volatility', 0.0):.1f}\n"
+            "Используй эти сигналы как отправную точку для психологических гипотез "
+            "— не как факты, а через 'похоже'/'возможно'.\n"
+        )
     user = (
         f"Персонаж: {entity_name} ({entity_type})\n"
         f"Роль: {role or 'не определена'}\n"
-        f"Сюжетная линия: {thread_summary or '-'}\n\n"
+        f"Сюжетная линия: {thread_summary or '-'}\n"
+        f"{behavior_section}\n"
         f"Сцены (всего {len(scenes)}):\n"
         f"{json.dumps(condensed, ensure_ascii=False, indent=2)[:12000]}\n\n"
         f"Верни JSON."
@@ -469,15 +482,19 @@ def build_chapter_prompt(
         }
         for a in arcs
     ]
-    portraits_slim = [
-        {
+    portraits_slim = []
+    for p in portraits:
+        entry: dict = {
             "name": p.get("canonical_name"),
             "relationship": p.get("relationship"),
             "traits": p.get("traits"),
             "prose": (p.get("prose") or "")[:1200],
         }
-        for p in portraits
-    ]
+        if p.get("trust_score") is not None:
+            entry["trust"] = f"{p['trust_score']:.0f}/100"
+        if p.get("role_type"):
+            entry["role"] = p["role_type"]
+        portraits_slim.append(entry)
     user = (
         f"Глава {chapter_num}. Рабочее название: «{title}»\n"
         f"Период: {period_start or '?'} — {period_end or '?'}\n"

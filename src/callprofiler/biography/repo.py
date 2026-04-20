@@ -103,6 +103,15 @@ class BiographyRepo:
         ).fetchone()
         return dict(row) if row else None
 
+    def get_calls_for_contact(self, contact_id: int, user_id: str) -> list[dict]:
+        rows = self._conn.execute(
+            """SELECT call_id, direction, call_datetime, duration_sec
+                 FROM calls WHERE contact_id=? AND user_id=?
+                 ORDER BY call_datetime""",
+            (contact_id, user_id),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def get_contact_label(self, contact_id: int | None) -> str:
         if not contact_id:
             return "Неизвестный"
@@ -494,9 +503,14 @@ class BiographyRepo:
     def get_portraits_for_user(self, user_id: str) -> list[dict]:
         rows = self._conn.execute(
             """SELECT p.*, e.canonical_name, e.entity_type, e.role,
-                      e.mention_count, e.importance
+                      e.mention_count, e.importance,
+                      bp.trust_score, bp.volatility, bp.dependency,
+                      bp.role_type, bp.conflict_count, bp.call_count,
+                      bp.initiator_out_ratio
                  FROM bio_portraits p
                  JOIN bio_entities e ON e.entity_id = p.entity_id
+                 LEFT JOIN bio_behavior_patterns bp
+                        ON bp.entity_id = p.entity_id AND bp.user_id = p.user_id
                 WHERE p.user_id=?
                 ORDER BY e.importance DESC""",
             (user_id,),
@@ -697,6 +711,120 @@ class BiographyRepo:
             (prompt_hash,),
         ).fetchone()
         return dict(row) if row else None
+
+    # ------------------------------------------------------------------
+    # Behavioral patterns
+    # ------------------------------------------------------------------
+
+    def upsert_behavior_pattern(
+        self,
+        user_id: str,
+        entity_id: int,
+        contact_id: int | None,
+        trust_score: float,
+        volatility: float,
+        dependency: float,
+        role_type: str,
+        call_count: int,
+        conflict_count: int,
+        initiator_out_ratio: float,
+        promise_kept: int = 0,
+        promise_broken: int = 0,
+    ) -> int:
+        row = self._conn.execute(
+            "SELECT pattern_id FROM bio_behavior_patterns WHERE user_id=? AND entity_id=?",
+            (user_id, entity_id),
+        ).fetchone()
+        params = (trust_score, volatility, dependency, role_type, call_count,
+                  conflict_count, promise_kept, promise_broken, initiator_out_ratio)
+        if row:
+            self._conn.execute(
+                """UPDATE bio_behavior_patterns SET
+                        trust_score=?, volatility=?, dependency=?, role_type=?,
+                        call_count=?, conflict_count=?, promise_kept=?,
+                        promise_broken=?, initiator_out_ratio=?,
+                        computed_at=datetime('now')
+                   WHERE pattern_id=?""",
+                params + (row["pattern_id"],),
+            )
+            self._conn.commit()
+            return int(row["pattern_id"])
+        cur = self._conn.execute(
+            """INSERT INTO bio_behavior_patterns
+                (user_id, entity_id, contact_id, trust_score, volatility,
+                 dependency, role_type, call_count, conflict_count,
+                 promise_kept, promise_broken, initiator_out_ratio)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (user_id, entity_id, contact_id) + params,
+        )
+        self._conn.commit()
+        return int(cur.lastrowid)
+
+    def get_behavior_pattern_for_entity(
+        self, user_id: str, entity_id: int
+    ) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM bio_behavior_patterns WHERE user_id=? AND entity_id=?",
+            (user_id, entity_id),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def get_behavior_patterns_for_user(self, user_id: str) -> list[dict]:
+        rows = self._conn.execute(
+            """SELECT bp.*, e.canonical_name, e.entity_type
+                 FROM bio_behavior_patterns bp
+                 JOIN bio_entities e ON e.entity_id = bp.entity_id
+                WHERE bp.user_id=?
+                ORDER BY bp.trust_score DESC""",
+            (user_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Contradictions
+    # ------------------------------------------------------------------
+
+    def upsert_contradiction(
+        self,
+        user_id: str,
+        entity_id: int,
+        contact_id: int | None,
+        call_id_1: int,
+        call_id_2: int,
+        quote_1: str,
+        quote_2: str,
+        delta_days: int,
+        severity: str,
+        contradiction_type: str,
+    ) -> int:
+        existing = self._conn.execute(
+            """SELECT contradiction_id FROM bio_contradictions
+                WHERE user_id=? AND entity_id=? AND call_id_1=? AND call_id_2=?""",
+            (user_id, entity_id, call_id_1, call_id_2),
+        ).fetchone()
+        if existing:
+            return int(existing["contradiction_id"])
+        cur = self._conn.execute(
+            """INSERT INTO bio_contradictions
+                (user_id, entity_id, contact_id, call_id_1, call_id_2,
+                 quote_1, quote_2, delta_days, severity, contradiction_type)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (user_id, entity_id, contact_id, call_id_1, call_id_2,
+             quote_1, quote_2, delta_days, severity, contradiction_type),
+        )
+        self._conn.commit()
+        return int(cur.lastrowid)
+
+    def get_contradictions_for_entity(
+        self, user_id: str, entity_id: int
+    ) -> list[dict]:
+        rows = self._conn.execute(
+            """SELECT * FROM bio_contradictions
+                WHERE user_id=? AND entity_id=?
+                ORDER BY severity DESC, delta_days DESC""",
+            (user_id, entity_id),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     def log_llm_call(
         self,

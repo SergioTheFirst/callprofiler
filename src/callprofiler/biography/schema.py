@@ -169,6 +169,45 @@ CREATE TABLE IF NOT EXISTS bio_checkpoints (
     PRIMARY KEY(user_id, pass_name)
 );
 
+-- Behavioral patterns: deterministic behavioral model per contact entity.
+CREATE TABLE IF NOT EXISTS bio_behavior_patterns (
+    pattern_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id             TEXT    NOT NULL REFERENCES users(user_id),
+    entity_id           INTEGER NOT NULL REFERENCES bio_entities(entity_id),
+    contact_id          INTEGER REFERENCES contacts(contact_id),
+    trust_score         REAL    NOT NULL DEFAULT 50.0,   -- 0-100
+    volatility          REAL    NOT NULL DEFAULT 0.0,    -- std dev of scene importance
+    dependency          REAL    NOT NULL DEFAULT 0.5,    -- 0-1: fraction of owner-initiated calls
+    role_type           TEXT,                            -- initiator|responder|mixed
+    call_count          INTEGER NOT NULL DEFAULT 0,
+    conflict_count      INTEGER NOT NULL DEFAULT 0,
+    promise_kept        INTEGER NOT NULL DEFAULT 0,
+    promise_broken      INTEGER NOT NULL DEFAULT 0,
+    initiator_out_ratio REAL    NOT NULL DEFAULT 0.5,
+    computed_at         TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, entity_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bio_behavior_user ON bio_behavior_patterns(user_id);
+
+-- Contradictions: conflicting behavioral signals across calls for the same contact.
+CREATE TABLE IF NOT EXISTS bio_contradictions (
+    contradiction_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id             TEXT    NOT NULL REFERENCES users(user_id),
+    entity_id           INTEGER REFERENCES bio_entities(entity_id),
+    contact_id          INTEGER REFERENCES contacts(contact_id),
+    call_id_1           INTEGER REFERENCES calls(call_id),
+    call_id_2           INTEGER REFERENCES calls(call_id),
+    quote_1             TEXT,
+    quote_2             TEXT,
+    delta_days          INTEGER,
+    severity            TEXT    NOT NULL DEFAULT 'medium',  -- low|medium|high
+    contradiction_type  TEXT    NOT NULL DEFAULT 'behavior', -- behavior|facts|promises
+    created_at          TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_bio_contradictions_user ON bio_contradictions(user_id, entity_id);
+
 -- Memoized LLM calls: every prompt + response, keyed by hash.
 -- A re-run that issues the same prompt returns the cached response — key to
 -- multi-day runs that survive restarts, crashes, model swaps.
@@ -208,4 +247,9 @@ def apply_biography_schema(conn) -> None:
                            "TEXT NOT NULL DEFAULT ''")
     _add_column_if_missing(conn, "bio_books", "book_type",
                            "TEXT NOT NULL DEFAULT 'main'")
+    # bio_behavior_patterns and bio_contradictions added in bio-v7.
+    _add_column_if_missing(conn, "bio_behavior_patterns", "promise_kept",
+                           "INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(conn, "bio_behavior_patterns", "promise_broken",
+                           "INTEGER NOT NULL DEFAULT 0")
     conn.commit()

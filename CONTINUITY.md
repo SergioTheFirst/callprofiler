@@ -11,9 +11,10 @@
 DONE: Biography arch-fixes — export filter, p8 idempotency, checkpoint reset, p8b dedup (2026-04-20)
 DONE: D:\calls → C:\calls path migration (2026-04-20)
 DONE: Biography p9 wired + insight field pipeline (2026-04-20)
-DONE: Biography module v6 — время звонка + годовой итог p9 (2026-04-20)  
-NOW: committed + pushed to main  
-NEXT: none pending — pipeline complete, all P1/P2 findings resolved  
+DONE: Biography module v6 — время звонка + годовой итог p9 (2026-04-20)
+DONE: Biography Behavioral Engine p3b — bio-v7 (2026-04-20)
+NOW: committed + pushed to main
+NEXT: none pending — pipeline complete, behavioral engine live
 BLOCKERS: None
 
 ---
