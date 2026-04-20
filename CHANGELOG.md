@@ -8,6 +8,29 @@
 
 ## [Unreleased]
 
+### Added — Biography: p9_yearly wired + insight field pipeline (2026-04-20)
+
+**Архитектурный аудит biography модуля → две подтверждённых проблемы исправлены:**
+
+**1. insight field — устранена потеря данных (Change 1)**
+- `bio_scenes` DDL: новая колонка `insight TEXT NOT NULL DEFAULT ''`.
+- `apply_biography_schema()`: `_add_column_if_missing()` мигрирует существующие БД.
+- `repo.upsert_scene()`: `insight` в INSERT и UPDATE (было 15 params → 16).
+- `prompts.build_thread_prompt()`: condensed dict включает `insight`.
+- `prompts.build_chapter_prompt()`: `scenes_slim` включает `insight`.
+- Исправлено: LLM-интерпретация «нарративная/психологическая важность сцены» теперь
+  сохраняется в БД и передаётся в p3 и p6 (раньше — генерировалась и отбрасывалась).
+
+**2. p9_yearly.py — реализован (Change 2)**
+- `bio_books` DDL: новая колонка `book_type TEXT NOT NULL DEFAULT 'main'`.
+- `apply_biography_schema()`: ALTER TABLE миграция для существующих БД.
+- `repo.insert_book()`: параметр `book_type='main'` (default для p7 book).
+- `p7_book.py`: явно передаёт `book_type='main'`.
+- `p9_yearly.py`: новый модуль. Определяет год автоматически, вызывает
+  `build_yearly_summary_prompt()`, сохраняет как `book_type='yearly_summary'`.
+- `orchestrator.py`: PASSES + ORDER включают p9_yearly (9-й проход).
+- `cli/main.py`: docstring «8-проходного» → «9-проходного».
+
 ### Added — Biography Module: время звонка + годовой итог (bio-v6) (2026-04-20)
 
 **Изменения:**

@@ -32,6 +32,7 @@ from callprofiler.biography import (
     p6_chapters,
     p7_book,
     p8_editorial,
+    p9_yearly,
 )
 from callprofiler.biography.llm_client import ResilientLLMClient
 from callprofiler.biography.repo import BiographyRepo
@@ -52,11 +53,13 @@ class Orchestrator:
         "p6_chapters":  p6_chapters.run,
         "p7_book":      p7_book.run,
         "p8_editorial": p8_editorial.run,
+        "p9_yearly":    p9_yearly.run,
     }
 
     ORDER = [
         "p1_scene", "p2_entities", "p3_threads", "p4_arcs",
         "p5_portraits", "p6_chapters", "p7_book", "p8_editorial",
+        "p9_yearly",
     ]
 
     def __init__(

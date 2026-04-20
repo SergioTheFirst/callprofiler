@@ -140,6 +140,7 @@ class BiographyRepo:
             data.get("emotional_tone") or "neutral",
             _j(data.get("named_entities", [])),
             _j(data.get("themes", [])),
+            data.get("insight") or "",
             data.get("raw_llm") or "",
             data.get("model") or "",
             data.get("prompt_version") or "",
@@ -150,8 +151,8 @@ class BiographyRepo:
                 """UPDATE bio_scenes SET
                         user_id=?, call_id=?, call_datetime=?, importance=?,
                         scene_type=?, setting=?, synopsis=?, key_quote=?,
-                        emotional_tone=?, named_entities=?, themes=?, raw_llm=?,
-                        model=?, prompt_version=?, status=?
+                        emotional_tone=?, named_entities=?, themes=?, insight=?,
+                        raw_llm=?, model=?, prompt_version=?, status=?
                    WHERE scene_id=?""",
                 params + (row["scene_id"],),
             )
@@ -161,9 +162,9 @@ class BiographyRepo:
             """INSERT INTO bio_scenes
                    (user_id, call_id, call_datetime, importance, scene_type,
                     setting, synopsis, key_quote, emotional_tone,
-                    named_entities, themes, raw_llm, model, prompt_version,
-                    status)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    named_entities, themes, insight, raw_llm, model,
+                    prompt_version, status)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             params,
         )
         self._conn.commit()
@@ -595,16 +596,18 @@ class BiographyRepo:
         period_end: str | None,
         model: str,
         version_label: str,
+        book_type: str = "main",
     ) -> int:
         wc = len((prose_full or "").split())
         cur = self._conn.execute(
             """INSERT INTO bio_books
                 (user_id, title, subtitle, epigraph, prologue, epilogue, toc,
                  prose_full, word_count, period_start, period_end, model,
-                 version_label)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 version_label, book_type)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (user_id, title, subtitle, epigraph, prologue, epilogue, _j(toc),
-             prose_full, wc, period_start, period_end, model, version_label),
+             prose_full, wc, period_start, period_end, model, version_label,
+             book_type),
         )
         self._conn.commit()
         return int(cur.lastrowid)

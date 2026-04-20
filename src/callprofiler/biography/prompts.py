@@ -246,6 +246,7 @@ def build_thread_prompt(entity_name: str, entity_type: str, scenes: list[dict]) 
             "tone": s.get("emotional_tone"),
             "synopsis": s.get("synopsis"),
             "key_quote": s.get("key_quote"),
+            "insight": s.get("insight") or "",
         }
         for s in scenes
     ]
@@ -454,6 +455,7 @@ def build_chapter_prompt(
             "tone": s.get("emotional_tone"),
             "synopsis": s.get("synopsis"),
             "key_quote": s.get("key_quote"),
+            "insight": s.get("insight") or "",
         }
         for s in scenes
     ]

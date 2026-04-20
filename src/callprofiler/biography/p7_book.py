@@ -108,6 +108,7 @@ def run(
         period_end=period_end,
         model=llm.model_name,
         version_label=version_label,
+        book_type="main",
     )
     bio.tick_checkpoint(user_id, PASS_NAME, f"book:{book_id}")
     bio.finish_checkpoint(user_id, PASS_NAME, "done")

@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS bio_scenes (
     emotional_tone  TEXT,                          -- tense|warm|neutral|worried|celebratory|angry
     named_entities  TEXT NOT NULL DEFAULT '[]',    -- JSON [{name, type, mention}]
     themes          TEXT NOT NULL DEFAULT '[]',    -- JSON [theme1, theme2]
+    insight         TEXT NOT NULL DEFAULT '',      -- LLM: narrative/psychological significance
     raw_llm         TEXT,                          -- full LLM response (debug)
     model           TEXT,
     prompt_version  TEXT,
@@ -149,6 +150,7 @@ CREATE TABLE IF NOT EXISTS bio_books (
     period_end      TEXT,
     model           TEXT,
     version_label   TEXT,                          -- "draft-1" / "final"
+    book_type       TEXT NOT NULL DEFAULT 'main',  -- main|yearly_summary
     generated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -192,7 +194,18 @@ CREATE INDEX IF NOT EXISTS idx_bio_llm_context ON bio_llm_calls(user_id, pass_na
 """
 
 
+def _add_column_if_missing(conn, table: str, column: str, definition: str) -> None:
+    existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
 def apply_biography_schema(conn) -> None:
     """Apply biography schema to an existing sqlite3 connection."""
     conn.executescript(BIOGRAPHY_SCHEMA_SQL)
+    # Migrations for columns added after initial schema deployment.
+    _add_column_if_missing(conn, "bio_scenes", "insight",
+                           "TEXT NOT NULL DEFAULT ''")
+    _add_column_if_missing(conn, "bio_books", "book_type",
+                           "TEXT NOT NULL DEFAULT 'main'")
     conn.commit()

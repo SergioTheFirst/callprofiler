@@ -1085,7 +1085,7 @@ def cmd_bot(args: argparse.Namespace) -> int:
 
 
 def cmd_biography_run(args: argparse.Namespace) -> int:
-    """biography-run --user ID [--passes ...] — многодневный прогон 8-проходного
+    """biography-run --user ID [--passes ...] — многодневный прогон 9-проходного
     конвейера построения биографии по БД и транскриптам."""
     cfg, repo = _load_config_and_repo(args.config)
     _setup_logging(cfg.log_file, args.verbose)

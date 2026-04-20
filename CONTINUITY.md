@@ -8,14 +8,54 @@
 
 ## Status
 
+DONE: Biography p9 wired + insight field pipeline (2026-04-20)
 DONE: Biography module v6 — время звонка + годовой итог p9 (2026-04-20)  
 DONE: Biography module v5 — аудит противоречий, чистка промптов (2026-04-20)  
 DONE: Biography module v4 — smart name handling + flexible word counts (2026-04-20)  
 DONE: Biography module v3 — психологическая глубина персонажей (2026-04-20)  
-LAST: bio-v2 — max_tokens + non-fiction style для 45+ + memory files (2026-04-19)  
-NOW: committed + pushed to main — bio-v6 complete  
-NEXT: runner.py — добавить вызов p9 в biography-run --yearly  
+NOW: committed + pushed to main  
+NEXT: none pending — pipeline complete (p1-p9 all wired)  
 BLOCKERS: None currently
+
+---
+
+## Текущее состояние: 2026-04-20 (Biography — p9 wired + insight pipeline)
+
+### Ветка разработки
+`main` (прямой push)
+
+### Что сделано в этой сессии (2026-04-20, архитектурный аудит + реализация)
+
+**Анализ:** Полный архитектурный и редакторский аудит biography модуля.
+Две подтверждённых проблемы → реализованы:
+
+**1. insight поле — конец потери данных (Change 1)**
+- `schema.py`: `bio_scenes` — добавлена колонка `insight TEXT NOT NULL DEFAULT ''`.
+  ALTER TABLE миграция через `_add_column_if_missing()` для существующих БД.
+- `repo.py` `upsert_scene()`: `insight` включён в INSERT и UPDATE (16 params).
+- `prompts.py` `build_thread_prompt()`: condensed dict включает `"insight"`.
+- `prompts.py` `build_chapter_prompt()`: `scenes_slim` включает `"insight"`.
+- Результат: LLM-интерпретация «почему сцена важна для книги» теперь сохраняется
+  в БД и передаётся в p3 (thread builder) и p6 (chapter writer).
+
+**2. p9_yearly.py — реализован и подключён (Change 2)**
+- `schema.py`: `bio_books` — добавлена колонка `book_type TEXT NOT NULL DEFAULT 'main'`.
+  ALTER TABLE миграция.
+- `repo.py` `insert_book()`: новый параметр `book_type='main'` (default).
+- `p7_book.py`: передаёт `book_type='main'` явно.
+- `p9_yearly.py`: новый модуль (по образцу p8_editorial). Определяет год автоматически
+  (самый свежий с главами) или принимает `year=`. Вызывает `build_yearly_summary_prompt()`,
+  сохраняет `bio_books` с `book_type='yearly_summary'`.
+- `orchestrator.py`: p9_yearly добавлен в PASSES и ORDER (9-й проход).
+- `cli/main.py`: docstring обновлён «8-проходного» → «9-проходного».
+
+### Следующий шаг
+- Нет блокирующих задач. Пайплайн полностью реализован (p1-p9).
+- Запустить `biography-run --user X` для полного прогона, проверить p9 вывод.
+
+### Известные ограничения / долги
+- Существующие bio_scenes без insight = пустая строка (нужен p1 re-run с новым PROMPT_VERSION для заполнения).
+- Существующие bio_books без book_type = 'main' (заполнено DEFAULT).
 
 ---
 
