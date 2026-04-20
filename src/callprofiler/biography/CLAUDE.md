@@ -24,7 +24,7 @@
 - `bio_threads` — сюжетные линии по одной сущности
 - `bio_arcs` — многосценные арки (проблема/проект/отношения/событие)
 - `bio_portraits` — литературные портреты повторяющихся персонажей
-- `bio_chapters` — главы (месячные), 2500-4500 слов каждая
+- `bio_chapters` — главы (месячные), 2500-4500 слов при достаточном материале
 - `bio_books` — итоговая сборка (frame + stitched prose)
 - `bio_checkpoints` — resume-состояние по каждому проходу
 - `bio_llm_calls` — memoization (MD5-ключ → ответ)
@@ -37,7 +37,7 @@ p2_entities  mentions  → bio_entities       (canonicalize aliases)
 p3_threads   entity    → bio_threads        (per-entity arc)
 p4_arcs      windows   → bio_arcs           (multi-scene arcs)
 p5_portraits entity    → bio_portraits      (character sketches)
-p6_chapters  month     → bio_chapters       (thematic prose, 2500-4500 слов)
+p6_chapters  month     → bio_chapters       (thematic prose, 2500-4500 слов при достаточном материале)
 p7_book      all       → bio_books          (frame + TOC + stitched)
 p8_editorial chapter   → bio_chapters       (polish pass, version=final)
 ```
@@ -54,7 +54,7 @@ p8_editorial chapter   → bio_chapters       (polish pass, version=final)
 - Эмпатия к собеседнику, даже трудному. Ярлыки запрещены.
 - Самоирония владельца — не более одной реплики на главу.
 - Факты только из материалов. Лакуны — честные, без домысла.
-- Имена в канонической русской форме (Василий, не Вася).
+- Имена — живое письмо, как в материале (не механическое каноничение).
 - Owner = Сергей Медведев; в тексте — от третьего лица.
 
 ## See also
@@ -64,7 +64,7 @@ p8_editorial chapter   → bio_chapters       (polish pass, version=final)
 - `.claude/rules/biography-prompts.md` — контракты промптов
 - `.claude/rules/narrative-journal.md` — смежная архитектура событий
 
-## Max tokens per pass (bio-v2)
+## Max tokens per pass (bio-v4; current: bio-v5)
 
 p1=1800, p2=3800, p3=2500, p4=4200, p5=2500, p6=5500, p7=3500, p8=5500.
 При смене промптов — бампни `PROMPT_VERSION` в `prompts.py`, чтобы
