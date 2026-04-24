@@ -95,6 +95,12 @@ Pipeline rules:                @.claude/rules/pipeline.md
 LLM analysis rules:            @.claude/rules/llm.md
 Known bugs & fixes:            @.claude/rules/bugs.md
 Architectural decisions log:   @.claude/rules/decisions.md
+Narrative journal architecture:@.claude/rules/narrative-journal.md
+Biography module overview:     @src/callprofiler/biography/CLAUDE.md
+Biography data rules:          @.claude/rules/biography-data.md
+Biography style canon:         @.claude/rules/biography-style.md
+Biography prompt contracts:    @.claude/rules/biography-prompts.md
+Knowledge graph rules:         @.claude/rules/graph.md
 ```
 
 ## Prohibited

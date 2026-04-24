@@ -7,6 +7,7 @@
 Верни ТОЛЬКО JSON, без пояснений, без markdown:
 
 {
+  "schema_version": "v2",
   "summary": "2-3 предложения суть разговора или пусто если очень короткий",
   "category": "личный|рабочий|финансовый|медицинский|юридический|бытовой|спам|другое",
   "priority": 0-100,
@@ -28,7 +29,40 @@
     "legal_risk": false
   },
   "call_type": "business|smalltalk|short|spam|personal|unknown",
-  "hook": "одна фраза-напоминание для следующего звонка с этим человеком, или null"
+  "hook": "одна фраза-напоминание для следующего звонка с этим человеком, или null",
+
+  "entities": [
+    {
+      "type": "person|org|topic|trait|place|product|deal|event",
+      "canonical_name": "Иван Петров",
+      "normalized_key": "ivan_petrov",
+      "aliases": ["Ваня", "Иванчик"],
+      "attributes": {}
+    }
+  ],
+
+  "relations": [
+    {
+      "src_key": "ivan_petrov",
+      "dst_key": "roga_i_kopyta",
+      "relation_type": "works_for",
+      "confidence": 0.9
+    }
+  ],
+
+  "structured_facts": [
+    {
+      "fact_type": "promise|contradiction|emotion_spike|vagueness|blame_shift|claim",
+      "entity_key": "ivan_petrov",
+      "value": "перезвонит завтра до 18:00",
+      "quote": "я завтра до шести наберу точно",
+      "start_ms": null,
+      "end_ms": null,
+      "polarity": 1,
+      "intensity": 0.7,
+      "confidence": 0.8
+    }
+  ]
 }
 
 Правила:
@@ -39,4 +73,15 @@
 - call_type: business=рабочий/деловой, smalltalk=светская беседа, short=короткий (<30 сек), spam=спам, personal=личный
 - hook: конкретная фраза для напоминания (например "Должен отправить смету" или "Спроси про сына"). null если нечего напоминать
 - Все поля обязательны. Пустые: [] или null
+
+Правила для entities/relations/structured_facts:
+- normalized_key: только латиница, lowercase, подчёркивания. Транслитерируй кириллицу самостоятельно.
+- Если entity упоминается под разными именами — ОДНА запись с aliases.
+- Если имена неизвестны или разговор слишком короткий — entities=[], relations=[], structured_facts=[].
+- Все structured_facts ОБЯЗАТЕЛЬНО содержат непустой quote (дословная цитата из разговора, >=5 символов).
+  Факт без quote — не записывать.
+- entity_key в facts и relations ссылается на normalized_key из entities.
+- confidence: 0.0..1.0. Факты с confidence<0.6 — не записывать.
+- polarity: -1=негативный, 0=нейтральный, 1=позитивный
+- intensity: 0.0..1.0 — сила эмоции/значимость
 - ТОЛЬКО JSON, никакого текста вокруг

@@ -8,6 +8,535 @@
 
 ## [Unreleased]
 
+## [2026-04-24] — Knowledge Graph: Этапы 1-2
+
+### Added — Knowledge Graph layer (graph module)
+
+**Проблема:** Structured data (entities, relations, facts) extracted by LLM
+lived only as unstructured JSON in `analyses.raw_response`. No queryable graph.
+
+**Что реализовано (Этапы 1-2):**
+
+**Схема (Этап 1):**
+- `entities` table: canonical entity storage (PERSON/PLACE/COMPANY/PROJECT/EVENT)
+  with `normalized_key` (Latin transliteration, snake_case, LLM-generated)
+- `relations` table: time-decayed weighted edges between entities
+  (decay formula: `weight * 0.5^(days/180) + confidence`)
+- `entity_metrics` table: aggregated BS-index + per-type fact counts
+- `analyses.schema_version` column (ALTER TABLE, DEFAULT 'v1')
+- 7 columns added to `events`: `entity_id`, `fact_id`, `quote`, `start_ms`,
+  `end_ms`, `polarity`, `intensity`
+- Partial unique index on `events.fact_id` for deduplication
+- `apply_graph_schema(conn)`: idempotent migration callable on startup
+
+**Модуль `src/callprofiler/graph/` (Этап 2):**
+- `config.py`: thresholds (MIN_FACT_CONFIDENCE=0.6, RELATION_DECAY_DAYS=180)
+- `repository.py`: `GraphRepository` — upsert/get for all graph tables
+- `builder.py`: `GraphBuilder.update_from_call()` — reads raw_response,
+  skips v1 silently, processes v2: upserts entities → relations (with decay)
+  → facts (anti-noise filtered, INSERT OR IGNORE dedup)
+- `aggregator.py`: `EntityMetricsAggregator` — deterministic BS-index v1_linear:
+  `0.40*broken_ratio + 0.20*contradiction_dens + 0.15*vagueness_dens
+  + 0.15*blame_dens + 0.10*emotional_dens`
+
+**Промпт `analyze_v001.txt`:**
+- Добавлены `schema_version: "v2"`, `entities`, `relations`, `structured_facts`
+  arrays с полными инструкциями по извлечению (normalized_key, quote-контракт)
+
+**Интеграция:**
+- `enricher.py`: `_update_graph()` вызывается после batch flush; lazy import;
+  non-fatal; gated by `cfg.features.enable_graph_update`
+- `orchestrator.py`: graph update после `save_promises()`; same pattern
+- `config.py`: `FeaturesConfig.enable_graph_update = True`
+
+**CLI:**
+- `graph-backfill --user X [--schema v2|all]`
+- `reenrich-v2 --user X [--limit N]`
+- `graph-stats --user X`
+
+**Тесты:** 25 тестов в `tests/test_graph.py` — все pass (0.15s).
+Покрытие: schema idempotency, repository CRUD, user isolation, builder
+(v1 skip, v2 process, relations, fact filtering, dedup), BS-index formula,
+aggregator persistence.
+
+**Документация:** `.claude/rules/graph.md` (layer principles, anti-noise rules,
+BS-formula versioning, schema_version contract, Этапы 3-4 roadmap).
+
+### Added — Biography: Behavioral Engine p3b + bio-v7 (2026-04-20)
+
+**Новый детерминированный проход p3b_behavioral между p3 и p4:**
+
+**[p3b] Behavioral Engine — no LLM, pure stats**
+- `p3b_behavioral.py`: новый проход. Для каждой сущности PERSON (≥2 сцен)
+  вычисляет: trust_score (base 50, conflict_ratio×-30, promise_kept×+3,
+  promise_broken×-8, avg_importance>65 → +8, clamp[0,100]), volatility
+  (std_dev importance), initiator_out_ratio → role_type (initiator/responder/mixed).
+- Детекция противоречий: если у сущности ≥2 конфликтных сцены с importance≥40
+  и delta≥14 дней → `bio_contradictions` запись (severity по importance_sum).
+- `schema.py`: новые таблицы `bio_behavior_patterns` и `bio_contradictions`
+  с индексами. ALTER TABLE migration для существующих БД.
+- `repo.py`: 7 новых методов — upsert_behavior_pattern, get_behavior_pattern_for_entity,
+  get_behavior_patterns_for_user, upsert_contradiction, get_contradictions_for_entity,
+  get_calls_for_contact; get_portraits_for_user — LEFT JOIN bio_behavior_patterns.
+- `orchestrator.py`: ORDER обновлён на 11 проходов с p3b_behavioral между p3 и p4.
+- `__init__.py`: docstring «11 passes».
+
+**Portrait enrichment (p5 → bio-v7)**
+- `p5_portraits.py`: перед prompt-строением вызывает get_behavior_pattern_for_entity,
+  передаёт behavior= в build_portrait_prompt.
+- `prompts.build_portrait_prompt()`: новый параметр behavior; если есть —
+  добавляет в user-message блок behavioral сигналов (trust_score, conflict_count,
+  role_type, volatility) с инструкцией использовать как гипотезы через «похоже»/«возможно».
+
+**Chapter enrichment (p6 → bio-v7)**
+- `prompts.build_chapter_prompt()`: portraits_slim теперь включает опциональные
+  поля trust и role (из LEFT JOIN); chapter LLM видит поведенческий контекст.
+- `PROMPT_VERSION = "bio-v7"` — поломан memoization кэш для свежих ответов.
+
+### Fixed — Biography: architecture findings P1+P2 resolved (2026-04-20)
+
+**4 исправления по результатам архитектурного ревью:**
+
+**[P1a] biography-export отдавал yearly_summary вместо основной книги**
+- `repo.latest_book()`: добавлен параметр `book_type='main'`, SQL фильтрует
+  `AND book_type=?`. До этого после p9_yearly наружу уходил годовой итог.
+- `cli/main.py` biography-export: SQL-запрос добавил `AND book_type='main'`.
+
+**[P1b] p8_editorial не был идемпотентным**
+- `p8_editorial.py`: `status="edited"` → `status="final"`. Теперь повторный
+  запуск корректно пропускает уже отредактированные главы (фильтр `!= 'final'`).
+- `p8_editorial.py`: `reassemble` default `True` → `False`. В стандартном
+  pipeline p7_book запускается отдельно после p8b_doc_dedup.
+
+**[P2a] start_checkpoint() не сбрасывал счётчики**
+- `repo.start_checkpoint()` ON CONFLICT DO UPDATE: добавлено
+  `processed_items=0, failed_items=0, last_item_key=NULL`. Повторный старт
+  прохода теперь показывает реальные, а не накопленные числа.
+
+**[P2b] Новый проход p8b_doc_dedup — межглавный параграфный дедуп**
+- `p8b_doc_dedup.py`: детерминированный дедуп без LLM (exact-hash MD5 +
+  Jaccard similarity ≥ 0.72 на word-sets). Единица — абзац ≥ 80 символов.
+  Главы обходятся по chapter_num, первое вхождение побеждает.
+- `orchestrator.py`: новый ORDER — `…p6 → p8_editorial → p8b_doc_dedup
+  → p7_book → p9_yearly`. p7 собирает книгу из уже очищенных глав.
+- `__init__.py`: обновлён docstring (10 проходов).
+
+### Added — Biography: p9_yearly wired + insight field pipeline (2026-04-20)
+
+**Архитектурный аудит biography модуля → две подтверждённых проблемы исправлены:**
+
+**1. insight field — устранена потеря данных (Change 1)**
+- `bio_scenes` DDL: новая колонка `insight TEXT NOT NULL DEFAULT ''`.
+- `apply_biography_schema()`: `_add_column_if_missing()` мигрирует существующие БД.
+- `repo.upsert_scene()`: `insight` в INSERT и UPDATE (было 15 params → 16).
+- `prompts.build_thread_prompt()`: condensed dict включает `insight`.
+- `prompts.build_chapter_prompt()`: `scenes_slim` включает `insight`.
+- Исправлено: LLM-интерпретация «нарративная/психологическая важность сцены» теперь
+  сохраняется в БД и передаётся в p3 и p6 (раньше — генерировалась и отбрасывалась).
+
+**2. p9_yearly.py — реализован (Change 2)**
+- `bio_books` DDL: новая колонка `book_type TEXT NOT NULL DEFAULT 'main'`.
+- `apply_biography_schema()`: ALTER TABLE миграция для существующих БД.
+- `repo.insert_book()`: параметр `book_type='main'` (default для p7 book).
+- `p7_book.py`: явно передаёт `book_type='main'`.
+- `p9_yearly.py`: новый модуль. Определяет год автоматически, вызывает
+  `build_yearly_summary_prompt()`, сохраняет как `book_type='yearly_summary'`.
+- `orchestrator.py`: PASSES + ORDER включают p9_yearly (9-й проход).
+- `cli/main.py`: docstring «8-проходного» → «9-проходного».
+
+### Added — Biography Module: время звонка + годовой итог (bio-v6) (2026-04-20)
+
+**Изменения:**
+
+1. **PROMPT_VERSION**: `bio-v5` → `bio-v6`
+
+2. **Время беседы в p1** (`_SCENE_SYS` + `build_scene_prompt()`):
+   - Добавлен хелпер `_call_hour()` — извлекает час из `call_datetime`.
+   - Если час < 6 или ≥ 22 → в user message: «ВРЕМЯ БЕСЕДЫ: NN:xx — ночной
+     час (значимый сигнал)». Если < 8 → «до 8 утра (вероятно, срочно)».
+   - В `_SCENE_SYS`: инструкция повысить importance на 10-20 и отразить в
+     setting («посреди ночи», «ранним утром»).
+   - В `_CHAPTER_SYS`: правило упоминать нестандартный час в прозе.
+
+3. **Новый проход p9** (`_YEARLY_SYS` + `build_yearly_summary_prompt()`):
+   - Годовой итог в духе Довлатова: 3-5 абзацев, без подзаголовков, без морали.
+   - Фокус на сквозных мотивах года, а не пересказе глав.
+   - Input: chapters (с excerpt), top_arcs (≤12), top_entities (≤15).
+   - Output: markdown проза. Хранение: `bio_books` с `book_type="yearly_summary"`.
+   - Промпт короткий (≤400 токенов доп. правил) — под Qwen3.5-9B.
+
+4. **Правила обновлены**: biography-style.md (время суток, p9 sanity checks,
+   length table), biography-prompts.md (p9 contract), biography/CLAUDE.md
+   (p9 в pipeline, принцип времени суток).
+
+### Changed — Biography Module: аудит противоречий в промптах (bio-v5) (2026-04-20)
+
+**Проблема:** В biography/prompts.py найдено 18 противоречий и нагромождений
+после нескольких последовательных правок (bio-v1 → v4). Промпты накопили
+дубли правил, устаревшие инструкции по именам, запрещённые слова.
+
+**1. Bumped `PROMPT_VERSION`: `bio-v4` → `bio-v5`**
+
+**2. Исправлены критические противоречия в `prompts.py`:**
+
+- `_SCENE_SYS` (p1): "Имена в канонической форме (Василий, не Вася)" →
+  "как употреблены в транскрипте; канонизация — задача p2". Убрано
+  противоречие с bio-v4 правилом «живое письмо».
+- `_PORTRAIT_SYS` (p5): "Имена — в канонической форме" →
+  "живое письмо, как звучат в материале". Устранено противоречие с _CHAPTER_SYS.
+- `_ARC_SYS` (p4): "тянулись несколько звонков" → "несколько бесед".
+  Убрано использование запрещённого слова «звонков» в самом промпте.
+- `build_chapter_prompt()` user message: "Объём 2500-4500 слов" (жёстко) →
+  "если материала достаточно — до 2500-4500; если мало — честно и кратко".
+  Устранено противоречие с системным промптом «нет механического минимума».
+
+**3. Устранены нагромождения в `_CHAPTER_SYS`:**
+
+- Удалена строка про самоиронию ("желательно, но не обязательно") —
+  конфликтовала с _STYLE_GUIDE ("верхняя граница"). Правило живёт в
+  _STYLE_GUIDE, дубль убран.
+- Правило "2-4 подзаголовка обязательно" → "2-4 для полноценных глав;
+  1-2 или без — если глава короткая". Убрано противоречие с "короткая
+  плотная глава лучше раздутой".
+- Психологическое измерение: убраны примеры-дубли из _STYLE_GUIDE →
+  теперь одна строка со ссылкой на стилевой канон.
+
+**4. Исправлен `_EDITORIAL_SYS`:**
+
+- "Если цитаты нет — добавь" → "не добавляй искусственно; только
+  перераздели акценты в уже имеющемся тексте". Устранён риск вымысла
+  (редактор не имеет доступа к исходным транскриптам).
+- "Если персонажи плоские — добавь психологизм" → добавлено условие:
+  только если паттерн уже в черновике, не форсировать. Устранён конфликт
+  с "не каждый персонаж нуждается в разборе" из _STYLE_GUIDE.
+- Удалена ссылка на имена в _EDITORIAL_SYS (дубль — _STYLE_GUIDE уже
+  включён через конкатенацию).
+
+**5. `_BOOK_FRAME_SYS`:** Удалена строка "Никаких цифр/статистик/звонков"
+(полный дубль _STYLE_GUIDE, включённого туда же).
+
+**6. `biography/CLAUDE.md`:** Исправлены устаревшие ссылки:
+- "2500-4500 слов каждая" → "при достаточном материале"
+- "Имена в канонической форме" → "живое письмо, как в материале"
+- "bio-v2" → "bio-v4; current: bio-v5"
+
+**Тесты:** `prompts.py` импортируется без ошибок (OK bio-v5).
+
+**Итого устранено:**
+- 4 прямых противоречия в инструкциях по именам
+- 2 запрещённых слова в теле промптов
+- 3 жёстких лимита, противоречащих гибкому подходу
+- 4 дубля правил, создававших нагромождения
+
+---
+
+### Changed — Biography Module: smart name handling + flexible word counts (bio-v4) (2026-04-20)
+### Changed — Biography Module: smart name handling + flexible word counts (bio-v4) (2026-04-20)
+
+**Контекст:** конституциональное требование — текст должен быть «живой»
+(использовать имена как они звучат в материале), без механического
+каноничения. Одновременно — убрать водяной минимум слов: если за период
+недостаточно материала, лучше честная короткая глава, чем раздутая пустая.
+Сергей как имя может быть неоднозначным: только «Медведев Сергей» (полная
+ФИ) = владелец.
+
+**1. Bumped `PROMPT_VERSION`: `bio-v3` → `bio-v4`**
+
+Memoization cache перестроится; все p6 (chapter) и p8 (editorial) пересчитаются
+с новыми инструкциями.
+
+**2. Изменения в `prompts.py`:**
+
+- `_CHAPTER_SYS`: 
+  - Слово count: было «2500-4500 слов обязательно» → теперь 
+    «в норме 2500-4500, но НЕ механический минимум. Если материала мало —
+    пиши честно и кратко».
+  - Имена: было «канонические (Василий, не Вася)» → теперь 
+    «живое письмо, как звучит в материале или контактах. Только
+    'Медведев Сергей' = владелец; 'Сергей' в диалоге может быть другой».
+- `_EDITORIAL_SYS`:
+  - Было: «Если черновик < 2500 слов, можно расширить до 3000-3500» → теперь
+    «Нет минимума: если материал того стоит, оставь как есть».
+  - Добавлено: инструкция на живое письмо для имён (без механического
+    каноничения).
+
+**3. Обновлены memory-файлы:**
+
+- `.claude/rules/biography-style.md`:
+  - Секция «Russian language checklist»: переформулировано правило на имена —
+    от механического каноничения к контекстному использованию.
+  - Добавлено: Сергей-амбигуитет (только «Медведев Сергей» = владелец).
+  - Таблица Length: p6 chapter — убран минимум 1500 слов, добавлено
+    «Нет минимума если материала мало».
+  - Золотое правило: «нет воды ради количества».
+- `.claude/rules/biography-data.md`:
+  - Секция «Chapter assembly»: убран диапазон 1500-2500, добавлено
+    «без минимума если данных мало».
+- `.claude/rules/biography-prompts.md`:
+  - Секция Global conventions: уточнено правило на имена (живое письмо,
+    не механическое).
+
+**Тесты:** `prompts.py` импортируется без ошибок.
+
+**Побочные эффекты:**
+- Новые chapters (p6) будут генериться с учётом отсутствия минимума слов.
+- Editorial pass (p8) не будет растягивать короткие главы ради количества.
+- Имена в главах будут отражать материал, а не форсированную канонизацию.
+
+---
+
+### Changed — Biography Module: психологическая глубина персонажей (bio-v3) (2026-04-20)
+
+**Контекст:** владелец указал, что книга выиграет от психологической объёмности
+персонажей — осторожные интерпретации поведенческих паттернов через условное
+наклонение. Это оживляет текст и вызывает у читателя эмпатию, не превращаясь
+в клинический анализ.
+
+**1. Bumped `PROMPT_VERSION`: `bio-v2` → `bio-v3`**
+
+Memoization cache (`bio_llm_calls`) автоматически игнорирует старые ответы;
+новые запросы пересчитываются. Старые записи остаются для аудита.
+
+**2. Изменения в `prompts.py`:**
+
+- `_STYLE_GUIDE`: добавлен раздел «Психологическая глубина» — допускает
+  гипотетические интерпретации поведенческих паттернов через маркеры
+  «похоже», «возможно», «по всей видимости». Максимум 1-2 на главу.
+  Скорректировано правило «не додумывай мотивы» → теперь допустимы как
+  версии через условное наклонение.
+- `_SCENE_SYS` → поле `insight`: расширено, допускает называть динамику
+  сцены («оба ждали, кто уступит первым»).
+- `_PORTRAIT_SYS` → `prose`: добавлена инструкция на 1 поведенческую
+  интерпретацию через условное наклонение, если паттерн явно прослеживается.
+  Правила смягчены: «осторожная версия мотива — да; клинический диагноз — нет».
+- `_CHAPTER_SYS` → «Психологическое измерение»: новый пункт требований,
+  1-2 наблюдения-версии на главу с обязательным условным наклонением.
+- `_EDITORIAL_SYS` → новая задача: проверить психологическую объёмность,
+  добавить 1-2 наблюдения если персонажи плоские (только на основе фактов).
+
+**3. Изменения в memory-файлах:**
+
+- `.claude/rules/biography-style.md`:
+  - Добавлен раздел «Психологическая глубина» в секцию Tone.
+  - Раздел Вымысел: «нельзя утверждать мотивы как факт» + допустимы как
+    гипотезы через условное наклонение.
+  - Sanity checklist: +2 пункта для психологических интерпретаций.
+- `.claude/rules/biography-prompts.md`:
+  - p1: `insight` — уточнено определение.
+  - p5: Style requirement — допускает 1 психологическую интерпретацию.
+  - p6: Требования к прозе — добавлен пункт на 1-2 психологических наблюдения.
+  - p8: Что делает — добавлена проверка психологической объёмности.
+
+**Тесты:** `prompts.py` импортируется без ошибок (`OK bio-v3`).
+
+**Побочный эффект:** активный biography-run получит bio-v3 промпты только
+на проходах p2-p8 (p1 уже использует кэш bio-v1 для обработанных записей).
+
+---
+
+### Changed — Biography Module: max_tokens + non-fiction style for 45+ audience (2026-04-19)
+
+**Контекст:** владелец указал целевую аудиторию книги — русскоязычные
+взрослые 45+, технически прогрессивные, с широким кругозором. Стиль —
+non-fiction со спокойным достоинством, эмпатией к собеседникам и
+умеренной самоиронией владельца. Предыдущие 500-1200 слов/главу были
+рассчитаны на короткие ответы; для полноценной главы книги нужно
+2500-4500 слов.
+
+**1. Bumped `PROMPT_VERSION`: `bio-v1` → `bio-v2`**
+
+- Memoization cache (`bio_llm_calls`) автоматически игнорирует старые
+  ответы; новые запросы пересчитываются. Старые записи остаются для
+  аудита.
+
+**2. `max_tokens` увеличены во всех 8 проходах:**
+
+| Pass            | Было | Стало | Зачем                                |
+|-----------------|------|-------|--------------------------------------|
+| p1_scene        | 1200 | 1800  | richer synopsis + `insight` поле     |
+| p2_entities     | 2500 | 3800  | полные aliases + описания            |
+| p3_threads      | 1500 | 2500  | 3-6 абзацев summary + turning_points |
+| p4_arcs         | 2800 | 4200  | до 20 арок с подробными synopsis     |
+| p5_portraits    | 1400 | 2500  | 3-5 абзацев prose                    |
+| **p6_chapters** | 3200 | 5500  | **2500-4500 слов/глава (КРИТИЧНО)**  |
+| p7_book         | 2000 | 3500  | 3-5 абзацев prologue + epilogue      |
+| p8_editorial    | 3200 | 5500  | редактура с сохранением объёма ±15%  |
+
+**3. Переписаны system prompts в `prompts.py`:**
+
+- Добавлен общий `_STYLE_GUIDE` (подключается в p6/p7/p8): non-fiction,
+  аудитория 45+, спокойное достоинство, эмпатия, умеренная самоирония,
+  запрет на «звонок/созвон/телефонный разговор» и цифры количества.
+- **p1 Scene**: добавлено поле `insight`, `synopsis` расширен до 2-4
+  предложений, `emotional_tone` получил значение `reflective`,
+  `key_quote` расширен до 240 символов.
+- **p3 Thread**: добавлены поля `turning_points` (со scene_index + why)
+  и `open_questions`, `summary` расширен до 3-6 абзацев.
+- **p5 Portrait**: добавлено поле `what_owner_learned`, `prose` расширен
+  до 3-5 абзацев, явный запрет на ярлыки-диагнозы.
+- **p6 Chapter**: структура обязательна (вводный → 2-4 блока `## …` →
+  закрывающий), требование 1-3 прямых цитат, ≥1 эмпатическая нота,
+  ≤1 самоироничная реплика, длина 2500-4500 слов.
+- **p7 Book frame**: prologue/epilogue расширены до 3-5 абзацев,
+  subtitle до 140 символов, разрешена аккуратная самоирония в прологе.
+- **p8 Editorial**: подключён полный `_STYLE_GUIDE`, явные критерии
+  усиления (прямая цитата, эмпатия, самоирония), разрешено расширять
+  короткий черновик до 3000-3500 слов.
+
+**4. JSON data-budgets для p6 увеличены:**
+- portraits prose excerpt: 500 → 1200 симв.
+- portraits blob: 4000 → 6000 симв.
+- arcs blob: 3000 → 4500 симв.
+- scenes blob: 6000 → 9000 симв.
+
+**5. p8 editorial input clip: 12000 → 20000 символов** (глава целиком,
+а не обрезок).
+
+**6. Memory files (Progressive Disclosure):**
+
+- **`src/callprofiler/biography/CLAUDE.md`** (new, 71 lines) — обзор
+  модуля: mission, inputs, outputs, 8-pass pipeline, chapter types,
+  принципы.
+- **`.claude/rules/biography-data.md`** (new) — SQL-запросы для каждого
+  прохода, пороги (importance, mention_count, MIN_MENTIONS), правила
+  анонимизации PII, idempotency invariants, resume protocol.
+- **`.claude/rules/biography-style.md`** (new) — целевая аудитория
+  (45+ кругозор), жанр non-fiction, тон (спокойное достоинство),
+  эмпатия, самоирония, длины всех сущностей, структура главы,
+  список запрещённых слов/форматов, sanity checklist.
+- **`.claude/rules/biography-prompts.md`** (new) — контракт каждого
+  prompt'а: input signature, output JSON/markdown, constraints, quote
+  extraction rules, versioning workflow.
+- **`CLAUDE.md`** — добавлены 4 новые ссылки в Progressive Disclosure.
+
+**Файлы:** `prompts.py`, `p1_scene.py`, `p2_entities.py`, `p3_threads.py`,
+`p4_arcs.py`, `p5_portraits.py`, `p6_chapters.py`, `p7_book.py`,
+`p8_editorial.py`; 4 новых memory-файла + root `CLAUDE.md`.
+
+**Side effect:** текущий biography-run (p1_scene на 58%) продолжит работу
+на **старом** `bio-v1` промпте — его hash уже закэширован. Новые проходы
+(p2-p8) запустятся уже на `bio-v2`. Для полного пересчёта p1 нужно
+`DELETE FROM bio_checkpoints WHERE pass_name='p1_scene'` и рестарт.
+
+---
+
+### Fixed — FTS5 Search Optimization (2026-04-17)
+
+**`search_transcripts()` now uses FTS5 MATCH instead of LIKE:**
+
+- **File:** `src/callprofiler/db/repository.py:311–331`
+- **Problem:** Query used `LIKE ?` for O(n) full-table scan; FTS5 virtual table `transcripts_fts` existed but was never queried
+- **Solution:**
+  - Replaced with FTS5 MATCH subquery using BM25 scoring
+  - Phrase wrapped in quotes for exact matching: `"query"` (user input escapes `"` → `""`)
+  - Results ordered by FTS5 rank (relevance), not by call_id
+  - Added `limit` parameter (default 50) to cap output
+  - User isolation via `WHERE c.user_id = ?` on outer JOIN
+- **Performance:** Subquery fetches top 200 from FTS5 (fast), outer JOINs apply user filter, LIMIT respects cap
+- **Tests:** 2/2 search tests pass ✅
+- **Impact:** `/search` command and Telegram `/search` now respond in <1s even on 18K calls (vs. timeout on large result sets)
+
+### Added — Profanity Detector + Feature Flags (2026-04-17)
+
+**1. Dictionary-based Russian profanity detector (no LLM):**
+
+- **`src/callprofiler/analyze/profanity_detector.py`** (107 lines, new)
+  - `_MAT_ROOTS` tuple — ~50 Russian profanity roots (большая четвёрка + производные + лёгкий мат + жаргон)
+  - Single compiled regex: `\b\w*(root1|root2|…)\w*\b` with `re.IGNORECASE | re.UNICODE`
+  - `count_profanity(text) -> {"count": int, "unique": int, "density": float}` — density = matches per 100 words
+  - `find_profanity(text) -> list[str]` (debug helper)
+  - Deliberate over-match: false positives on «схуяли»-like words acceptable; miss is worse than false hit
+
+- **DB migration — `analyses` table** (auto via `_migrate()` + `schema.sql`):
+  - `profanity_count INTEGER DEFAULT 0`
+  - `profanity_density REAL DEFAULT 0`
+  - `save_analysis()` / `save_batch()` now persist 15 columns (was 13)
+
+- **`src/callprofiler/models.py`** — `Analysis` dataclass extended: `profanity_count: int = 0`, `profanity_density: float = 0.0`
+
+- **`src/callprofiler/bulk/enricher.py`** — profanity computed BEFORE stub/LLM branch (both paths save metric). On LLM path, injected as hint into user_message:
+  ```
+  Сигнал детектора (не LLM): мат=N (уникальных=M, плотность=D/100слов).
+  Учти при оценке bs_score и call_type.
+  ```
+  LLM may use it or ignore — typically raises risk/bs_score on high density.
+
+**2. Feature flags system:**
+
+- **`configs/features.yaml`** (new) — 6 flags with inline docs:
+  - `enable_diarization: true` — pyannote speaker attribution
+  - `enable_llm_analysis: true` — llama-server call; off → empty Analysis
+  - `enable_profanity_detection: true` — dictionary detector above
+  - `enable_name_extraction: true` — auto-extract names from transcript
+  - `enable_event_extraction: true` — events table population from LLM JSON
+  - `enable_telegram_notification: false` — default OFF until bot is set up
+
+- **`src/callprofiler/config.py`**:
+  - New `FeaturesConfig` dataclass (6 bool fields)
+  - `Config.features: FeaturesConfig`
+  - New `_load_features(config_dir, inline)` — priority: inline `features:` section in base.yaml > adjacent `features.yaml` > defaults
+  - Missing file → graceful defaults (no crash)
+
+- **`src/callprofiler/pipeline/orchestrator.py`** — stages gated per flag:
+  - `process_call()` / `process_batch()`: diarize skipped when disabled (segments remain unannotated, pipeline continues)
+  - LLM analyze skipped when disabled (logged at INFO level)
+  - Telegram notifier called only when `self.telegram and self.config.features.enable_telegram_notification`
+
+- **`src/callprofiler/bulk/enricher.py`** — `enable_profanity_detection` + `enable_event_extraction` gated (disabled → skip compute/save, empty metric/events)
+
+**Testing:** `pytest tests/ -v` — **93/93 pass** ✅ (no regressions).
+
+**Design notes:**
+- Feature flags are *graceful degradation*, not fatal errors: disabled stage = silent skip + INFO log
+- Profanity detector deliberately uses root-based regex to catch morphological variants (хуй → хуёвый, охуеть, хуйня); obfuscation (х*й, x_y) out of scope
+- DB metric persisted even when LLM analysis is off — allows decoupling detector from LLM usage
+
+### Added — 8-Pass Biography Pipeline (2026-04-16)
+
+**Complete multi-day book-generation system from call transcripts:**
+
+- **`src/callprofiler/biography/`** (15 new files, ~3200 LOC)
+  - `schema.py` (252L) — 7 bio_* tables (scenes, entities, threads, arcs, portraits, chapters, books) + bio_checkpoints (resume) + bio_llm_calls (prompt memoization)
+  - `repo.py` (652L) — BiographyRepo: user_id-scoped idempotent upserts, sqlite3 direct (no ORM), WAL mode
+  - `llm_client.py` (230L) — ResilientLLMClient: MD5-keyed prompt cache, exponential-backoff retry (5 attempts), every attempt logged to bio_llm_calls
+  - `prompts.py` (672L) — 8 Russian prompt builders (p1_scene, p2_entities, ..., p8_editorial), strict JSON contracts, head+tail clipping for context
+  - `json_utils.py` (73L) — extract_json(): markdown fence stripping + lenient brace-balanced recovery for truncated JSON
+  - `p1_scene.py` — Extract per-call narrative units (synopsis, tone, themes, entities)
+  - `p2_entities.py` — Canonicalize entity names (Васяа/Вася/Василий → canonical), cross-chunk dedup
+  - `p3_threads.py` — Build temporal entity threads with tension curves
+  - `p4_arcs.py` — Detect multi-call problem→investigation→resolution arcs via sliding window
+  - `p5_portraits.py` — Generate character sketches (traits, relationship, pivotal scenes)
+  - `p6_chapters.py` — Monthly chapter generation from bucketed scenes
+  - `p7_book.py` — Assemble book frame (title/TOC/prologue/epilogue) + full stitched markdown
+  - `p8_editorial.py` — Polish chapters + re-assemble as final version
+  - `orchestrator.py` (119L) — Orchestrator: 8-pass runner with per-pass try/except (one pass crash → only its checkpoint fails, continues)
+
+- **CLI commands** (`src/callprofiler/cli/main.py`)
+  - `biography-run [--passes p1,p2,...] [--max-retries 5]` — Run biography pipeline (all or subset)
+  - `biography-status` — Show per-pass checkpoint status (processed/total/failed/updated_at)
+  - `biography-export --out FILE.md` — Export latest assembled book to markdown
+
+- **Architecture features**
+  - Resume-safe: all work tracked in bio_checkpoints; re-run skips completed passes
+  - Resilient: every LLM call memoized by prompt hash; crash → restart picks up where it left off
+  - Multi-day capable: exponential backoff retry, no single-call timeout, graceful degradation on LLM failure
+  - User-isolated: all queries filter by user_id
+  - Local-only: uses existing llama-server (http://127.0.0.1:8080/v1/chat/completions)
+
+### Fixed — Biography Pipeline Bug Fixes (2026-04-16)
+
+- **`src/callprofiler/cli/main.py`** `cmd_biography_export()` — rewrote to bypass `_load_config_and_repo()` (which calls `_validate()` → `shutil.which("ffmpeg")` → `EnvironmentError` when ffmpeg not in PATH); now reads YAML directly and opens sqlite3 connection directly; ffmpeg not needed for export
+- **`src/callprofiler/biography/p4_arcs.py`** — added `bio.start_checkpoint(user_id, PASS_NAME, 0)` before early-return on no scenes; previously `finish_checkpoint` UPDATE matched 0 rows (no prior INSERT), leaving checkpoint status as 'not_started' silently
+
+### Changed — Git Authorization & Memory Protocol (2026-04-16)
+
+- **`CLAUDE.md`** — Added `## Git Push Authorization` section: push to `main` (overrides feature-branch rule for this project)
+- **`CONSTITUTION.md`** — Added **Статья 19** "Память проекта и сессионный протокол":
+  - CONTINUITY.md: mandatory update after every session (Status/NOW/NEXT/DONE)
+  - CHANGELOG.md: Keep a Changelog format (Added/Fixed/Changed/Removed by session)
+  - Session protocol: read journals at start, update at end
+  - Violation = violation of CONSTITUTION
+
 ### Added — Parse Status Enum & Centralized Rules (2026-04-15)
 
 - **`parse_status`** enum field (parsed_ok/parsed_partial/parse_failed/output_truncated) — added to `Analysis` dataclass, `analyses` table schema, and database migration

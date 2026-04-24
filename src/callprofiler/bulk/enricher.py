@@ -245,6 +245,24 @@ def _flush_batch(repo: Repository, batch: list[dict]) -> int:
         return failed
 
 
+def _update_graph(repo: Repository, call_ids: list[int]) -> None:
+    """Update Knowledge Graph for a list of call_ids (only v2 analyses).
+
+    Lazily imported to avoid circular dependency and to keep graph module optional.
+    """
+    try:
+        from callprofiler.graph.builder import GraphBuilder
+        from callprofiler.graph.repository import apply_graph_schema
+
+        conn = repo._get_conn()
+        apply_graph_schema(conn)
+        builder = GraphBuilder(conn)
+        for call_id in call_ids:
+            builder.update_from_call(call_id)
+    except Exception as e:
+        log.warning("[enricher] graph update failed (non-fatal): %s", e)
+
+
 def bulk_enrich(
     user_id: str,
     db_path: str,
@@ -421,6 +439,8 @@ def bulk_enrich(
             # Батчевая запись каждые BATCH_SIZE файлов
             if len(pending_batch) >= _BATCH_SIZE:
                 stats["failed"] += _flush_batch(repo, pending_batch)
+                if cfg.features.enable_graph_update:
+                    _update_graph(repo, [it["call_id"] for it in pending_batch])
                 pending_batch.clear()
 
     except KeyboardInterrupt:
@@ -432,6 +452,8 @@ def bulk_enrich(
     # Дозаписать остаток
     if pending_batch:
         stats["failed"] += _flush_batch(repo, pending_batch)
+        if cfg.features.enable_graph_update:
+            _update_graph(repo, [it["call_id"] for it in pending_batch])
 
     elapsed_total = time.time() - global_start
     avg_tps = tokens_total / sum(llm_times) if llm_times else 0

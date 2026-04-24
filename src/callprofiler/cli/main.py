@@ -1182,6 +1182,132 @@ def cmd_biography_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_graph_backfill(args: argparse.Namespace) -> int:
+    """graph-backfill — populate Knowledge Graph from v2 analyses."""
+    _setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = _load_config_and_repo(args.config)
+    log = logging.getLogger(__name__)
+
+    from callprofiler.graph.builder import GraphBuilder
+    from callprofiler.graph.repository import apply_graph_schema
+
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+    builder = GraphBuilder(conn)
+
+    schema_filter = getattr(args, "schema", "v2")
+    rows = conn.execute(
+        """SELECT a.call_id FROM analyses a
+           JOIN calls c ON c.call_id = a.call_id
+           WHERE c.user_id = ? AND (a.schema_version = ? OR ? = 'all')
+           ORDER BY a.call_id""",
+        (args.user_id, schema_filter, schema_filter),
+    ).fetchall()
+
+    total = len(rows)
+    log.info("[graph-backfill] %d analyses to process (schema=%s)", total, schema_filter)
+    ok = fail = skip = 0
+    for i, row in enumerate(rows, 1):
+        call_id = row[0]
+        try:
+            updated = builder.update_from_call(call_id)
+            if updated:
+                ok += 1
+            else:
+                skip += 1
+        except Exception as exc:
+            log.error("[graph-backfill] call_id=%d failed: %s", call_id, exc)
+            fail += 1
+        if i % 100 == 0:
+            log.info("[graph-backfill] %d/%d  ok=%d skip=%d fail=%d", i, total, ok, skip, fail)
+
+    log.info("[graph-backfill] done: ok=%d skip=%d fail=%d / total=%d", ok, skip, fail, total)
+    return 0
+
+
+def cmd_reenrich_v2(args: argparse.Namespace) -> int:
+    """reenrich-v2 — re-run LLM analysis on v1 calls to produce v2 schema_version."""
+    _setup_logging(verbose=getattr(args, "verbose", False))
+    log = logging.getLogger(__name__)
+    log.info(
+        "[reenrich-v2] Re-enriching v1 analyses for user=%s limit=%s",
+        args.user_id, args.limit,
+    )
+    # Delegate to bulk_enrich — it always uses the current prompt (v2).
+    # We filter for calls that have v1 analysis so they get re-processed.
+    from callprofiler.bulk.enricher import bulk_enrich
+    cfg, repo = _load_config_and_repo(args.config)
+
+    conn = repo._get_conn()
+    # Mark v1 analyses as needing reenrichment by deleting them (idempotent via MD5 dedup).
+    limit = args.limit or 0
+    rows = conn.execute(
+        """SELECT a.call_id FROM analyses a
+           JOIN calls c ON c.call_id = a.call_id
+           WHERE c.user_id = ? AND (a.schema_version IS NULL OR a.schema_version = 'v1')
+           ORDER BY a.call_id LIMIT ?""",
+        (args.user_id, limit if limit else -1),
+    ).fetchall()
+
+    call_ids = [r[0] for r in rows]
+    if not call_ids:
+        log.info("[reenrich-v2] No v1 analyses found.")
+        return 0
+
+    log.info("[reenrich-v2] Deleting %d v1 analyses to trigger re-enrichment", len(call_ids))
+    placeholders = ",".join("?" * len(call_ids))
+    conn.execute(f"DELETE FROM analyses WHERE call_id IN ({placeholders})", call_ids)
+    conn.commit()
+
+    db_path = str(Path(cfg.data_dir) / "db" / "callprofiler.db")
+    stats = bulk_enrich(
+        user_id=args.user_id,
+        db_path=db_path,
+        config_path=args.config,
+        limit=limit,
+    )
+    log.info("[reenrich-v2] bulk_enrich result: %s", stats)
+    return 0
+
+
+def cmd_graph_stats(args: argparse.Namespace) -> int:
+    """graph-stats — show Knowledge Graph statistics for a user."""
+    _setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = _load_config_and_repo(args.config)
+    log = logging.getLogger(__name__)
+
+    from callprofiler.graph.repository import GraphRepository, apply_graph_schema
+
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+    grepo = GraphRepository(conn)
+    stats = grepo.stats(args.user_id)
+
+    print(f"\nKnowledge Graph — user: {args.user_id}")
+    print("─" * 40)
+    print("Entities:")
+    for etype, cnt in sorted(stats["entities"].items()):
+        print(f"  {etype:<20} {cnt:>6}")
+    if not stats["entities"]:
+        print("  (none)")
+
+    print("Relations:")
+    for rtype, cnt in sorted(stats["relations"].items()):
+        print(f"  {rtype:<20} {cnt:>6}")
+    if not stats["relations"]:
+        print("  (none)")
+
+    print("Facts (graph-linked events):")
+    for ftype, cnt in sorted(stats["facts"].items()):
+        print(f"  {ftype:<20} {cnt:>6}")
+    if not stats["facts"]:
+        print("  (none)")
+
+    print(f"Entities with metrics: {stats['entities_with_metrics']}")
+    print()
+    return 0
+
+
 # ── Построение парсера ────────────────────────────────────────────────────
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -1414,6 +1540,44 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Максимум попыток LLM-запроса перед отказом (по умолчанию: 5)",
     )
 
+    # ── graph-backfill ─────────────────────────────────────────────
+    p_graph_bf = sub.add_parser(
+        "graph-backfill",
+        help="Наполнить Knowledge Graph из существующих v2 analyses",
+    )
+    p_graph_bf.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_graph_bf.add_argument(
+        "--schema", default="v2", metavar="VERSION",
+        help="Фильтр по schema_version: v2 (по умолчанию) или all",
+    )
+
+    # ── reenrich-v2 ────────────────────────────────────────────────
+    p_reenrich = sub.add_parser(
+        "reenrich-v2",
+        help="Переобогатить v1 analyses через LLM для получения v2 (entities/facts)",
+    )
+    p_reenrich.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_reenrich.add_argument(
+        "--limit", type=int, default=0, metavar="N",
+        help="Максимум записей (0 = все)",
+    )
+
+    # ── graph-stats ────────────────────────────────────────────────
+    p_graph_stats = sub.add_parser(
+        "graph-stats",
+        help="Статистика Knowledge Graph: entities, relations, facts",
+    )
+    p_graph_stats.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+
     # ── biography-status ───────────────────────────────────────────
     p_bio_status = sub.add_parser(
         "biography-status",
@@ -1468,6 +1632,9 @@ def main() -> None:
         "biography-run": cmd_biography_run,
         "biography-status": cmd_biography_status,
         "biography-export": cmd_biography_export,
+        "graph-backfill": cmd_graph_backfill,
+        "reenrich-v2": cmd_reenrich_v2,
+        "graph-stats": cmd_graph_stats,
     }
 
     handler = dispatch.get(args.command)

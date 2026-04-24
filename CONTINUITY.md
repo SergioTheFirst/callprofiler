@@ -8,14 +8,66 @@
 
 ## Status
 
-DONE: parse_status enum (4 states), fallback strategy, idempotency rules documented  
-NOW: memory journal updates (@file guard rule added to CLAUDE.md)  
-NEXT: Phase 2 bulk-enrich optimizations, Telegram bot integration  
-BLOCKERS: None currently
+DONE: Biography arch-fixes — export filter, p8 idempotency, checkpoint reset, p8b dedup (2026-04-20)
+DONE: D:\calls → C:\calls path migration (2026-04-20)
+DONE: Biography p9 wired + insight field pipeline (2026-04-20)
+DONE: Biography module v6 — время звонка + годовой итог p9 (2026-04-20)
+DONE: Biography Behavioral Engine p3b — bio-v7 (2026-04-20)
+DONE: Knowledge Graph Этапы 1-2 — schema, graph module, 25 tests pass (2026-04-24)
+NOW: committed + pushed to branch claude/clone-callprofiler-repo-hL5dQ
+NEXT: Этапы 3-4 (EntityResolver fuzzy merge, LLM-assisted merge) — roadmap in graph.md
+BLOCKERS: None
 
 ---
 
-## Текущое состояние: 2026-04-15 17:00 (Parse Status Enum + Diarization Rules + Centralized Rules)
+## Текущее состояние: 2026-04-24 (Knowledge Graph Этапы 1-2)
+
+### Ветка разработки
+`claude/clone-callprofiler-repo-hL5dQ`
+
+### Последний коммит
+```
+Knowledge Graph Этапы 1-2: schema, graph module, 25 tests pass
+```
+
+### Что сделано в этой сессии (2026-04-24)
+
+**Knowledge Graph — Этап 1 (Schema + Extraction):**
+- `schema.sql`: таблицы `entities`, `relations`, `entity_metrics` (CREATE IF NOT EXISTS)
+- `graph/repository.py`: `apply_graph_schema(conn)` — идемпотентная миграция;
+  ALTER TABLE analyses (schema_version), ALTER TABLE events (7 новых колонок);
+  partial unique index на events.fact_id
+- `analyze_v001.txt`: добавлены schema_version='v2', entities, relations, structured_facts
+
+**Knowledge Graph — Этап 2 (Builder + Aggregation):**
+- `graph/__init__.py`, `graph/config.py`, `graph/repository.py`
+- `graph/builder.py`: GraphBuilder.update_from_call() — v1 skip, v2 process,
+  anti-noise filter (confidence≥0.6, len(quote)≥5), fact dedup via sha256
+- `graph/aggregator.py`: BS-index v1_linear (детерминированный, без LLM)
+
+**Интеграция:**
+- `enricher.py`: _update_graph() после batch flush, gated by enable_graph_update
+- `orchestrator.py`: graph update после save_promises()
+- `config.py`: FeaturesConfig.enable_graph_update = True
+- `cli/main.py`: graph-backfill, reenrich-v2, graph-stats
+
+**Тесты:** 25/25 pass в tests/test_graph.py
+
+**Документация:** .claude/rules/graph.md (принципы, anti-noise, BS-formula,
+schema_version contract, roadmap Этапов 3-4)
+
+### Следующий шаг
+- Этап 3: EntityResolver — fuzzy merge по Levenshtein (Python, без LLM)
+- Этап 4: LLM-assisted merge (max 50 LLM calls per run)
+- Оба задокументированы в .claude/rules/graph.md как roadmap
+
+### Известные ограничения / долги
+- Этапы 3-4 не реализованы — только roadmap
+- graph-backfill нужно запустить вручную для существующих v2 analyses
+
+---
+
+## Текущее состояние: 2026-04-20 (Biography — p9 wired + insight pipeline)
 
 ### Статус
 ✅ **PARSE STATUS IMPLEMENTATION DONE** — Enum tracking for JSON parsing (4 states), diarization failure handling rules added, rules documentation centralized in .claude/rules/ directory.

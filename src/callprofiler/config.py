@@ -37,6 +37,18 @@ class AudioConfig:
 
 
 @dataclass
+class FeaturesConfig:
+    """Feature-флаги pipeline-этапов. См. configs/features.yaml."""
+    enable_diarization: bool = True
+    enable_llm_analysis: bool = True
+    enable_profanity_detection: bool = True
+    enable_name_extraction: bool = True
+    enable_event_extraction: bool = True
+    enable_telegram_notification: bool = False
+    enable_graph_update: bool = True
+
+
+@dataclass
 class Config:
     data_dir: str = ""
     log_file: str = ""
@@ -44,10 +56,15 @@ class Config:
     models: ModelsConfig = field(default_factory=ModelsConfig)
     pipeline: PipelineConfig = field(default_factory=PipelineConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
+    features: FeaturesConfig = field(default_factory=FeaturesConfig)
 
 
 def load_config(path: str) -> Config:
-    """Загрузить конфиг из YAML-файла, вернуть Config."""
+    """Загрузить конфиг из YAML-файла, вернуть Config.
+
+    Дополнительно ищет features.yaml рядом с основным конфигом и
+    объединяет (отсутствие файла → дефолты FeaturesConfig).
+    """
     with open(path, encoding="utf-8") as f:
         raw = yaml.safe_load(f)
 
@@ -86,8 +103,48 @@ def load_config(path: str) -> Config:
             format=a.get("format", cfg.audio.format),
         )
 
+    cfg.features = _load_features(Path(path).parent, raw.get("features"))
+
     _validate(cfg)
     return cfg
+
+
+def _load_features(config_dir: Path, inline: dict | None) -> FeaturesConfig:
+    """Загрузить FeaturesConfig.
+
+    Приоритет: inline-секция в base.yaml > features.yaml рядом с base.yaml > defaults.
+    """
+    feats = FeaturesConfig()
+    raw: dict | None = inline
+
+    if raw is None:
+        feat_path = config_dir / "features.yaml"
+        if feat_path.exists():
+            with open(feat_path, encoding="utf-8") as f:
+                raw = yaml.safe_load(f) or {}
+
+    if not raw:
+        return feats
+
+    return FeaturesConfig(
+        enable_diarization=bool(raw.get("enable_diarization", feats.enable_diarization)),
+        enable_llm_analysis=bool(raw.get("enable_llm_analysis", feats.enable_llm_analysis)),
+        enable_profanity_detection=bool(
+            raw.get("enable_profanity_detection", feats.enable_profanity_detection)
+        ),
+        enable_name_extraction=bool(
+            raw.get("enable_name_extraction", feats.enable_name_extraction)
+        ),
+        enable_event_extraction=bool(
+            raw.get("enable_event_extraction", feats.enable_event_extraction)
+        ),
+        enable_telegram_notification=bool(
+            raw.get("enable_telegram_notification", feats.enable_telegram_notification)
+        ),
+        enable_graph_update=bool(
+            raw.get("enable_graph_update", feats.enable_graph_update)
+        ),
+    )
 
 
 def _validate(cfg: Config) -> None:
