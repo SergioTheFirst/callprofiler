@@ -61,6 +61,16 @@ def apply_graph_schema(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {defn}")
             log.info("[graph] migration: %s.%s added", table, col)
 
+    # ── entities merge fields ────────────────────────────────────────────
+    _entity_migrations = [
+        ("entities", "archived", "INTEGER DEFAULT 0"),
+        ("entities", "merged_into_id", "INTEGER REFERENCES entities(id)"),
+    ]
+    for table, col, defn in _entity_migrations:
+        if not _col_exists(conn, table, col):
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {defn}")
+            log.info("[graph] migration: %s.%s added", table, col)
+
     # Unique index on events.fact_id (partial — only non-NULL values)
     if not _index_exists(conn, "idx_events_factid"):
         conn.execute(
@@ -127,6 +137,23 @@ CREATE TABLE IF NOT EXISTS entity_metrics (
     last_interaction    TEXT,
     updated_at          TEXT    DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS entity_merges_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         TEXT    NOT NULL REFERENCES users(user_id),
+    canonical_id    INTEGER NOT NULL REFERENCES entities(id),
+    duplicate_id    INTEGER NOT NULL REFERENCES entities(id),
+    confidence      REAL,
+    signals_json    TEXT,
+    reason          TEXT,
+    snapshot_json   TEXT,
+    merged_by       TEXT,
+    reversible      INTEGER DEFAULT 1,
+    merged_at       TEXT    DEFAULT CURRENT_TIMESTAMP,
+    unmerged_at     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_entity_merges_user ON entity_merges_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_entity_merges_canonical ON entity_merges_log(canonical_id);
 """
 
 

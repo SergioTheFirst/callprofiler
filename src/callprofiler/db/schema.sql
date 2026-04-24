@@ -142,6 +142,8 @@ CREATE TABLE IF NOT EXISTS entities (
     normalized_key  TEXT    NOT NULL,   -- LLM-generated: ivan_petrov
     aliases         TEXT,               -- JSON array of strings
     attributes      TEXT,               -- JSON: type-specific fields
+    archived        INTEGER DEFAULT 0,  -- soft delete via merge
+    merged_into_id  INTEGER REFERENCES entities(id),  -- if archived=1
     created_at      TEXT    DEFAULT CURRENT_TIMESTAMP,
     updated_at      TEXT    DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id, entity_type, normalized_key)
@@ -187,6 +189,23 @@ CREATE TABLE IF NOT EXISTS entity_metrics (
     last_interaction    TEXT,
     updated_at          TEXT    DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS entity_merges_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         TEXT NOT NULL REFERENCES users(user_id),
+    canonical_id    INTEGER NOT NULL REFERENCES entities(id),
+    duplicate_id    INTEGER NOT NULL REFERENCES entities(id),
+    confidence      REAL,                -- score from resolver/disambiguator
+    signals_json    TEXT,                -- {name_sim, alias_overlap, relation_jaccard, phone_match, behavior_sim}
+    reason          TEXT,                -- "manual" or LLM reasoning
+    snapshot_json   TEXT,                -- full state of duplicate before merge
+    merged_by       TEXT,                -- "manual" | "llm_assisted"
+    reversible      INTEGER DEFAULT 1,   -- can be undone
+    merged_at       TEXT DEFAULT CURRENT_TIMESTAMP,
+    unmerged_at     TEXT                 -- if rolled back
+);
+CREATE INDEX IF NOT EXISTS idx_entity_merges_user ON entity_merges_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_entity_merges_canonical ON entity_merges_log(canonical_id);
 
 CREATE TABLE IF NOT EXISTS contact_summaries (
     contact_id    INTEGER PRIMARY KEY REFERENCES contacts(contact_id),
