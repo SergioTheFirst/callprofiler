@@ -8,6 +8,122 @@
 
 ## [Unreleased]
 
+## [2026-04-25] — Knowledge Graph: Этапы 3-4 (EntityResolver + LLM Disambiguator)
+
+### Added — full_recalc_from_events() INVARIANT (aggregator.py)
+
+**Проблема:** После merge двух сущностей `recalc_for_entities()` читал метрики
+инкрементально, что давало двойной счёт (события обеих сущностей уже объединены,
+но старые метрики накапливались поверх).
+
+**Исправление** в `aggregator.py`:
+```python
+def full_recalc_from_events(self, entity_id: int) -> dict:
+    # Читает user_id из entities, запрашивает DISTINCT call_ids через events,
+    # группирует по fact_type, JOIN analyses для avg_risk, JOIN calls для
+    # last_interaction, вычисляет emotional_pattern JSON, вызывает _bs_v1_linear(),
+    # UPSERT через upsert_entity_metrics(), коммит, возвращает полный snapshot dict.
+```
+
+INVARIANT: `entity_metrics = PURE FUNCTION(events + calls + promises)`
+После merge executor вызывает `full_recalc_from_events(canonical_id)` вместо
+`recalc_for_entities()`.
+
+**Тесты:** test_full_recalc_returns_dict_for_empty_entity, test_full_recalc_idempotent,
+test_full_recalc_entity_not_found_raises, test_full_recalc_counts_facts_correctly
+
+### Fixed — 5 багов в resolver.py (execute_merge + _fetch_entities)
+
+**Баг 1:** `_fetch_entities()` не читал `is_owner` — владелец мог попасть в кандидаты.
+**Баг 2:** `_fetch_entity_by_id()` — неправильные индексы колонок row[5]/row[6].
+**Баг 3:** `execute_merge()` — user_id брался из `canonical_name.split(":")[0]` (неверно).
+**Баг 4:** `EntityMetricsAggregator(self)` — self это EntityResolver, не GraphRepository.
+**Баг 5:** `recalc_for_entities([canonical_id], user_id)` → `full_recalc_from_events(canonical_id)`.
+**Баг 6 (pre-existing):** `_find_blocking_pairs` — `sum([v for v in blocks.values()], [])` —
+  blocks.values() суть dict'ы, а не lists. Исправлено на:
+  `[lst for block_dict in blocks.values() for lst in block_dict.values()]`
+
+### Added — is_owner migration (repository.py)
+
+- `("entities", "is_owner", "INTEGER DEFAULT 0")` добавлено в `_entity_migrations`
+- Индекс `idx_entities_owner` на `entities(user_id, is_owner)`
+- `_fetch_entities()` теперь фильтрует `COALESCE(is_owner, 0) = 0`
+
+**Тесты:** test_is_owner_column_exists_after_migration, test_is_owner_index_exists,
+test_resolver_find_candidates_excludes_owner, test_resolver_execute_merge_owner_blocked
+
+### Added — graph/auditor.py (9 sanity checks, exit code 2 for CRITICAL)
+
+```python
+class GraphAuditor:
+    CRITICAL_CHECKS = {"owner_contamination", "orphan_events"}
+    # 9 проверок: entities_without_events, high_bs_no_contradictions,
+    # high_risk_no_promises, orphan_events (CRITICAL), metrics_drift,
+    # archived_referenced, merge_candidates_residual,
+    # owner_contamination (CRITICAL), empty_canonical_quotes
+```
+
+CLI: `graph-audit --user X` → exit 0 (ok) / 1 (warnings) / 2 (critical).
+
+**Тесты:** test_auditor_clean_graph_all_ok, test_auditor_detects_orphan_events,
+test_auditor_detects_owner_contamination
+
+### Added — Post-merge chain detection (resolver.py Step 3)
+
+После закрытия merge-транзакции `execute_merge()` вызывает `find_candidates()` для
+canonical entity и логирует предупреждение, если обнаружены цепочки (chain merge candidates).
+
+### Added — biography/data_extractor.py (3 pure-read functions)
+
+```python
+def get_entity_profile_from_graph(entity_id, conn) -> dict
+# → canonical_name, entity_type, aliases, metrics, top_facts, conflicts,
+#   promise_chain, top_relations, timeline, evolution
+
+def get_behavioral_patterns(entity_id, conn) -> dict
+# Детерминированные паттерны из метрик:
+# promise_breaker, contradictory, vague_communicator, blame_shifter,
+# emotionally_volatile, reliable, high_risk
+
+def get_social_position(entity_id, conn) -> dict
+# → org_links, open_promises, conflict_count, centrality
+```
+
+### Changed — biography/p6_chapters.py (graph integration)
+
+- `run()` принимает `graph_conn=None`
+- `_enrich_portraits_with_graph(portraits, graph_conn)`: добавляет `graph_profile`
+  и `behavioral_patterns` к каждому portrait
+- Lazy import с флагом `_GRAPH_AVAILABLE`
+
+### Added — graph/llm_disambiguator.py (Этап 4 — LLM Advisory)
+
+```python
+class LLMDisambiguator:
+    GRAY_ZONE_MIN = 0.50  # score ≥ 0.65 → manual merge (no LLM)
+    GRAY_ZONE_MAX = 0.64  # score < 0.50 → skip
+    def disambiguate_pair(self, entity_a, entity_b, score, signals) -> dict:
+        # Returns: llm_says (MERGE|SEPARATE|UNCLEAR), confidence 0-1,
+        # reasoning, signals_for, signals_against, raw_response
+```
+
+LLM только советует — НЕ принимает решение о merge. `llm_says` = advisory.
+
+### Added — configs/prompts/entity_disambiguation.txt
+
+Русскоязычный промпт (4 аспекта: temporal, role_consistency, mutual_exclusivity,
+behavioral_fingerprint). Явно указано: "Ты НЕ принимаешь решение об объединении."
+Возвращает JSON: `{verdict, confidence, reasoning, signals_for, signals_against}`.
+
+### Added — CLI commands (cli/main.py)
+
+- `entity-merge --user X [--dry-run] [--loop]` — слияние с preview и итерацией
+- `entity-unmerge --user X --merge-id N` — откат слияния из snapshot
+- `graph-audit --user X` — 9 sanity checks, exit 2 for CRITICAL
+- `book-chapter --user X --entity N` — JSON профиль сущности для biography
+
+**Тесты итого:** 37 pass (было 25 → +12 в этой сессии). Время 0.24s.
+
 ## [2026-04-24] — Knowledge Graph: Этапы 1-2
 
 ### Added — Knowledge Graph layer (graph module)

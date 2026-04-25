@@ -9,6 +9,7 @@ BS_FORMULA_VERSION and add a new _bs_v2_logistic() branch.
 
 from __future__ import annotations
 
+import json
 import logging
 
 from callprofiler.graph.config import BS_FORMULA_VERSION
@@ -77,6 +78,132 @@ class EntityMetricsAggregator:
             bs_formula_version=BS_FORMULA_VERSION,
             last_interaction=last_dt,
         )
+
+    def full_recalc_from_events(self, entity_id: int) -> dict:
+        """INVARIANT: entity_metrics = PURE FUNCTION(events + calls + analyses).
+
+        Does NOT read current entity_metrics. Authoritative recalculation
+        used after merge, backfill, or unmerge. Returns full snapshot dict.
+        """
+        conn = self._repo._conn
+
+        # Fetch user_id — required for all subsequent queries
+        row = conn.execute(
+            "SELECT user_id FROM entities WHERE id=?", (entity_id,)
+        ).fetchone()
+        if not row:
+            raise ValueError(f"entity_id {entity_id} not found in entities table")
+        user_id = row["user_id"]
+
+        # 1. Total distinct calls this entity appears in
+        total_calls = int(
+            conn.execute(
+                "SELECT COUNT(DISTINCT call_id) FROM events WHERE entity_id=? AND user_id=?",
+                (entity_id, user_id),
+            ).fetchone()[0] or 0
+        )
+
+        # 2. Event counts by type
+        type_rows = conn.execute(
+            "SELECT event_type, COUNT(*) as cnt FROM events "
+            "WHERE entity_id=? AND user_id=? GROUP BY event_type",
+            (entity_id, user_id),
+        ).fetchall()
+        counts = {r["event_type"]: int(r["cnt"]) for r in type_rows}
+
+        total_promises   = counts.get("promise", 0)
+        broken           = counts.get("broken_promise", 0)
+        fulfilled        = counts.get("fulfilled_promise", 0)
+        contradictions   = counts.get("contradiction", 0)
+        vagueness        = counts.get("vagueness", 0)
+        blame_shifts     = counts.get("blame_shift", 0)
+        emotional_spikes = counts.get("emotion_spike", 0)
+
+        # 3. avg_risk from analyses joined via events
+        avg_risk_row = conn.execute(
+            """SELECT AVG(a.risk_score)
+               FROM events e
+               JOIN analyses a ON a.call_id = e.call_id
+               WHERE e.entity_id=? AND e.user_id=?""",
+            (entity_id, user_id),
+        ).fetchone()
+        avg_risk = float(avg_risk_row[0] or 0.0)
+
+        # 4. last_interaction timestamp
+        last_dt_row = conn.execute(
+            """SELECT MAX(c.call_datetime)
+               FROM events e
+               JOIN calls c ON c.call_id = e.call_id
+               WHERE e.entity_id=? AND e.user_id=?""",
+            (entity_id, user_id),
+        ).fetchone()
+        last_dt = last_dt_row[0] if last_dt_row else None
+
+        # 5. emotional_pattern aggregate
+        emo_row = conn.execute(
+            """SELECT AVG(polarity), AVG(intensity), COUNT(*)
+               FROM events
+               WHERE entity_id=? AND user_id=? AND polarity IS NOT NULL""",
+            (entity_id, user_id),
+        ).fetchone()
+        if emo_row and emo_row[2]:
+            emotional_pattern = json.dumps({
+                "avg_polarity": round(float(emo_row[0] or 0.0), 3),
+                "avg_intensity": round(float(emo_row[1] or 0.0), 3),
+                "sample_count": int(emo_row[2]),
+            })
+        else:
+            emotional_pattern = None
+
+        # 6. BS-index (pure formula)
+        bs_index = self._bs_v1_linear(
+            total_promises=total_promises,
+            broken=broken,
+            total_calls=total_calls,
+            contradictions=contradictions,
+            vagueness=vagueness,
+            blame_shifts=blame_shifts,
+            emotional_spikes=emotional_spikes,
+        )
+
+        # 7. UPSERT — overwrite any previous entity_metrics row completely
+        self._repo.upsert_entity_metrics(
+            entity_id=entity_id,
+            user_id=user_id,
+            total_calls=total_calls,
+            total_promises=total_promises,
+            fulfilled_promises=fulfilled,
+            broken_promises=broken,
+            overdue_promises=0,
+            contradictions=contradictions,
+            vagueness_count=vagueness,
+            blame_shift_count=blame_shifts,
+            emotional_spikes=emotional_spikes,
+            avg_risk=avg_risk,
+            bs_index=bs_index,
+            bs_formula_version=BS_FORMULA_VERSION,
+            emotional_pattern=emotional_pattern,
+            last_interaction=last_dt,
+        )
+        conn.commit()
+
+        return {
+            "entity_id": entity_id,
+            "user_id": user_id,
+            "total_calls": total_calls,
+            "total_promises": total_promises,
+            "fulfilled_promises": fulfilled,
+            "broken_promises": broken,
+            "contradictions": contradictions,
+            "vagueness_count": vagueness,
+            "blame_shift_count": blame_shifts,
+            "emotional_spikes": emotional_spikes,
+            "avg_risk": avg_risk,
+            "bs_index": bs_index,
+            "bs_formula_version": BS_FORMULA_VERSION,
+            "emotional_pattern": emotional_pattern,
+            "last_interaction": last_dt,
+        }
 
     @staticmethod
     def _bs_v1_linear(

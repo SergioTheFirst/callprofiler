@@ -61,15 +61,22 @@ def apply_graph_schema(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {defn}")
             log.info("[graph] migration: %s.%s added", table, col)
 
-    # ── entities merge fields ────────────────────────────────────────────
+    # ── entities merge + owner fields ────────────────────────────────────
     _entity_migrations = [
-        ("entities", "archived", "INTEGER DEFAULT 0"),
+        ("entities", "archived",       "INTEGER DEFAULT 0"),
         ("entities", "merged_into_id", "INTEGER REFERENCES entities(id)"),
+        ("entities", "is_owner",       "INTEGER DEFAULT 0"),
     ]
     for table, col, defn in _entity_migrations:
         if not _col_exists(conn, table, col):
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {defn}")
             log.info("[graph] migration: %s.%s added", table, col)
+
+    if not _index_exists(conn, "idx_entities_owner"):
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_entities_owner "
+            "ON entities(user_id, is_owner)"
+        )
 
     # Unique index on events.fact_id (partial — only non-NULL values)
     if not _index_exists(conn, "idx_events_factid"):

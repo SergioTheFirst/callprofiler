@@ -108,12 +108,14 @@ class EntityResolver:
         return scored[:limit]
 
     def _fetch_entities(self, user_id: str, entity_type: str) -> list[EntityInfo]:
-        """Fetch all active entities of type."""
+        """Fetch all active non-owner entities of type."""
         rows = self.conn.execute(
             """
-            SELECT id, canonical_name, normalized_key, aliases, attributes, archived
+            SELECT id, canonical_name, normalized_key, aliases, attributes,
+                   archived, COALESCE(is_owner, 0) as is_owner
             FROM entities
             WHERE user_id=? AND entity_type=? AND archived=0
+              AND COALESCE(is_owner, 0) = 0
             """,
             (user_id, entity_type),
         ).fetchall()
@@ -128,9 +130,9 @@ class EntityResolver:
                 entity_type=entity_type,
                 aliases=json.loads(row[3] or "[]"),
                 attributes=json.loads(row[4] or "{}"),
-                is_owner=False,  # TODO: fetch is_owner from contacts if available
+                is_owner=bool(row[6]),
                 archived=False,
-                call_count=0,  # Will be fetched separately
+                call_count=0,
                 relations=self._fetch_relations(entity_id),
                 metrics=self._fetch_metrics(entity_id),
             )
@@ -206,9 +208,9 @@ class EntityResolver:
         # Collect all candidate pairs (entity-agnostic — may have duplicates)
         seen = set()
         pairs = []
-        for block_entities in sum(
-            [v for v in blocks.values()], []
-        ):  # Flatten all blocks
+        for block_entities in [
+            lst for block_dict in blocks.values() for lst in block_dict.values()
+        ]:
             for i in range(len(block_entities)):
                 for j in range(i + 1, len(block_entities)):
                     ent_a, ent_b = block_entities[i], block_entities[j]
@@ -446,7 +448,12 @@ class EntityResolver:
                 (canonical_id, duplicate_id),
             )
 
-            # 6. Log merge
+            # 6. Log merge — fetch user_id from entities table (canonical)
+            user_row = self.conn.execute(
+                "SELECT user_id FROM entities WHERE id=?", (canonical_id,)
+            ).fetchone()
+            merge_user_id = user_row[0] if user_row else ""
+
             self.conn.execute(
                 """
                 INSERT INTO entity_merges_log
@@ -455,7 +462,7 @@ class EntityResolver:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
                 """,
                 (
-                    can.canonical_name.split(":")[0],  # Extract user_id from session
+                    merge_user_id,
                     canonical_id,
                     duplicate_id,
                     signals.get("score", 0),
@@ -466,20 +473,34 @@ class EntityResolver:
                 ),
             )
 
-            # 7. Recalculate metrics (from aggregator)
+            # 7. Authoritative full recalculation (INVARIANT: pure function of events)
             from callprofiler.graph.aggregator import EntityMetricsAggregator
-            agg = EntityMetricsAggregator(self)
-            # This requires user_id — fetch from canonical
-            user_row = self.conn.execute(
-                "SELECT user_id FROM entities WHERE id=?", (canonical_id,)
-            ).fetchone()
-            if user_row:
-                agg.recalc_for_entities([canonical_id], user_row[0])
+            from callprofiler.graph.repository import GraphRepository
+            agg = EntityMetricsAggregator(GraphRepository(self.conn))
+            agg.full_recalc_from_events(canonical_id)
+
+        # 8. Detect chain duplicates (after transaction — canonical may now be close to others)
+        try:
+            chain = self.find_candidates(
+                merge_user_id, can.entity_type, min_score=0.65, limit=5
+            )
+            chain = [c for c in chain
+                     if c.canonical_id == canonical_id or c.duplicate_id == canonical_id]
+            if chain:
+                log.warning(
+                    "[resolver] chain duplicate candidates for canonical_id=%d: %s",
+                    canonical_id,
+                    [(c.canonical_id, c.duplicate_id, round(c.score, 3)) for c in chain],
+                )
+        except Exception:
+            log.debug("[resolver] chain check skipped (entity_type unknown)", exc_info=True)
 
     def _fetch_entity_by_id(self, entity_id: int) -> EntityInfo | None:
         """Fetch single entity by ID."""
         row = self.conn.execute(
-            "SELECT id, canonical_name, normalized_key, aliases, attributes, archived FROM entities WHERE id=?",
+            """SELECT id, canonical_name, normalized_key, aliases, attributes,
+                      archived, COALESCE(is_owner, 0) as is_owner, entity_type
+               FROM entities WHERE id=?""",
             (entity_id,),
         ).fetchone()
         if not row:
@@ -489,10 +510,10 @@ class EntityResolver:
             entity_id=row[0],
             canonical_name=row[1],
             normalized_key=row[2],
-            entity_type="",
+            entity_type=row[7],
             aliases=json.loads(row[3] or "[]"),
             attributes=json.loads(row[4] or "{}"),
-            is_owner=False,
+            is_owner=bool(row[6]),
             archived=bool(row[5]),
             call_count=0,
             relations=self._fetch_relations(entity_id),

@@ -462,3 +462,235 @@ def test_graph_stats_counts(setup):
     assert stats["entities"].get("person", 0) == 1
     assert stats["entities"].get("org", 0) == 1
     assert stats["relations"].get("works_for", 0) == 1
+
+
+# ── full_recalc_from_events tests ─────────────────────────────────────────────
+
+def test_full_recalc_returns_dict_for_empty_entity(setup):
+    _, conn, _ = setup
+    grepo = GraphRepository(conn)
+    agg = EntityMetricsAggregator(grepo)
+
+    eid = grepo.upsert_entity("u1", "person", "Иван", "ivan")
+    result = agg.full_recalc_from_events(eid)
+
+    assert result["entity_id"] == eid
+    assert result["total_calls"] == 0
+    assert result["bs_index"] == 0.0
+    assert result["bs_formula_version"] == "v1_linear"
+
+
+def test_full_recalc_entity_not_found_raises(setup):
+    _, conn, _ = setup
+    grepo = GraphRepository(conn)
+    agg = EntityMetricsAggregator(grepo)
+
+    import pytest
+    with pytest.raises(ValueError, match="not found"):
+        agg.full_recalc_from_events(99999)
+
+
+def test_full_recalc_idempotent(setup):
+    repo, conn, call_id = setup
+    payload = _v2_payload(
+        entities=[{"type": "person", "canonical_name": "Вася", "normalized_key": "vasya"}],
+        facts=[
+            {"fact_type": "promise", "entity_key": "vasya",
+             "quote": "сделаю завтра утром точно", "confidence": 0.9},
+        ],
+    )
+    _save_v2_analysis(repo, call_id, payload)
+    GraphBuilder(conn).update_from_call(call_id)
+
+    grepo = GraphRepository(conn)
+    agg = EntityMetricsAggregator(grepo)
+    eid = next(e["id"] for e in grepo.get_entities("u1", "person")
+               if e["normalized_key"] == "vasya")
+
+    r1 = agg.full_recalc_from_events(eid)
+    r2 = agg.full_recalc_from_events(eid)  # second call must produce identical result
+
+    assert r1["total_calls"] == r2["total_calls"]
+    assert abs(r1["bs_index"] - r2["bs_index"]) < 1e-6
+    assert r1["total_promises"] == r2["total_promises"]
+
+
+def test_full_recalc_counts_facts_correctly(setup):
+    repo, conn, call_id = setup
+    payload = _v2_payload(
+        entities=[{"type": "person", "canonical_name": "Вася", "normalized_key": "vasya"}],
+        facts=[
+            {"fact_type": "promise", "entity_key": "vasya",
+             "quote": "перезвоню завтра рано утром", "confidence": 0.9},
+            {"fact_type": "contradiction", "entity_key": "vasya",
+             "quote": "вчера говорил другое совсем", "confidence": 0.8},
+        ],
+    )
+    _save_v2_analysis(repo, call_id, payload)
+    GraphBuilder(conn).update_from_call(call_id)
+
+    grepo = GraphRepository(conn)
+    agg = EntityMetricsAggregator(grepo)
+    eid = next(e["id"] for e in grepo.get_entities("u1", "person")
+               if e["normalized_key"] == "vasya")
+
+    result = agg.full_recalc_from_events(eid)
+    assert result["total_calls"] == 1
+    assert result["total_promises"] == 1
+
+    # Verify entity_metrics row was written
+    m = grepo.get_entity_metrics(eid)
+    assert m is not None
+    assert m["total_calls"] == 1
+
+
+# ── is_owner migration test ───────────────────────────────────────────────────
+
+def test_is_owner_column_exists_after_migration():
+    repo = _make_repo()
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(entities)").fetchall()}
+    assert "is_owner" in cols
+
+
+def test_is_owner_index_exists():
+    repo = _make_repo()
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+    idx = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_entities_owner'"
+    ).fetchone()
+    assert idx is not None
+
+
+# ── EntityResolver tests ──────────────────────────────────────────────────────
+
+def test_resolver_find_candidates_excludes_owner(setup):
+    _, conn, _ = setup
+    from callprofiler.graph.resolver import EntityResolver
+
+    grepo = GraphRepository(conn)
+    # Create two entities with same name; mark one as owner
+    eid_owner = grepo.upsert_entity("u1", "person", "Сергей Медведев", "sergei_medvedev")
+    conn.execute("UPDATE entities SET is_owner=1 WHERE id=?", (eid_owner,))
+    conn.commit()
+    _eid_other = grepo.upsert_entity("u1", "person", "Сергей Медведев", "sergei_medvedev_2")
+
+    resolver = EntityResolver(conn)
+    candidates = resolver.find_candidates("u1", "person", min_score=0.5)
+    ids = {c.canonical_id for c in candidates} | {c.duplicate_id for c in candidates}
+    assert eid_owner not in ids, "Owner entity must never appear in merge candidates"
+
+
+def test_resolver_execute_merge_basic(setup):
+    _, conn, _ = setup
+    from callprofiler.graph.resolver import EntityResolver
+
+    grepo = GraphRepository(conn)
+    canonical_id = grepo.upsert_entity("u1", "person", "Иван Петров", "ivan_petrov")
+    duplicate_id = grepo.upsert_entity("u1", "person", "Ваня Петров", "vanya_petrov")
+
+    resolver = EntityResolver(conn)
+    resolver.execute_merge(
+        canonical_id=canonical_id,
+        duplicate_id=duplicate_id,
+        signals={"score": 0.80, "name_similarity": 0.75},
+        merged_by="test",
+    )
+
+    # Duplicate must be archived
+    dup_row = conn.execute(
+        "SELECT archived, merged_into_id FROM entities WHERE id=?", (duplicate_id,)
+    ).fetchone()
+    assert dup_row[0] == 1, "duplicate must be archived"
+    assert dup_row[1] == canonical_id, "merged_into_id must point to canonical"
+
+    # Merge log must have a row
+    log_row = conn.execute(
+        "SELECT * FROM entity_merges_log WHERE canonical_id=? AND duplicate_id=?",
+        (canonical_id, duplicate_id),
+    ).fetchone()
+    assert log_row is not None
+
+    # Canonical metrics must be computed
+    m = grepo.get_entity_metrics(canonical_id)
+    assert m is not None
+
+
+def test_resolver_execute_merge_owner_blocked(setup):
+    _, conn, _ = setup
+    from callprofiler.graph.resolver import EntityResolver
+    import pytest
+
+    grepo = GraphRepository(conn)
+    owner_id = grepo.upsert_entity("u1", "person", "Сергей", "sergei")
+    conn.execute("UPDATE entities SET is_owner=1 WHERE id=?", (owner_id,))
+    conn.commit()
+    other_id = grepo.upsert_entity("u1", "person", "Сергей Иванов", "sergei_ivanov")
+
+    resolver = EntityResolver(conn)
+    with pytest.raises(ValueError, match="owner"):
+        resolver.execute_merge(owner_id, other_id, {})
+
+
+# ── GraphAuditor tests ────────────────────────────────────────────────────────
+
+def test_auditor_clean_graph_all_ok(setup):
+    _, conn, _ = setup
+    from callprofiler.graph.auditor import GraphAuditor
+
+    auditor = GraphAuditor(conn)
+    result = auditor.run_checks("u1")
+
+    assert "checks" in result
+    assert result["has_critical"] is False
+    # All checks should pass on empty graph except possibly merge_candidates_residual
+    # (no entities = no candidates = ok)
+
+
+def test_auditor_detects_orphan_events(setup):
+    repo, conn, call_id = setup
+    from callprofiler.graph.auditor import GraphAuditor
+
+    # Create entity, insert event linked to it, then archive entity → orphan event
+    grepo = GraphRepository(conn)
+    phantom_id = grepo.upsert_entity("u1", "person", "Призрак", "prizrak")
+    conn.execute(
+        """INSERT INTO events (user_id, call_id, event_type, who, payload, status, entity_id)
+           VALUES ('u1', ?, 'fact', 'UNKNOWN', 'x', 'open', ?)""",
+        (call_id, phantom_id),
+    )
+    # Archive the entity — now event's entity_id points to archived entity → orphan
+    conn.execute("UPDATE entities SET archived=1 WHERE id=?", (phantom_id,))
+    conn.commit()
+
+    auditor = GraphAuditor(conn)
+    result = auditor.run_checks("u1")
+
+    assert result["has_critical"] is True
+    assert result["checks"]["orphan_events"]["ok"] is False
+    assert result["checks"]["orphan_events"]["count"] >= 1
+
+
+def test_auditor_detects_owner_contamination(setup):
+    repo, conn, call_id = setup
+    from callprofiler.graph.auditor import GraphAuditor
+
+    grepo = GraphRepository(conn)
+    owner_id = grepo.upsert_entity("u1", "person", "Сергей", "sergei")
+    conn.execute("UPDATE entities SET is_owner=1 WHERE id=?", (owner_id,))
+    # Insert a fact event for the owner
+    conn.execute(
+        """INSERT INTO events
+           (user_id, call_id, event_type, who, payload, status, entity_id, fact_id, quote)
+           VALUES ('u1', ?, 'fact', 'UNKNOWN', 'x', 'open', ?, 'abc123', 'некая цитата')""",
+        (call_id, owner_id),
+    )
+    conn.commit()
+
+    auditor = GraphAuditor(conn)
+    result = auditor.run_checks("u1")
+
+    assert result["has_critical"] is True
+    assert result["checks"]["owner_contamination"]["ok"] is False

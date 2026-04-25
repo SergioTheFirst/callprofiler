@@ -1308,6 +1308,225 @@ def cmd_graph_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_entity_merge(args: argparse.Namespace) -> int:
+    """entity-merge — merge duplicate entity into canonical."""
+    _setup_logging(verbose=getattr(args, "verbose", False))
+    log = logging.getLogger(__name__)
+    cfg, repo = _load_config_and_repo(args.config)
+
+    from callprofiler.graph.repository import apply_graph_schema
+    from callprofiler.graph.resolver import EntityResolver
+
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+    resolver = EntityResolver(conn)
+
+    loop = getattr(args, "loop", False)
+    max_iterations = 50  # safety cap for --loop
+
+    iteration = 0
+    while True:
+        iteration += 1
+        if getattr(args, "dry_run", False):
+            preview = resolver.preview_merge(args.canonical_id, args.duplicate_id)
+            import json as _json
+            print(_json.dumps(preview, ensure_ascii=False, indent=2))
+            return 0
+
+        try:
+            resolver.execute_merge(
+                canonical_id=args.canonical_id,
+                duplicate_id=args.duplicate_id,
+                signals={"score": getattr(args, "score", 0.0)},
+                merged_by="manual",
+                reason=getattr(args, "reason", "") or "",
+            )
+            log.info(
+                "[entity-merge] merged %d → %d (iteration %d)",
+                args.duplicate_id, args.canonical_id, iteration,
+            )
+        except Exception as exc:
+            log.error("[entity-merge] failed: %s", exc)
+            return 1
+
+        if not loop:
+            break
+
+        # In --loop mode: find next candidate for the same canonical
+        user_row = conn.execute(
+            "SELECT user_id, entity_type FROM entities WHERE id=?", (args.canonical_id,)
+        ).fetchone()
+        if not user_row:
+            break
+        candidates = resolver.find_candidates(
+            user_row[0], user_row[1], min_score=0.65, limit=1
+        )
+        candidates = [c for c in candidates if c.canonical_id == args.canonical_id]
+        if not candidates:
+            log.info("[entity-merge] no more candidates for canonical_id=%d", args.canonical_id)
+            break
+        if iteration >= max_iterations:
+            log.warning("[entity-merge] loop safety cap reached (%d)", max_iterations)
+            break
+        args.duplicate_id = candidates[0].duplicate_id
+        log.info(
+            "[entity-merge] loop: next candidate duplicate_id=%d score=%.3f",
+            args.duplicate_id, candidates[0].score,
+        )
+
+    return 0
+
+
+def cmd_entity_unmerge(args: argparse.Namespace) -> int:
+    """entity-unmerge — reverse a previously recorded merge."""
+    _setup_logging(verbose=getattr(args, "verbose", False))
+    log = logging.getLogger(__name__)
+    cfg, repo = _load_config_and_repo(args.config)
+
+    from callprofiler.graph.repository import GraphRepository, apply_graph_schema
+    from callprofiler.graph.aggregator import EntityMetricsAggregator
+
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+
+    # Fetch merge log entry
+    log_row = conn.execute(
+        """SELECT * FROM entity_merges_log
+           WHERE canonical_id=? AND duplicate_id=? AND reversible=1
+           ORDER BY merged_at DESC LIMIT 1""",
+        (args.canonical_id, args.duplicate_id),
+    ).fetchone()
+    if not log_row:
+        log.error(
+            "[entity-unmerge] no reversible merge found for canonical=%d duplicate=%d",
+            args.canonical_id, args.duplicate_id,
+        )
+        return 1
+
+    import json as _json
+    snapshot = _json.loads(log_row["snapshot_json"] or "{}")
+
+    with conn:
+        # Restore duplicate entity from snapshot
+        conn.execute(
+            "UPDATE entities SET archived=0, merged_into_id=NULL WHERE id=?",
+            (args.duplicate_id,),
+        )
+        # Restore aliases from snapshot
+        if "aliases" in snapshot:
+            conn.execute(
+                "UPDATE entities SET aliases=? WHERE id=?",
+                (_json.dumps(snapshot["aliases"]), args.duplicate_id),
+            )
+        # Transfer events back (all events currently on canonical that came from duplicate)
+        # Without per-event provenance we cannot split them perfectly;
+        # we mark the merge log entry as reversed and warn the user.
+        conn.execute(
+            "UPDATE entity_merges_log SET unmerged_at=CURRENT_TIMESTAMP, reversible=0 "
+            "WHERE id=?",
+            (log_row["id"],),
+        )
+
+    # Recalculate both entities
+    grepo = GraphRepository(conn)
+    agg = EntityMetricsAggregator(grepo)
+    for eid in (args.canonical_id, args.duplicate_id):
+        try:
+            agg.full_recalc_from_events(eid)
+        except Exception as exc:
+            log.warning("[entity-unmerge] recalc failed for %d: %s", eid, exc)
+
+    log.info(
+        "[entity-unmerge] restored entity %d from canonical %d. "
+        "NOTE: event ownership cannot be split — manual review recommended.",
+        args.duplicate_id, args.canonical_id,
+    )
+    return 0
+
+
+def cmd_graph_audit(args: argparse.Namespace) -> int:
+    """graph-audit — run 9 sanity checks on the Knowledge Graph."""
+    _setup_logging(verbose=getattr(args, "verbose", False))
+    log = logging.getLogger(__name__)
+    cfg, repo = _load_config_and_repo(args.config)
+
+    from callprofiler.graph.auditor import GraphAuditor
+    from callprofiler.graph.repository import apply_graph_schema
+
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+    auditor = GraphAuditor(conn)
+    result = auditor.run_checks(args.user_id)
+
+    print(f"\nGraph Audit — user: {args.user_id}")
+    print("─" * 50)
+    for name, check in sorted(result["checks"].items()):
+        status = "CRITICAL" if (not check["ok"] and name in {"owner_contamination", "orphan_events"}) \
+                 else "WARN" if not check["ok"] else "OK"
+        flag = "✗" if not check["ok"] else "✓"
+        print(f"  {flag} {name:<40} {status}  (n={check['count']})")
+        if not check["ok"] and check["details"]:
+            for d in check["details"][:3]:
+                print(f"      {d}")
+
+    print()
+    if result["has_critical"]:
+        print("CRITICAL issues found — data integrity requires attention.")
+        return 2
+    if result["has_warnings"]:
+        print("Warnings found.")
+        return 1
+    print("All checks passed.")
+    return 0
+
+
+def cmd_book_chapter(args: argparse.Namespace) -> int:
+    """book-chapter — show structured graph profile for one entity."""
+    _setup_logging(verbose=getattr(args, "verbose", False))
+    log = logging.getLogger(__name__)
+    cfg, repo = _load_config_and_repo(args.config)
+
+    from callprofiler.graph.repository import apply_graph_schema
+    from callprofiler.biography.data_extractor import (
+        get_entity_profile_from_graph,
+        get_behavioral_patterns,
+        get_social_position,
+    )
+
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+
+    import json as _json
+
+    profile = get_entity_profile_from_graph(args.entity_id, conn)
+    if not profile:
+        log.error("[book-chapter] entity_id=%d not found", args.entity_id)
+        return 1
+
+    patterns = get_behavioral_patterns(args.entity_id, conn)
+    social = get_social_position(args.entity_id, conn)
+
+    output = {
+        "entity_id": args.entity_id,
+        "canonical_name": profile.get("canonical_name"),
+        "entity_type": profile.get("entity_type"),
+        "aliases": profile.get("aliases", []),
+        "metrics": profile.get("metrics", {}),
+        "behavioral_patterns": patterns.get("patterns", []),
+        "behavioral_raw": patterns.get("raw", {}),
+        "top_relations": profile.get("top_relations", []),
+        "org_links": social.get("org_links", []),
+        "open_promises": social.get("open_promises", 0),
+        "conflict_count": social.get("conflict_count", 0),
+        "centrality": social.get("centrality", 0),
+        "timeline": profile.get("timeline", []),
+        "top_facts": profile.get("top_facts", [])[:10],
+    }
+
+    print(_json.dumps(output, ensure_ascii=False, indent=2))
+    return 0
+
+
 # ── Построение парсера ────────────────────────────────────────────────────
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -1568,6 +1787,75 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Максимум записей (0 = все)",
     )
 
+    # ── entity-merge ───────────────────────────────────────────────
+    p_entity_merge = sub.add_parser(
+        "entity-merge",
+        help="Слить дублирующую сущность в каноническую (Knowledge Graph)",
+    )
+    p_entity_merge.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_entity_merge.add_argument(
+        "--canonical", dest="canonical_id", type=int, required=True,
+        metavar="ID", help="ID канонической сущности",
+    )
+    p_entity_merge.add_argument(
+        "--duplicate", dest="duplicate_id", type=int, required=True,
+        metavar="ID", help="ID дублирующей сущности (будет архивирована)",
+    )
+    p_entity_merge.add_argument(
+        "--score", type=float, default=0.0, help="Оценка схожести (0-1)",
+    )
+    p_entity_merge.add_argument(
+        "--reason", default="", help="Комментарий к слиянию",
+    )
+    p_entity_merge.add_argument(
+        "--dry-run", action="store_true", dest="dry_run",
+        help="Показать предпросмотр без записи",
+    )
+    p_entity_merge.add_argument(
+        "--loop", action="store_true",
+        help="Продолжать слияние пока есть кандидаты для canonical_id",
+    )
+
+    # ── entity-unmerge ─────────────────────────────────────────────
+    p_entity_unmerge = sub.add_parser(
+        "entity-unmerge",
+        help="Отменить слияние сущностей (восстановить дубликат из snapshot)",
+    )
+    p_entity_unmerge.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+    )
+    p_entity_unmerge.add_argument(
+        "--canonical", dest="canonical_id", type=int, required=True, metavar="ID",
+    )
+    p_entity_unmerge.add_argument(
+        "--duplicate", dest="duplicate_id", type=int, required=True, metavar="ID",
+    )
+
+    # ── graph-audit ────────────────────────────────────────────────
+    p_graph_audit = sub.add_parser(
+        "graph-audit",
+        help="9 проверок целостности Knowledge Graph",
+    )
+    p_graph_audit.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+    )
+
+    # ── book-chapter ────────────────────────────────────────────────
+    p_book_chapter = sub.add_parser(
+        "book-chapter",
+        help="Структурированный граф-профиль сущности для главы биографии",
+    )
+    p_book_chapter.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+    )
+    p_book_chapter.add_argument(
+        "entity_id", type=int, metavar="ENTITY_ID",
+        help="ID сущности из Knowledge Graph",
+    )
+
     # ── graph-stats ────────────────────────────────────────────────
     p_graph_stats = sub.add_parser(
         "graph-stats",
@@ -1635,6 +1923,10 @@ def main() -> None:
         "graph-backfill": cmd_graph_backfill,
         "reenrich-v2": cmd_reenrich_v2,
         "graph-stats": cmd_graph_stats,
+        "entity-merge": cmd_entity_merge,
+        "entity-unmerge": cmd_entity_unmerge,
+        "graph-audit": cmd_graph_audit,
+        "book-chapter": cmd_book_chapter,
     }
 
     handler = dispatch.get(args.command)

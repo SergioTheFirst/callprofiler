@@ -14,9 +14,65 @@ DONE: Biography p9 wired + insight field pipeline (2026-04-20)
 DONE: Biography module v6 — время звонка + годовой итог p9 (2026-04-20)
 DONE: Biography Behavioral Engine p3b — bio-v7 (2026-04-20)
 DONE: Knowledge Graph Этапы 1-2 — schema, graph module, 25 tests pass (2026-04-24)
+DONE: Knowledge Graph Этапы 3-4 — EntityResolver fixes + Auditor + LLM Disambiguator (2026-04-25)
 NOW: committed + pushed to branch claude/clone-callprofiler-repo-hL5dQ
-NEXT: Этапы 3-4 (EntityResolver fuzzy merge, LLM-assisted merge) — roadmap in graph.md
+NEXT: Run `graph-audit --user <uid>` on production DB; test entity-merge --dry-run on real data
 BLOCKERS: None
+
+---
+
+## Текущее состояние: 2026-04-25 (Knowledge Graph Этапы 3-4 завершены)
+
+### Ветка разработки
+`claude/clone-callprofiler-repo-hL5dQ`
+
+### Последний коммит
+```
+Knowledge Graph Этапы 3-4: resolver fixes, auditor, LLM disambiguator, 37 tests pass
+```
+
+### Что сделано в этой сессии (2026-04-25)
+
+**Step 1 — INVARIANT full_recalc_from_events (aggregator.py):**
+- Добавлен `full_recalc_from_events(entity_id)` — детерминированный пересчёт метрик
+  из events (не инкрементально). Вызывается после merge. Решает double-count bug.
+
+**Step 2 — GraphAuditor (graph/auditor.py):**
+- 9 sanity checks; 2 CRITICAL (owner_contamination, orphan_events)
+- CLI `graph-audit --user X` → exit 2 / 1 / 0
+
+**Step 3 — Post-merge chain detection (resolver.py):**
+- execute_merge() после закрытия транзакции проверяет цепочки merge-кандидатов
+- --loop флаг в CLI итерирует до отсутствия кандидатов (cap 50)
+
+**Step 4 — biography/data_extractor.py:**
+- 3 функции: get_entity_profile_from_graph, get_behavioral_patterns, get_social_position
+- p6_chapters.py обновлён: принимает graph_conn, вызывает _enrich_portraits_with_graph()
+- CLI book-chapter --user X --entity N
+
+**Step 5 — LLM Disambiguator (graph/llm_disambiguator.py):**
+- Gray zone 0.50–0.64 → LLM advisory (НЕ авто-merge)
+- configs/prompts/entity_disambiguation.txt (4 аспекта, JSON ответ)
+
+**Step 6 — CLI commands (cli/main.py):**
+- entity-merge, entity-unmerge, graph-audit, book-chapter
+
+**Step 7 — Тесты:**
+- 37 tests pass (было 25, +12 новых)
+- Исправлены 2 баги в тестах: FK constraint в orphan_events, list flattening в resolver
+
+**Исправленные баги в resolver.py:**
+- 5 багов в execute_merge() + _fetch_entities() + _find_blocking_pairs (pre-existing)
+
+### Следующий шаг
+- Запустить `graph-audit --user <uid>` на продакшн БД
+- Запустить `entity-merge --user <uid> --dry-run` чтобы увидеть кандидатов
+- При необходимости: `reenrich-v2 --user X --limit 20` для пересчёта v2 analyses
+
+### Известные ограничения / долги
+- biography/data_extractor.py не покрыта автотестами (тестируется косвенно через p6_chapters)
+- LLM disambiguator требует работающий llama-server на 127.0.0.1:8080 (локальный)
+- entity-unmerge: snapshot_json должен существовать в entity_merges_log (иначе error)
 
 ---
 

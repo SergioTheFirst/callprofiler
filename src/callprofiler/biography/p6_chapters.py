@@ -19,6 +19,16 @@ from callprofiler.biography.llm_client import ResilientLLMClient
 from callprofiler.biography.prompts import build_chapter_prompt
 from callprofiler.biography.repo import BiographyRepo
 
+# Optional graph integration — enriches portraits with structured profiles
+try:
+    from callprofiler.biography.data_extractor import (
+        get_entity_profile_from_graph,
+        get_behavioral_patterns,
+    )
+    _GRAPH_AVAILABLE = True
+except ImportError:
+    _GRAPH_AVAILABLE = False
+
 log = logging.getLogger(__name__)
 
 PASS_NAME = "p6_chapters"
@@ -32,7 +42,14 @@ def run(
     user_id: str,
     bio: BiographyRepo,
     llm: ResilientLLMClient,
+    graph_conn=None,
 ) -> dict:
+    """Run chapter writing pass.
+
+    graph_conn: optional sqlite3.Connection to the graph DB (same DB in practice).
+    When provided, entity portraits are enriched with structured graph profiles
+    (behavioral patterns, promise chains, relations) for richer chapter prose.
+    """
     all_scenes = [
         s for s in bio.get_scenes_for_user(user_id, min_importance=MIN_SCENE_IMPORTANCE)
         if s.get("status") == "ok" and s.get("call_datetime")
@@ -94,6 +111,10 @@ def run(
             for eid, _ in month_entity_ids.most_common(TOP_PORTRAITS_PER_CHAPTER)
             if eid in portraits_by_entity
         ]
+
+        # Enrich portraits with graph profiles when graph connection is available.
+        if _GRAPH_AVAILABLE and graph_conn is not None:
+            top_portraits = _enrich_portraits_with_graph(top_portraits, graph_conn)
 
         # Arcs overlapping this month.
         month_arcs = [
@@ -201,3 +222,28 @@ def _extract_heading(md: str) -> str:
         if line.startswith("# "):
             return line[2:].strip()
     return ""
+
+
+def _enrich_portraits_with_graph(portraits: list[dict], graph_conn) -> list[dict]:
+    """Attach graph_profile and behavioral_patterns to each portrait dict.
+
+    Portrait dicts come from BiographyRepo.get_portraits_for_user() and may have
+    a graph_entity_id field linking them to the Knowledge Graph. When present,
+    the portrait is enriched in-place (copy) with:
+      - graph_profile: from get_entity_profile_from_graph()
+      - behavioral_patterns: from get_behavioral_patterns()
+    """
+    enriched = []
+    for p in portraits:
+        geid = p.get("graph_entity_id") or p.get("entity_id")
+        if not geid:
+            enriched.append(p)
+            continue
+        try:
+            profile = get_entity_profile_from_graph(int(geid), graph_conn)
+            patterns = get_behavioral_patterns(int(geid), graph_conn)
+            enriched.append({**p, "graph_profile": profile, "behavioral_patterns": patterns})
+        except Exception as exc:
+            log.debug("[p6_chapters] graph enrich failed for entity_id=%s: %s", geid, exc)
+            enriched.append(p)
+    return enriched
