@@ -8,6 +8,50 @@
 
 ## [Unreleased]
 
+## [2026-04-25b] — Knowledge Graph: Этап 2.2 (DRIFT CHECK — проверка смещения метрик BS-индекса)
+
+### Added — graph/auditor.py (_check_validator_impact_drift method)
+
+**Проблема:** При пересчёте BS-индекса (recalc_from_events) может возникнуть дрейф
+формулы или данных. Нужно автоматически обнаруживать ненадёжные метрики.
+
+**Решение** в `graph/auditor.py`:
+```python
+def _check_validator_impact_drift(self, user_id: str) -> dict:
+    # Стратифицированная выборка: 40% с bs_index > 50, 40% с total_calls > 10, 20% random
+    # Для каждого: full_recalc_from_events() и вычислить drift
+    # drift = abs(stored_bs - recalc_bs) / max(stored_bs, 1.0)
+    # Returns: ok=(drift_pct <= 0.10), count=drifted_entities, details
+```
+
+**Алгоритм:**
+1. Получить все entities с metrics для user_id
+2. Классифицировать по bs_index, total_calls
+3. Стратифицированная выборка (40/40/20), размер = max(10, min(100, count // 3))
+4. Для каждого в sample: recalc_from_events()
+5. Если drift > 0.10 → счётчик drifted_count
+6. Вернуть ok=(drift_pct <= 0.10)
+
+**Результаты проверки:**
+- Если drift_pct <= 10% → ok=True (стабильные метрики)
+- Если drift_pct > 10% → ok=False (требуется внимание)
+- details dict с sample_size, drifted_count, drift_pct, examples
+
+**Интеграция:** Добавлена в run_checks() как 10-й check (наряду с orphan_events, owner_contamination).
+
+**Тесты:** 6 новых в `test_graph.py` (75 total):
+- test_auditor_drift_check_empty_graph: пустой граф → ok=True
+- test_auditor_drift_check_small_sample: < 3 entities → ok=True
+- test_auditor_drift_check_no_drift: свежие данные → drift минимален
+- test_auditor_drift_check_stratified_sampling: стратификация работает корректно
+- test_auditor_drift_check_details_structure: структура details match contract
+- test_auditor_drift_check_with_low_drift: drift <= 10% → ok=True
+
+**Result:** Auditor теперь проверяет консистентность BS-индекса. Обнаруживает дрейф
+в 10% выборке entities, стратифицированной по качеству. Все 75 tests pass.
+
+---
+
 ## [2026-04-25] — Knowledge Graph: Этап 2 (FACT VALIDATOR — усиленная валидация фактов)
 
 ### Added — graph/validator.py (FactValidator class)

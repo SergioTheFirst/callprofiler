@@ -15,11 +15,59 @@ DONE: Biography module v6 — время звонка + годовой итог 
 DONE: Biography Behavioral Engine p3b — bio-v7 (2026-04-20)
 DONE: Knowledge Graph Этапы 1-2 — schema, graph module, 25 tests pass (2026-04-24)
 DONE: Knowledge Graph Этапы 3-4 — EntityResolver fixes + Auditor + LLM Disambiguator (2026-04-25)
-DONE: Knowledge Graph Этап 5 — REPLAY (идемпотентная пересборка, 5 tests) (2026-04-25)
-DONE: Knowledge Graph Этап 2 — FACT VALIDATOR (citation validation, speaker detection, 13 tests) (2026-04-25)
+DONE: Knowledge Graph Этап 1 — REPLAY (идемпотентная пересборка, 13 tests) (2026-04-25)
+DONE: Knowledge Graph Этап 2.1 — FACT VALIDATOR (citation validation, speaker detection, 13 tests) (2026-04-25)
+DONE: Knowledge Graph Этап 2.2 — DRIFT CHECK (validator_impact_drift auditor check, 6 tests) (2026-04-25)
 NOW: committed + ready to push to branch claude/clone-callprofiler-repo-hL5dQ
 NEXT: Этап 3 — BS Calibration (bs_thresholds table + BSCalibrator class)
 BLOCKERS: None
+
+---
+
+## Текущее состояние: 2026-04-25 (Knowledge Graph Этап 2.2 — DRIFT CHECK)
+
+### Ветка разработки
+`claude/clone-callprofiler-repo-hL5dQ`
+
+### Последний коммит
+```
+Step 2: DRIFT CHECK — Add validator_impact_drift check to GraphAuditor (3e5a828)
+```
+
+### Что сделано в этой сессии (2026-04-25, часть 4 — DRIFT CHECK)
+
+**ШАГ 2.2 — DRIFT CHECK (обнаружение смещения BS-индекса):**
+- `src/callprofiler/graph/auditor.py` — _check_validator_impact_drift() метод
+- Интегрирован в run_checks() наряду с остальными 9 проверками
+- Стратифицированная выборка: 40% с bs_index > 50, 40% с total_calls > 10, 20% random
+  - Целевой размер выборки: max(10, min(100, все_entities // 3))
+- Алгоритм:
+  1. Получить все entities с metrics для user_id
+  2. Классифицировать по bs_index, total_calls, и случайная выборка
+  3. Для каждого в sample: full_recalc_from_events(entity_id)
+  4. Вычислить drift = abs(stored_bs - recalc_bs) / max(stored_bs, 1.0)
+  5. Вернуть ok=(drift_pct <= 0.10), count=drifted_entities, details
+
+**Результаты проверки:**
+- ok=True если drift_pct <= 10%
+- ok=False если drift_pct > 10%
+- details dict с: sample_size, drifted_count, drift_pct, examples
+
+**Тесты:** 6 новых в `test_graph.py`:
+- test_auditor_drift_check_empty_graph: пустой граф → ok=True
+- test_auditor_drift_check_small_sample: < 3 entities → ok=True
+- test_auditor_drift_check_no_drift: свежие данные → drift минимален
+- test_auditor_drift_check_stratified_sampling: стратификация работает
+- test_auditor_drift_check_details_structure: структура details корректна
+- test_auditor_drift_check_with_low_drift: drift <= 10% → ok=True
+
+**Result:** 75 tests pass (62 graph + 13 replay_metrics). Step 2 полностью готов.
+
+### Следующий шаг
+- **Этап 3 — BS Calibration**:
+  - Создать src/callprofiler/graph/calibration.py с BSCalibrator class
+  - Метод analyze(user_id): вычислить p25/p50/p75/p90 для всех entities
+  - Метод get_label(bs_index, user_id) → (label, emoji)
 
 ---
 
