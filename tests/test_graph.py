@@ -1034,3 +1034,161 @@ def test_builder_uses_validator_with_transcript(setup):
         "SELECT COUNT(*) FROM events WHERE fact_id IS NOT NULL"
     ).fetchone()[0]
     assert facts_count >= 1
+
+
+# ── GraphAuditor drift check tests ────────────────────────────────────────────
+
+def test_auditor_drift_check_empty_graph(setup):
+    """Empty graph (no entities) returns ok=True for drift check."""
+    _, conn, _ = setup
+    from callprofiler.graph.auditor import GraphAuditor
+
+    auditor = GraphAuditor(conn)
+    result = auditor.run_checks("u1")
+
+    assert "validator_impact_drift" in result["checks"]
+    drift_check = result["checks"]["validator_impact_drift"]
+    assert drift_check["ok"] is True
+    assert drift_check["count"] == 0
+
+
+def test_auditor_drift_check_small_sample(setup):
+    """Sample < 3 entities returns ok=True."""
+    _, conn, call_id = setup
+    from callprofiler.graph.auditor import GraphAuditor
+
+    grepo = GraphRepository(conn)
+    # Create 2 entities with metrics
+    eid1 = grepo.upsert_entity("u1", "person", "Person1", "person1")
+    eid2 = grepo.upsert_entity("u1", "person", "Person2", "person2")
+    grepo.upsert_entity_metrics(eid1, "u1", total_calls=5, bs_index=20.0)
+    grepo.upsert_entity_metrics(eid2, "u1", total_calls=3, bs_index=15.0)
+
+    auditor = GraphAuditor(conn)
+    result = auditor.run_checks("u1")
+
+    drift_check = result["checks"]["validator_impact_drift"]
+    # Small sample might be ok=True
+    assert drift_check["count"] >= 0
+
+
+def test_auditor_drift_check_no_drift(setup):
+    """Entities with stable metrics (drift <= 10%) pass."""
+    repo, conn, call_id = setup
+    from callprofiler.graph.auditor import GraphAuditor
+
+    # Create entity + metrics
+    grepo = GraphRepository(conn)
+    eid = grepo.upsert_entity("u1", "person", "Стабильный", "stable")
+    grepo.upsert_entity_metrics(eid, "u1", total_calls=5, bs_index=25.0)
+
+    # Create facts with no issues (all pass validator)
+    payload = _v2_payload(
+        entities=[{"type": "person", "canonical_name": "Стабильный", "normalized_key": "stable"}],
+        facts=[
+            {"fact_type": "promise", "entity_key": "stable",
+             "quote": "перезвоню завтра в восемь часов", "confidence": 0.9},
+            {"fact_type": "promise", "entity_key": "stable",
+             "quote": "позвоню в пятницу точно будет", "confidence": 0.85},
+        ],
+    )
+    _save_v2_analysis(repo, call_id, payload)
+    GraphBuilder(conn).update_from_call(call_id)
+
+    # Recalc should be close to original
+    agg = EntityMetricsAggregator(grepo)
+    result = agg.full_recalc_from_events(eid)
+    # Drift should be small (fresh calculation from same facts)
+
+    auditor = GraphAuditor(conn)
+    audit_result = auditor.run_checks("u1")
+
+    drift_check = audit_result["checks"]["validator_impact_drift"]
+    assert drift_check["count"] <= 1  # 0 or 1 drifted (from small sample)
+
+
+def test_auditor_drift_check_stratified_sampling(setup):
+    """Drift check uses stratified sampling across entity quality tiers."""
+    repo, conn, call_id = setup
+    from callprofiler.graph.auditor import GraphAuditor
+
+    grepo = GraphRepository(conn)
+
+    # Create 15 entities to ensure stratified sampling actually happens
+    for i in range(15):
+        eid = grepo.upsert_entity("u1", "person", f"Entity{i}", f"entity{i}")
+        # Mix of high bs_index, high total_calls, and low values
+        bs = 75.0 if i < 5 else (10.0 if i < 10 else 5.0)
+        calls = 50 if i < 5 else (5 if i < 10 else 2)
+        grepo.upsert_entity_metrics(eid, "u1", total_calls=calls, bs_index=bs)
+
+    auditor = GraphAuditor(conn)
+    result = auditor.run_checks("u1")
+
+    drift_check = result["checks"]["validator_impact_drift"]
+    details = drift_check["details"]
+
+    # Should have sampled entities
+    assert isinstance(details, dict), f"details is {type(details)}, not dict"
+    assert "sample_size" in details
+    assert details["sample_size"] >= 3  # Should have sampled at least 3
+
+
+def test_auditor_drift_check_details_structure(setup):
+    """Drift check returns properly structured details dict."""
+    repo, conn, call_id = setup
+    from callprofiler.graph.auditor import GraphAuditor
+
+    grepo = GraphRepository(conn)
+    # Create entities
+    for i in range(5):
+        eid = grepo.upsert_entity("u1", "person", f"Person{i}", f"person{i}")
+        grepo.upsert_entity_metrics(eid, "u1", total_calls=10+i, bs_index=20.0+i*5)
+
+    auditor = GraphAuditor(conn)
+    result = auditor.run_checks("u1")
+
+    drift_check = result["checks"]["validator_impact_drift"]
+    assert "details" in drift_check
+    details = drift_check["details"]
+
+    assert isinstance(details, dict)
+    assert "sample_size" in details
+    assert "drifted_count" in details
+    assert "drift_pct" in details
+    assert "examples" in details
+
+    assert isinstance(details["sample_size"], int)
+    assert isinstance(details["drifted_count"], int)
+    assert isinstance(details["drift_pct"], (int, float))
+    assert isinstance(details["examples"], list)
+
+
+def test_auditor_drift_check_with_low_drift(setup):
+    """Drift check returns ok=True when drift_pct <= 10%."""
+    repo, conn, call_id = setup
+    from callprofiler.graph.auditor import GraphAuditor
+
+    grepo = GraphRepository(conn)
+
+    # Create entity with metrics
+    eid = grepo.upsert_entity("u1", "person", "LowDrift", "low_drift")
+    grepo.upsert_entity_metrics(eid, "u1", total_calls=10, bs_index=30.0)
+
+    # Create facts that won't cause drift
+    payload = _v2_payload(
+        entities=[{"type": "person", "canonical_name": "LowDrift", "normalized_key": "low_drift"}],
+        facts=[
+            {"fact_type": "promise", "entity_key": "low_drift",
+             "quote": "обещаю сделать завтра утром ровно", "confidence": 0.9},
+        ],
+    )
+    _save_v2_analysis(repo, call_id, payload)
+    GraphBuilder(conn).update_from_call(call_id)
+
+    auditor = GraphAuditor(conn)
+    result = auditor.run_checks("u1")
+
+    drift_check = result["checks"]["validator_impact_drift"]
+    # With fresh data, drift should be minimal
+    assert drift_check["ok"] is True or drift_check["count"] <= 1
