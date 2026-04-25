@@ -835,3 +835,202 @@ def test_graph_replay_assertions_facts_count(setup):
     assert stats["facts_count"] == 0
     # Should have warning (facts_count=0 after processing)
     assert any("facts_count=0" in w.lower() for w in stats["warnings"])
+
+
+# ── FactValidator tests ──────────────────────────────────────────────────────
+
+def test_validator_quote_length_valid():
+    """Quote >= 8 chars passes length check."""
+    from callprofiler.graph.validator import FactValidator
+
+    validator = FactValidator()
+    fact = {"quote": "перезвоню завтра"}  # 16 chars
+    result = validator.validate(fact)
+    assert result["valid"] is True
+    assert not any("too short" in e for e in result["errors"])
+
+
+def test_validator_quote_length_invalid():
+    """Quote < 8 chars fails validation."""
+    from callprofiler.graph.validator import FactValidator
+
+    validator = FactValidator()
+    fact = {"quote": "да, ок"}  # 6 chars
+    result = validator.validate(fact)
+    assert result["valid"] is False
+    assert any("too short" in e for e in result["errors"])
+
+
+def test_validator_quote_found_exact_in_transcript():
+    """Quote found exactly in transcript passes."""
+    from callprofiler.graph.validator import FactValidator
+
+    validator = FactValidator()
+    transcript = "[me]: перезвоню завтра ровно в восемь\n[s2]: спасибо большое"
+    fact = {"quote": "перезвоню завтра ровно в восемь"}
+    result = validator.validate(fact, transcript)
+    assert result["valid"] is True
+    assert not any("not found" in e for e in result["errors"])
+    assert result["speaker"] == "me"
+
+
+def test_validator_quote_found_fuzzy_in_transcript():
+    """Quote found with close match (ratio >= 0.72) passes."""
+    from callprofiler.graph.validator import FactValidator
+
+    validator = FactValidator()
+    # Slightly different but similar quote
+    transcript = "[me]: перезвоню завтра ровно в восемь часов утра\n[s2]: спасибо"
+    fact = {"quote": "перезвоню завтра ровно в восемь"}
+    result = validator.validate(fact, transcript)
+    assert result["valid"] is True  # fuzzy match should work
+
+
+def test_validator_quote_not_found_in_transcript():
+    """Quote not in transcript fails."""
+    from callprofiler.graph.validator import FactValidator
+
+    validator = FactValidator()
+    transcript = "[me]: что-то совсем другое\n[s2]: да"
+    fact = {"quote": "перезвоню завтра совершенно точно"}
+    result = validator.validate(fact, transcript)
+    assert result["valid"] is False
+    assert any("not found" in e for e in result["errors"])
+
+
+def test_validator_detects_speaker_me():
+    """Speaker attribution detection for [me]."""
+    from callprofiler.graph.validator import FactValidator
+
+    validator = FactValidator()
+    transcript = "[me]: перезвоню завтра\n[s2]: спасибо, жду"
+    fact = {"quote": "перезвоню завтра"}
+    result = validator.validate(fact, transcript)
+    assert result["speaker"] == "me"
+
+
+def test_validator_detects_speaker_s2():
+    """Speaker attribution detection for [s2]."""
+    from callprofiler.graph.validator import FactValidator
+
+    validator = FactValidator()
+    transcript = "[me]: во сколько?\n[s2]: позвоню в шесть вечера"
+    fact = {"quote": "позвоню в шесть вечера"}
+    result = validator.validate(fact, transcript)
+    assert result["speaker"] == "s2"
+
+
+def test_validator_future_markers():
+    """Detection of future-tense language."""
+    from callprofiler.graph.validator import FactValidator
+
+    validator = FactValidator()
+    fact_future = {"quote": "буду делать завтра"}
+    result = validator.validate(fact_future)
+    assert result["is_future"] is True
+    assert any("future" in w.lower() for w in result["warnings"])
+
+    fact_past = {"quote": "сделал вчера"}
+    result = validator.validate(fact_past)
+    assert result["is_future"] is False
+
+
+def test_validator_negation_detection():
+    """Detection of negation markers."""
+    from callprofiler.graph.validator import FactValidator
+
+    validator = FactValidator()
+    fact_neg = {"quote": "не могу перезвонить сегодня"}
+    result = validator.validate(fact_neg)
+    assert result["is_negated"] is True
+
+    fact_pos = {"quote": "могу перезвонить сегодня"}
+    result = validator.validate(fact_pos)
+    assert result["is_negated"] is False
+
+
+def test_validator_vague_word_detection():
+    """Detection of vague language."""
+    from callprofiler.graph.validator import FactValidator
+
+    validator = FactValidator()
+    fact_vague = {"quote": "может быть позвоню завтра"}
+    result = validator.validate(fact_vague)
+    assert result["is_vague"] is True
+    assert any("vague" in w.lower() for w in result["warnings"])
+
+    fact_clear = {"quote": "позвоню завтра в восемь"}
+    result = validator.validate(fact_clear)
+    assert result["is_vague"] is False
+
+
+def test_validator_combined_warnings():
+    """Multiple semantic issues generate multiple warnings."""
+    from callprofiler.graph.validator import FactValidator
+
+    validator = FactValidator()
+    fact = {"quote": "может быть не позвоню"}  # future + negated + vague
+    result = validator.validate(fact)
+    assert result["is_future"] is False  # "may" doesn't trigger future
+    assert result["is_negated"] is True
+    assert result["is_vague"] is True
+    # Should have multiple warnings
+    assert len(result["warnings"]) >= 1
+
+
+def test_validator_no_transcript_warning():
+    """Validation without transcript generates warning but doesn't fail."""
+    from callprofiler.graph.validator import FactValidator
+
+    validator = FactValidator()
+    fact = {"quote": "перезвоню завтра в восемь"}
+    result = validator.validate(fact, transcript_text=None)
+    assert result["valid"] is True  # Length OK, no transcript = warning not error
+    assert any("transcript_text not provided" in w for w in result["warnings"])
+
+
+def test_builder_uses_validator_rejects_short_quotes(setup):
+    """GraphBuilder uses validator to reject short quotes."""
+    repo, conn, call_id = setup
+    payload = _v2_payload(
+        entities=[{"type": "person", "canonical_name": "Вася", "normalized_key": "vasya"}],
+        facts=[
+            {"fact_type": "promise", "entity_key": "vasya",
+             "quote": "да ok", "confidence": 0.9},  # 6 chars < 8
+        ],
+    )
+    _save_v2_analysis(repo, call_id, payload)
+
+    builder = GraphBuilder(conn)
+    result = builder.update_from_call(call_id, transcript_text=None)
+
+    # Should process (return True for entities) but skip the short fact
+    facts_count = conn.execute(
+        "SELECT COUNT(*) FROM events WHERE fact_id IS NOT NULL"
+    ).fetchone()[0]
+    assert facts_count == 0
+
+
+def test_builder_uses_validator_with_transcript(setup):
+    """GraphBuilder passes transcript_text to validator for citation check."""
+    repo, conn, call_id = setup
+
+    transcript = "[me]: перезвоню вам завтра ровно в восемь часов\n[s2]: спасибо"
+
+    payload = _v2_payload(
+        entities=[{"type": "person", "canonical_name": "Клиент", "normalized_key": "client"}],
+        facts=[
+            {"fact_type": "promise", "entity_key": "client",
+             "quote": "перезвоню завтра в восемь", "confidence": 0.9},
+        ],
+    )
+    _save_v2_analysis(repo, call_id, payload)
+
+    builder = GraphBuilder(conn)
+    result = builder.update_from_call(call_id, transcript_text=transcript)
+
+    # Quote should be found in transcript and upserted
+    facts_count = conn.execute(
+        "SELECT COUNT(*) FROM events WHERE fact_id IS NOT NULL"
+    ).fetchone()[0]
+    assert facts_count >= 1

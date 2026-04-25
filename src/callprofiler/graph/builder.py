@@ -23,6 +23,7 @@ from callprofiler.graph.config import (
     RELATION_DECAY_DAYS,
 )
 from callprofiler.graph.repository import GraphRepository, apply_graph_schema
+from callprofiler.graph.validator import FactValidator
 
 log = logging.getLogger(__name__)
 
@@ -41,16 +42,23 @@ class GraphBuilder:
         self._conn = conn
         self._repo = GraphRepository(conn)
         self._aggregator = EntityMetricsAggregator(self._repo)
+        self._validator = FactValidator()
 
     def update_from_call(self, call_id: int, transcript_text: str | None = None) -> bool:
         """Process one call's analysis into the graph.
 
         Args:
             call_id: Call to process
-            transcript_text: Optional full transcript (for fact validation)
+            transcript_text: Optional full transcript (for enhanced fact validation)
 
         Returns True if entities were written, False if skipped.
         Skips silently for v1 analyses or missing/malformed data.
+
+        Validation (Этап 2 — FACT VALIDATOR):
+        - Quote length >= 8 chars
+        - Quote found in transcript via rolling window (ratio >= 0.72)
+        - Speaker attribution detection ([me] vs [s2])
+        - Semantic checks (future markers, negations, vagueness)
         """
         try:
             return self._update(call_id, transcript_text=transcript_text)
@@ -150,10 +158,18 @@ class GraphBuilder:
             quote = (fact.get("quote") or "").strip()
             confidence = float(fact.get("confidence", 0.0))
 
-            if len(quote) < MIN_QUOTE_LENGTH:
-                continue
+            # Confidence check (original filter)
             if confidence < MIN_FACT_CONFIDENCE:
                 continue
+
+            # Run enhanced validator (Этап 2)
+            validation = self._validator.validate(fact, transcript_text)
+            if not validation["valid"]:
+                for error in validation["errors"]:
+                    log.debug("[graph] call_id=%d: fact rejected: %s", call_id, error)
+                continue
+            for warning in validation["warnings"]:
+                log.debug("[graph] call_id=%d: fact warning: %s", call_id, warning)
 
             entity_key = fact.get("entity_key", "")
             entity_id = entity_id_by_key.get(entity_key)

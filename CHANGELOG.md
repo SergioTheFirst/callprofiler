@@ -8,6 +8,76 @@
 
 ## [Unreleased]
 
+## [2026-04-25] — Knowledge Graph: Этап 2 (FACT VALIDATOR — усиленная валидация фактов)
+
+### Added — graph/validator.py (FactValidator class)
+
+**Проблема:** LLM может генерировать факты с неполными или неточными цитатами.
+Требуется валидация ДО записи в events table.
+
+**Решение** в `graph/validator.py`:
+```python
+class FactValidator:
+    def validate(fact, transcript_text=None) -> dict:
+        # Check 1: Quote length >= 8 chars
+        # Check 2: Rolling window search в transcript (ratio >= 0.72)
+        # Check 3: Speaker attribution detection ([me] vs [s2])
+        # Check 4: Semantic checks (future markers, negations, vagueness)
+        # Returns: valid, errors[], warnings[], speaker, is_future, is_negated, is_vague
+```
+
+**Валидация включает:**
+1. **Length:** quote.strip() >= 8 (MIN_QUOTE_LEN)
+2. **Verbatimness:** rolling window match ratio >= 0.72 (если transcript_text есть)
+3. **Speaker:** detect [me] vs [s2] from context (last marker in lookback window)
+4. **Semantics:**
+   - Future markers (EN: will, shall, plan; RU: буду, будет, планирую, обещаю)
+   - Negations (EN: not, no, never; RU: не, нет, никогда)
+   - Vague words (EN: maybe, probably, seems; RU: может, наверное, похоже)
+
+Warnings генерируются для семантических проблем но не блокируют upsert.
+
+### Changed — graph/builder.py (FactValidator integration)
+
+- Импорт FactValidator
+- `__init__()` создаёт `self._validator = FactValidator()`
+- `_update()` вызывает `validator.validate(fact, transcript_text)` перед upsert
+- Факты с errors отклоняются; warnings логируются как debug
+
+**Фильтрация (до upsert):**
+```
+1. MIN_FACT_CONFIDENCE >= 0.6 (как раньше)
+2. validator.validate() — если errors → skip
+```
+
+### Updated graph/builder.py docstring
+
+Документированы валидация checks в `update_from_call()` docstring.
+
+### Changed — .claude/rules/graph.md (Anti-Noise Filters)
+
+Уточнена роль FactValidator (Этап 2) в валидационном конвейере.
+Described quote verification strategy (rolling window + speaker detection).
+
+**Тесты:** 13 новых в `test_graph.py` (56 total, все pass):
+- test_validator_quote_length_valid/invalid
+- test_validator_quote_found_exact_in_transcript
+- test_validator_quote_found_fuzzy_in_transcript
+- test_validator_quote_not_found_in_transcript
+- test_validator_detects_speaker_me/s2
+- test_validator_future_markers
+- test_validator_negation_detection
+- test_validator_vague_word_detection
+- test_validator_combined_warnings
+- test_validator_no_transcript_warning
+- test_builder_uses_validator_rejects_short_quotes
+- test_builder_uses_validator_with_transcript
+
+**Result:** Facts now validated before upsert. Exact and fuzzy match support.
+Speaker attribution enabled for call context. Semantic warnings logged (debug level).
+
+---
+
 ## [2026-04-25] — Knowledge Graph: Этап 5 (REPLAY — идемпотентная пересборка)
 
 ### Added — graph/replay.py (GraphReplayer class)

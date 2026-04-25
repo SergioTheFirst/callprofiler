@@ -16,9 +16,70 @@ DONE: Biography Behavioral Engine p3b — bio-v7 (2026-04-20)
 DONE: Knowledge Graph Этапы 1-2 — schema, graph module, 25 tests pass (2026-04-24)
 DONE: Knowledge Graph Этапы 3-4 — EntityResolver fixes + Auditor + LLM Disambiguator (2026-04-25)
 DONE: Knowledge Graph Этап 5 — REPLAY (идемпотентная пересборка, 5 tests) (2026-04-25)
-NOW: committed + pushed to branch claude/clone-callprofiler-repo-hL5dQ
-NEXT: Этап 2 — FactValidator (усиленная валидация цитат + speaker attribution)
+DONE: Knowledge Graph Этап 2 — FACT VALIDATOR (citation validation, speaker detection, 13 tests) (2026-04-25)
+NOW: committed + ready to push to branch claude/clone-callprofiler-repo-hL5dQ
+NEXT: Этап 3 — BS Calibration (bs_thresholds table + BSCalibrator class)
 BLOCKERS: None
+
+---
+
+## Текущее состояние: 2026-04-25 (Knowledge Graph Этап 2 — FACT VALIDATOR)
+
+### Ветка разработки
+`claude/clone-callprofiler-repo-hL5dQ`
+
+### Последний коммит (готов к push)
+```
+Knowledge Graph Этап 2: FactValidator, citation verification, speaker attribution, 56 tests pass
+```
+
+### Что сделано в этой сессии (2026-04-25, часть 3)
+
+**ШАГ 2 — FACT VALIDATOR (усиленная валидация):**
+- `src/callprofiler/graph/validator.py` — FactValidator class
+- Валидация цитат ДО записи в events table
+- 4 уровня проверок:
+  1. Quote length >= 8 chars (MIN_QUOTE_LEN)
+  2. Rolling window search в transcript (ratio >= 0.72)
+  3. Speaker attribution detection ([me] vs [s2] from context)
+  4. Semantic checks (future markers, negations, vague words)
+- Поддержка EN + RU маркеров (future, negations, vague)
+- Warnings логируются (debug) но не блокируют; Errors блокируют upsert
+
+**Интеграция в GraphBuilder:**
+- Import FactValidator в graph/builder.py
+- `__init__()` создаёт validator instance
+- `_update()` вызывает validate(fact, transcript_text) перед upsert
+- Confident confidence check + validator check (2-слойная фильтрация)
+
+**Архитектурное улучшение:**
+- Validator полностью отделён от builder (может быть переиспользован)
+- Transcript_text опциональный параметр в update_from_call()
+- Warnings информационные (log debug) не критические
+
+**Тесты:** 13 новых в `test_graph.py` (56 total, все pass):
+- Length validation: valid/invalid quotes
+- Transcript matching: exact, fuzzy, not found
+- Speaker detection: [me], [s2], unknown
+- Semantic markers: future, negations, vague words
+- Combined warnings: multiple issues detected
+- Builder integration: validator rejects short quotes, uses transcript
+
+**Result:** Facts fully validated before DB write. Exact+fuzzy citation matching.
+Speaker context detected. Semantic warnings logged (not blocking).
+All 56 tests pass. Ready for Этап 3.
+
+### Следующий шаг
+- **Этап 3 — BS Calibration**:
+  - bs_thresholds table (fact_type, min_confidence, min_intensity, etc)
+  - BSCalibrator class для пересчёта BS-index с новыми пороговыми значениями
+  - Миграция graph_replay для использования calibrator
+
+### Известные ограничения / долги
+- Validator работает с EN + RU маркерами; другие языки не поддерживаются
+- Fuzzy matching ratio 0.72 хардкодирована; возможно нужна настройка
+- Speaker detection работает только в 100-символьном lookback window
+- Semantic checks не охватывают все типы вагуэности (примеры: "около", "типа")
 
 ---
 
