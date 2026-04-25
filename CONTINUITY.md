@@ -19,20 +19,21 @@ DONE: Knowledge Graph Этап 1 — REPLAY (идемпотентная пере
 DONE: Knowledge Graph Этап 2.1 — FACT VALIDATOR (citation validation, speaker detection, 13 tests) (2026-04-25)
 DONE: Knowledge Graph Этап 2.2 — DRIFT CHECK (validator_impact_drift auditor check, 6 tests) (2026-04-25)
 DONE: Knowledge Graph Этап 3 — BS CALIBRATION (percentile-based thresholds, 18 tests) (2026-04-25)
-NOW: committed (f8adc93, 93 tests pass) — ready to push
-NEXT: Этап 4 — THRESHOLD INTEGRATION (использование BSCalibrator в card_generator)
+DONE: Knowledge Graph Этап 4 — THRESHOLD INTEGRATION (data-driven card emoji, 186 tests pass) (2026-04-25)
+NOW: committed (cedb0c5, 186 tests pass) — ready to push
+NEXT: Этап 5 — HEALTH GATE (graph health check command)
 BLOCKERS: None
 
 ---
 
-## Текущее состояние: 2026-04-25 (Knowledge Graph Этап 3 — BS CALIBRATION)
+## Текущее состояние: 2026-04-25 (Knowledge Graph Этап 4 — THRESHOLD INTEGRATION)
 
 ### Ветка разработки
 `claude/clone-callprofiler-repo-hL5dQ`
 
 ### Последний коммит
 ```
-Step 3: BS CALIBRATION — Add percentile-based threshold system for BS-index labels (f8adc93)
+Step 4: THRESHOLD INTEGRATION — Use BSCalibrator for data-driven risk emoji in cards (cedb0c5)
 ```
 
 ### Что сделано в этой сессии (2026-04-25, часть 5 — BS CALIBRATION)
@@ -78,10 +79,57 @@ All percentile calculations verified. Label assignment comprehensive.
 Database persistence working. Step 3 完了.
 
 ### Следующий шаг
-- **Этап 4 — THRESHOLD INTEGRATION**:
-  - Обновить card_generator.py: использовать BSCalibrator.get_label(bs_index, user_id)
-  - Обновить summary_builder.py: интегрировать BSCalibrator для label assignment
-  - Fallback: "⚪ (uncalibrated)" когда thresholds недоступны
+- **Этап 5 — HEALTH GATE**:
+  - Создать graph-health CLI команду
+  - 4 проверки: replay_run, auditor, entity_metrics, bs_thresholds
+  - Exit code 0 если stable, 1 если issues
+
+---
+
+## Текущее состояние: 2026-04-25 (Knowledge Graph Этап 4 — THRESHOLD INTEGRATION)
+
+### Ветка разработки
+`claude/clone-callprofiler-repo-hL5dQ`
+
+### Последний коммит
+```
+Step 4: THRESHOLD INTEGRATION — Use BSCalibrator for data-driven risk emoji in cards (cedb0c5)
+```
+
+### Что сделано в этой сессии (2026-04-25, часть 6 — THRESHOLD INTEGRATION)
+
+**ШАГ 4 — THRESHOLD INTEGRATION (интеграция BSCalibrator в card_generator и summary_builder):**
+- `src/callprofiler/deliver/card_generator.py` — обновлен CardGenerator класс:
+  - Добавлена ленивая инициализация BSCalibrator в _get_calibrator()
+  - Метод _risk_emoji_with_calibration(risk, user_id) использует calibrator
+  - Graceful fallback на hardcoded thresholds если calibration недоступна
+  - Интегрирована в generate_card() вместо старого _risk_emoji(risk)
+- `src/callprofiler/aggregate/summary_builder.py` — аналогично:
+  - _get_calibrator() и _risk_emoji_with_calibration()
+  - Обновлена generate_card_text() для использования калибратора
+  - Graceful fallback для предыдущей версии
+- Лениво инициализируется graph connection через sqlite3.connect() на потребу
+- Exception handling: если bs_thresholds table не существует → fallback на hardcoded
+
+**Архитектура:**
+- BSCalibrator.get_label(risk_score, user_id) → (label, emoji)
+- Labels: reliable/noisy/risky/unreliable/critical/uncalibrated
+- Emoji: 🟢/🟡/🔴/🔴/⚫/⚪
+- Data-driven: используются перцентили p25/p50/p75/p90 из bs_thresholds
+- Если user не calibrated: get_label() возвращает uncalibrated + ⚪
+
+**Integration Points:**
+1. card_generator: emoji для caller cards на Android overlay
+2. summary_builder: emoji для contact_summaries
+3. Оба используют global_risk (0-100) как bs_index для calibrator
+
+**Result:** 186 tests pass (18 bs_calibration + 15 card_generator + 62 graph + 13 replay + остальные).
+Интеграция полная. Fallback works. Все карточки теперь могут быть data-driven если user calibrated.
+
+### Следующий шаг
+- **Этап 5 — HEALTH GATE**:
+  - graph-health --user <id> CLI команда
+  - 4 проверки стабильности графа
 
 ---
 

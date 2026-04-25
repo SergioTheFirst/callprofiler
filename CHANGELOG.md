@@ -8,6 +8,68 @@
 
 ## [Unreleased]
 
+## [2026-04-25c] — Knowledge Graph: Этап 4 (THRESHOLD INTEGRATION — использование BSCalibrator в cards)
+
+### Changed — deliver/card_generator.py, aggregate/summary_builder.py
+
+**Проблема:** Card emoji используют hardcoded пороги (risk >= 70 → 🔴). Нужны data-driven user-specific thresholds.
+
+**Решение:**
+- CardGenerator._risk_emoji_with_calibration(risk, user_id) использует BSCalibrator
+- SummaryBuilder._risk_emoji_with_calibration() аналогично
+- Fallback на hardcoded thresholds если calibration недоступна
+- Lazy-load graph connection и calibrator при первом обращении
+
+**Integration:**
+```python
+calibrator = self._get_calibrator()  # Lazy init
+if calibrator:
+    label, emoji = calibrator.get_label(float(risk), user_id)  # Data-driven
+else:
+    emoji = hardcoded(risk)  # Fallback
+```
+
+**Result:** All 186 tests pass. Cards теперь используют user-specific percentile-based emoji.
+Fallback ensures backward compatibility при отсутствии calibration.
+
+---
+
+## [2026-04-25b] — Knowledge Graph: Этап 3 (BS CALIBRATION — percentile-based thresholds)
+
+### Added — graph/calibration.py (новый модуль)
+
+**Проблема:** Hardcoded пороги для BS-index (reliable/noisy/risky) не учитывают распределение данных user-а.
+
+**Решение:**
+- BSCalibrator.analyze(user_id) вычисляет перцентили p25/p50/p75/p90 из BS-индексов entities
+- get_label(bs_index, user_id) присваивает label на основе user-specific thresholds
+- Сохраняет пороги в bs_thresholds table для переиспользования
+
+**Алгоритм:**
+1. Получить BS-scores всех entities с фильтрацией (min_calls, min_promises)
+2. Вычислить перцентили линейной интерполяцией
+3. Определить пороги: reliable_max=p25, noisy_max=p50, risky_max=p75, unreliable_max=p90
+4. Сохранить в bs_thresholds с std_dev
+
+**Labels:**
+- 🟢 reliable: bs_index <= p25
+- 🟡 noisy: p25 < bs_index <= p50
+- 🔴 risky: p50 < bs_index <= p75
+- 🔴 unreliable: p75 < bs_index <= p90
+- ⚫ critical: bs_index > p90
+- ⚪ uncalibrated: no thresholds
+
+**Тесты:** 18 новых в `test_bs_calibration.py` (93 total):
+- Percentile calculation with linear interpolation
+- Label assignment for all 5 categories
+- Filtering by min_calls, min_promises
+- Exclusion of owner and archived entities
+- Database persistence
+
+**Result:** BS-index labeling теперь data-driven. Каждый user имеет свои пороги.
+
+---
+
 ## [2026-04-25b] — Knowledge Graph: Этап 2.2 (DRIFT CHECK — проверка смещения метрик BS-индекса)
 
 ### Added — graph/auditor.py (_check_validator_impact_drift method)
