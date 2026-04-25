@@ -19,6 +19,35 @@ BS-index formula can be versioned and upgraded without re-running LLM.
 
 ---
 
+## Layer Contract (Architectural Invariants)
+
+**events table = DERIVED (read-only source of truth for graph aggregation).**
+
+- events.entity_id, fact_id, quote, polarity, intensity, speaker_attribution
+  are **puresly computed** from analyses.raw_response (schema_version='v2')
+- events.entity_id/fact_id/quote/speaker_attribution may be **safely recreated**
+  by running `graph-replay --user X --limit N`
+- events WHERE schema_version='v1' OR entity_id IS NULL are **never touched** by replay
+  (legacy events from pre-graph pipeline)
+
+**graph (entities/relations/entity_metrics) = DERIVED from events (schema_version='v2').**
+
+- graph is rebuilt by aggregating events WHERE user_id=? AND call_id IN (
+  SELECT id FROM calls WHERE user_id=? AND id IN (SELECT DISTINCT call_id FROM events WHERE user_id=? AND schema_version='v2')
+- Replay is idempotent:
+  - DELETE entity_metrics, relations, entities (unarchived)
+  - UPDATE events SET entity_id=NULL, fact_id=NULL, quote=NULL where v2
+  - Re-run GraphBuilder → entities/relations/entity_metrics regenerate deterministically
+  - Second replay on same data produces 0 new rows (dedup via fact_id)
+
+**This enables:**
+- Safe data fixing (fix raw_response, replay) without manual SQL
+- Formula upgrades (new BS-formula, replay with new aggregator)
+- Fact validation post-hoc (validator filters on replay)
+- Transparency (every graph row traceable to analyses.raw_response + call_id)
+
+---
+
 ## schema_version Contract
 
 - `'v1'` — legacy analyses (raw_response has no graph fields). Skip silently.
@@ -72,6 +101,34 @@ weight = confidence. Weight is clamped to [0.0, 1.0] implicitly by confidence ra
 
 Do not change the formula without bumping the field name or adding a version column
 so old weights can be identified.
+
+---
+
+## CLI Commands
+
+### graph-replay (Идемпотентная пересборка)
+
+```bash
+python -m callprofiler graph-replay --user <USER_ID> [--limit N]
+```
+
+Перестраивает граф из v2 analyses (entities/relations/entity_metrics) с нуля.
+
+**Логика:**
+1. DELETE entity_metrics, relations, entities (unarchived)
+2. UPDATE events SET entity_id/fact_id/quote/polarity/intensity = NULL (v2 only)
+3. Получить все v2 analyses, передать в GraphBuilder.update_from_call()
+4. Пересчитать metrics для всех entities через full_recalc_from_events()
+
+**Assertions (exit code != 0):**
+- facts_count > 0 если calls_processed > 0
+- orphan_events == 0 (events с несуществующей entity_id)
+- owner_contamination == 0 (owner entities с bs_index > 0)
+
+**Используется:**
+- После ручного исправления raw_response в analyses
+- После смены formula версии BS-index
+- Для тестирования детерминизма (вторая replay == первой replay)
 
 ---
 

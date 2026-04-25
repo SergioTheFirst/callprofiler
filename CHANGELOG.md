@@ -8,6 +8,66 @@
 
 ## [Unreleased]
 
+## [2026-04-25] — Knowledge Graph: Этап 5 (REPLAY — идемпотентная пересборка)
+
+### Added — graph/replay.py (GraphReplayer class)
+
+**Проблема:** После исправления raw_response в analyses нужно пересоздать граф
+(entities/relations/entity_metrics). Требуется идемпотентная пересборка, которая
+при повторном запуске на том же data не создаёт новые rows.
+
+**Решение** в `graph/replay.py`:
+```python
+class GraphReplayer:
+    def replay(user_id, limit=None) -> dict:
+        # DELETE entity_metrics, relations, entities (unarchived)
+        # UPDATE events SET entity_id/fact_id/quote = NULL (v2 only, не трогает v1)
+        # GraphBuilder.update_from_call() для каждого v2 analysis
+        # full_recalc_from_events() для каждого entity
+        # Returns: stats с assertions
+```
+
+**Assertions (exit code !=0 если нарушено):**
+- `facts_count > 0` после обработки calls
+- `orphan_events == 0` (event.entity_id → несуществующая entity)
+- `owner_contamination == 0` (is_owner=1 entity не имеет bs_index > 0)
+
+**Используется:**
+- Ручное исправление raw_response в analyses + `graph-replay`
+- Смена BS-formula версии + `graph-replay`
+- Тестирование детерминизма
+
+### Added — graph-replay CLI command
+
+```bash
+python -m callprofiler graph-replay --user USER_ID [--limit N]
+```
+
+Outputs stats JSON: calls_processed, entities_count, relations_count, facts_count,
+avg_bs_index, warnings.
+
+Exit 0 = ok, 1 = warnings, 2 = critical assertions failed.
+
+### Changed — graph/builder.py (transcript_text parameter)
+
+- `update_from_call(call_id, transcript_text=None)` — новый опциональный параметр
+- Используется на шаге 2 (FactValidator) для верификации цитат
+
+### Changed — .claude/rules/graph.md (Layer Contract + CLI docs)
+
+- Добавлен **Layer Contract**: events = DERIVED (computed from analyses.raw_response)
+- Добавлена документация по graph-replay команде
+
+### Updated architecture documentation
+
+Зафиксировано что events.entity_id/fact_id/quote — **derived fields**, безопасно
+пересоздаются при replay. events WHERE schema_version='v1' OR entity_id IS NULL
+не трогаются при replay (безопасность для legacy pipeline).
+
+**Тесты:** 5 новых в `test_graph_replay*` (42 total). Все pass.
+- test_graph_replay_empty_user, test_graph_replay_v2_only, test_graph_replay_idempotent
+- test_graph_replay_skips_v1, test_graph_replay_assertions_facts_count
+
 ## [2026-04-25] — Knowledge Graph: Этапы 3-4 (EntityResolver + LLM Disambiguator)
 
 ### Added — full_recalc_from_events() INVARIANT (aggregator.py)

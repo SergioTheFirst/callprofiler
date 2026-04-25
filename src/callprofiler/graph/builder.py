@@ -42,19 +42,23 @@ class GraphBuilder:
         self._repo = GraphRepository(conn)
         self._aggregator = EntityMetricsAggregator(self._repo)
 
-    def update_from_call(self, call_id: int) -> bool:
+    def update_from_call(self, call_id: int, transcript_text: str | None = None) -> bool:
         """Process one call's analysis into the graph.
+
+        Args:
+            call_id: Call to process
+            transcript_text: Optional full transcript (for fact validation)
 
         Returns True if entities were written, False if skipped.
         Skips silently for v1 analyses or missing/malformed data.
         """
         try:
-            return self._update(call_id)
+            return self._update(call_id, transcript_text=transcript_text)
         except Exception:
             log.exception("[graph] update_from_call failed for call_id=%d", call_id)
             return False
 
-    def _update(self, call_id: int) -> bool:
+    def _update(self, call_id: int, transcript_text: str | None = None) -> bool:
         row = self._conn.execute(
             """SELECT a.raw_response, a.schema_version,
                       c.user_id, c.contact_id, c.call_datetime

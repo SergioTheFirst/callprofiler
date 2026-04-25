@@ -15,9 +15,54 @@ DONE: Biography module v6 — время звонка + годовой итог 
 DONE: Biography Behavioral Engine p3b — bio-v7 (2026-04-20)
 DONE: Knowledge Graph Этапы 1-2 — schema, graph module, 25 tests pass (2026-04-24)
 DONE: Knowledge Graph Этапы 3-4 — EntityResolver fixes + Auditor + LLM Disambiguator (2026-04-25)
+DONE: Knowledge Graph Этап 5 — REPLAY (идемпотентная пересборка, 5 tests) (2026-04-25)
 NOW: committed + pushed to branch claude/clone-callprofiler-repo-hL5dQ
-NEXT: Run `graph-audit --user <uid>` on production DB; test entity-merge --dry-run on real data
+NEXT: Этап 2 — FactValidator (усиленная валидация цитат + speaker attribution)
 BLOCKERS: None
+
+---
+
+## Текущее состояние: 2026-04-25 (Knowledge Graph Этап 5 — REPLAY)
+
+### Ветка разработки
+`claude/clone-callprofiler-repo-hL5dQ`
+
+### Последний коммит
+```
+Knowledge Graph Этап 5: graph-replay command, idempotent rebuild, 42 tests pass
+```
+
+### Что сделано в этой сессии (2026-04-25, часть 2)
+
+**ШАГ 1 — REPLAY (безопасный):**
+- `src/callprofiler/graph/replay.py` — GraphReplayer class
+- `graph-replay --user X [--limit N]` CLI command
+- Идемпотентная пересборка: DELETE → UPDATE → rebuild
+- Assertions: facts_count > 0, orphan_events=0, owner_contamination=0
+- 5 тестов: empty_user, v2_only, idempotent, skips_v1, assertions_facts_count
+
+**Архитектурный контракт:**
+- Зафиксирован в `.claude/rules/graph.md`
+- events = DERIVED from analyses.raw_response (schema_version='v2')
+- events.entity_id/fact_id/quote — безопасно пересоздавать при replay
+- events WHERE schema_version='v1' OR entity_id IS NULL — не трогать
+
+**Интеграция:**
+- graph/builder.py: добавлен параметр `transcript_text` для будущего FactValidator
+- cli/main.py: добавлена cmd_graph_replay + parser + dispatcher
+
+### Следующий шаг
+- **Этап 2 — FACT VALIDATOR**:
+  - src/callprofiler/graph/validator.py с FactValidator class
+  - Проверка цитат через rolling window в транскрипте
+  - Speaker attribution ([me] vs [s2])
+  - Semantic checks (future markers, contradictions, vagueness)
+  - Интеграция в GraphBuilder.update_from_call()
+
+### Известные ограничения / долги
+- FactValidator требует transcript_text в GraphBuilder (пока опциональный)
+- Знаниевый граф ещё не калибрирован (шаг 3 — BS Calibration)
+- Терминология: "REPLAY" (шаг 1) ≠ "REPLICATE" (шаг 2-5 stabilization pipeline)
 
 ---
 

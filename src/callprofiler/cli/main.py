@@ -1308,6 +1308,44 @@ def cmd_graph_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_graph_replay(args: argparse.Namespace) -> int:
+    """graph-replay — rebuild graph layer from v2 analyses."""
+    _setup_logging(verbose=getattr(args, "verbose", False))
+    log = logging.getLogger(__name__)
+    cfg, repo = _load_config_and_repo(args.config)
+
+    from callprofiler.graph.repository import GraphRepository, apply_graph_schema
+    from callprofiler.graph.replay import GraphReplayer
+
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+
+    graph_repo = GraphRepository(conn)
+    replayer = GraphReplayer(repo, graph_repo)
+
+    user_id = args.user
+    limit = getattr(args, "limit", None)
+
+    log.info("[graph-replay] starting for user_id=%s, limit=%s", user_id, limit)
+    stats = replayer.replay(user_id, limit=limit)
+
+    print("\n=== GRAPH REPLAY STATS ===\n")
+    print(f"Calls processed:    {stats['calls_processed']}")
+    print(f"Entities:           {stats['entities_count']}")
+    print(f"Relations:          {stats['relations_count']}")
+    print(f"Facts:              {stats['facts_count']}")
+    print(f"Avg BS-index:       {stats['avg_bs_index']}")
+    print()
+
+    if stats["warnings"]:
+        print("WARNINGS:")
+        for w in stats["warnings"]:
+            print(f"  ⚠️  {w}")
+        return 2 if any("ASSERT FAILED" in w for w in stats["warnings"]) else 1
+
+    return 0
+
+
 def cmd_entity_merge(args: argparse.Namespace) -> int:
     """entity-merge — merge duplicate entity into canonical."""
     _setup_logging(verbose=getattr(args, "verbose", False))
@@ -1787,6 +1825,20 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Максимум записей (0 = все)",
     )
 
+    # ── graph-replay ───────────────────────────────────────────────
+    p_graph_replay = sub.add_parser(
+        "graph-replay",
+        help="Пересоздать Knowledge Graph из v2 analyses (идемпотентно)",
+    )
+    p_graph_replay.add_argument(
+        "--user", dest="user", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_graph_replay.add_argument(
+        "--limit", type=int, default=None, metavar="N",
+        help="Максимум calls для обработки (для тестирования)",
+    )
+
     # ── entity-merge ───────────────────────────────────────────────
     p_entity_merge = sub.add_parser(
         "entity-merge",
@@ -1922,6 +1974,7 @@ def main() -> None:
         "biography-export": cmd_biography_export,
         "graph-backfill": cmd_graph_backfill,
         "reenrich-v2": cmd_reenrich_v2,
+        "graph-replay": cmd_graph_replay,
         "graph-stats": cmd_graph_stats,
         "entity-merge": cmd_entity_merge,
         "entity-unmerge": cmd_entity_unmerge,

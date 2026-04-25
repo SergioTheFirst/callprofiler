@@ -694,3 +694,144 @@ def test_auditor_detects_owner_contamination(setup):
 
     assert result["has_critical"] is True
     assert result["checks"]["owner_contamination"]["ok"] is False
+
+
+# ── Replay tests ─────────────────────────────────────────────────────────
+
+
+def test_graph_replay_empty_user(setup):
+    from callprofiler.graph.replay import GraphReplayer
+
+    repo, conn, call_id = setup
+    # No analyses for this user
+    replayer = GraphReplayer(repo, GraphRepository(conn))
+    stats = replayer.replay("u_empty", limit=None)
+
+    assert stats["calls_processed"] == 0
+    assert stats["entities_count"] == 0
+    assert len(stats["warnings"]) > 0
+
+
+def test_graph_replay_v2_only(setup):
+    from callprofiler.graph.replay import GraphReplayer
+    import json
+
+    repo, conn, call_id = setup
+
+    # Create v2 analysis with entities
+    raw_v2 = json.dumps({
+        "entities": [
+            {"normalized_key": "vasya", "canonical_name": "Василий", "type": "person", "aliases": [], "attributes": {}}
+        ],
+        "relations": [],
+        "structured_facts": [
+            {"entity_key": "vasya", "fact_type": "promise", "quote": "обещаю завтра",
+             "confidence": 0.9, "value": "завтра", "polarity": None, "intensity": 0.8}
+        ]
+    })
+    conn.execute(
+        "INSERT INTO analyses (call_id, schema_version, raw_response) VALUES (?, 'v2', ?)",
+        (call_id, raw_v2)
+    )
+    conn.commit()
+
+    replayer = GraphReplayer(repo, GraphRepository(conn))
+    stats = replayer.replay("u1")
+
+    assert stats["calls_processed"] == 1
+    assert stats["entities_count"] >= 1
+    assert stats["facts_count"] >= 1
+    assert all(not w.startswith("ASSERT") for w in stats["warnings"])
+
+
+def test_graph_replay_idempotent(setup):
+    """Running replay twice on same data produces 0 new rows."""
+    from callprofiler.graph.replay import GraphReplayer
+    import json
+
+    repo, conn, call_id = setup
+
+    raw_v2 = json.dumps({
+        "entities": [
+            {"normalized_key": "ivan", "canonical_name": "Иван", "type": "person", "aliases": [], "attributes": {}}
+        ],
+        "relations": [],
+        "structured_facts": [
+            {"entity_key": "ivan", "fact_type": "promise", "quote": "завтра позвоню",
+             "confidence": 0.95, "value": "завтра", "polarity": None, "intensity": 0.9}
+        ]
+    })
+    conn.execute(
+        "INSERT INTO analyses (call_id, schema_version, raw_response) VALUES (?, 'v2', ?)",
+        (call_id, raw_v2)
+    )
+    conn.commit()
+
+    replayer = GraphReplayer(repo, GraphRepository(conn))
+
+    # First run
+    stats1 = replayer.replay("u1")
+    entities1 = stats1["entities_count"]
+    facts1 = stats1["facts_count"]
+
+    # Second run (should find same data, no new rows)
+    # First clear to test determinism
+    conn.execute("DELETE FROM entity_metrics WHERE user_id='u1'")
+    conn.execute("DELETE FROM relations WHERE user_id='u1'")
+    conn.execute("""UPDATE events SET entity_id=NULL, fact_id=NULL, quote=NULL
+                    WHERE user_id='u1' AND call_id=?""", (call_id,))
+    conn.execute("DELETE FROM entities WHERE user_id='u1' AND archived=0")
+    conn.commit()
+
+    stats2 = replayer.replay("u1")
+    assert stats2["entities_count"] == entities1
+    assert stats2["facts_count"] == facts1
+
+
+def test_graph_replay_skips_v1(setup):
+    """v1 analyses should be skipped, not processed."""
+    from callprofiler.graph.replay import GraphReplayer
+
+    repo, conn, call_id = setup
+
+    # Create v1 analysis (no graph fields)
+    conn.execute(
+        "INSERT INTO analyses (call_id, schema_version, raw_response) VALUES (?, 'v1', '{}')",
+        (call_id,)
+    )
+    conn.commit()
+
+    replayer = GraphReplayer(repo, GraphRepository(conn))
+    stats = replayer.replay("u1")
+
+    assert stats["calls_processed"] == 0
+    assert stats["entities_count"] == 0
+
+
+def test_graph_replay_assertions_facts_count(setup):
+    """If no facts processed but calls were, ASSERT warning."""
+    from callprofiler.graph.replay import GraphReplayer
+
+    repo, conn, call_id = setup
+
+    # v2 analysis with no facts (empty structured_facts)
+    import json
+    raw_v2 = json.dumps({
+        "entities": [],
+        "relations": [],
+        "structured_facts": []
+    })
+    conn.execute(
+        "INSERT INTO analyses (call_id, schema_version, raw_response) VALUES (?, 'v2', ?)",
+        (call_id, raw_v2)
+    )
+    conn.commit()
+
+    replayer = GraphReplayer(repo, GraphRepository(conn))
+    stats = replayer.replay("u1")
+
+    # Processed 1 call but 0 facts
+    assert stats["calls_processed"] == 1
+    assert stats["facts_count"] == 0
+    # Should have warning (facts_count=0 after processing)
+    assert any("facts_count=0" in w.lower() for w in stats["warnings"])
