@@ -20,9 +20,46 @@ DONE: Knowledge Graph Этап 2.1 — FACT VALIDATOR (citation validation, spea
 DONE: Knowledge Graph Этап 2.2 — DRIFT CHECK (validator_impact_drift auditor check, 6 tests) (2026-04-25)
 DONE: Knowledge Graph Этап 3 — BS CALIBRATION (percentile-based thresholds, 18 tests) (2026-04-25)
 DONE: Knowledge Graph Этап 4 — THRESHOLD INTEGRATION (data-driven card emoji, 186 tests pass) (2026-04-25)
-NOW: committed (cedb0c5, 186 tests pass) — ready to push
-NEXT: Этап 5 — HEALTH GATE (graph health check command)
+DONE: HEALTH GATE — graph-health CLI command, 4 checks, exit 0/1 (2026-04-25)
+DONE: PSYCHOLOGY PROFILER MVP — PsychologyProfiler class + CLI person-profile/profile-all (2026-04-25)
+NOW: 197 tests pass — committing two commits + push to main
+NEXT: Narrative journal extraction (narrative-extract CLI command)
 BLOCKERS: None
+
+---
+
+## Текущее состояние: 2026-04-25 (HEALTH GATE + PSYCHOLOGY PROFILER MVP)
+
+### Ветка разработки
+`claude/clone-callprofiler-repo-hL5dQ` → push to `main`
+
+### Последний коммит
+```
+feat: psychology profiler MVP
+```
+
+### Что сделано в этой сессии (2026-04-25, часть 6)
+
+**HEALTH GATE (Block A):**
+- `cmd_graph_health()` в `cli/main.py` — 4 проверки: replay rejection < 0.90, audit no-critical, entity_metrics > 0, bs_thresholds > 0
+- Subparser `graph-health --user ID` зарегистрирован
+- Dispatch entry добавлен
+- `.claude/rules/graph.md` — добавлено правило "graph-health exit 0 required before book-chapter"
+
+**PSYCHOLOGY PROFILER MVP (Block B):**
+- `src/callprofiler/biography/psychology_profiler.py` — `PsychologyProfiler` class
+  - `build_profile()` → dict с keys: entity_id, canonical_name, metrics, patterns, temporal, social, evolution, top_facts, interpretation
+  - `_analyze_temporal()`, `_extract_patterns()`, `_analyze_social()`, `_build_evolution()`, `_interpret()`
+- `configs/prompts/psychology_profile.txt` — prompt template
+- CLI: `person-profile` и `profile-all`
+- `tests/test_psychology_profiler.py` — 11 тестов, итого 197 pass
+- `.claude/rules/biography-style.md` — Psychology Profile Output Contract (новый файл)
+
+### Следующий шаг
+- Narrative journal extraction: `narrative-extract` CLI command
+
+### Известные ограничения / долги
+- `_interpret()` делает 3 SQL запроса `_analyze_social()` вместо одного — незначительно
 
 ---
 

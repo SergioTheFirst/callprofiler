@@ -8,6 +8,59 @@
 
 ## [Unreleased]
 
+## [2026-04-25e] — Psychology Profiler MVP (biography/psychology_profiler.py)
+
+### Added — biography/psychology_profiler.py, configs/prompts/psychology_profile.txt
+
+**Задача:** Генерировать психологический профиль контакта из агрегированных данных Knowledge Graph + ONE LLM call.
+
+**Новые файлы:**
+- `src/callprofiler/biography/psychology_profiler.py` — `PsychologyProfiler` class:
+  - `build_profile(entity_id, user_id)` → полный dict профиля
+  - `_analyze_temporal()` — avg_calls_per_week, preferred_hours/days, trend
+  - `_extract_patterns()` — behavioral patterns с severity из entity_metrics
+  - `_analyze_social()` — org_links, open_promises, conflict_count, centrality
+  - `_build_evolution()` — годовые avg_risk bucket-ы
+  - `_interpret()` — ONE LLM call → 3 параграфа, fallback to None
+- `configs/prompts/psychology_profile.txt` — шаблон промпта (3 параграфа ≤ 250 слов)
+- `.claude/rules/biography-style.md` — Psychology Profile Output Contract
+
+**CLI:**
+- `person-profile --user ID ENTITY_ID [--json]`
+- `profile-all --user ID [--limit N]`
+
+**Тесты:** 11 новых тестов в `tests/test_psychology_profiler.py`, итого 197 pass.
+
+---
+
+## [2026-04-25d] — HEALTH GATE (graph-health CLI command)
+
+### Added — cli/main.py: cmd_graph_health, .claude/rules/graph.md update
+
+**Задача:** Дать gate-команду, которую нужно пройти перед `book-chapter`.
+
+**4 проверки (exit 0 = все прошли, exit 1 = что-то упало):**
+1. Last replay run: `rejection_rate < 0.90`
+2. `graph-audit` → audit_critical == 0
+3. `entity_metrics` has >= 1 row для user_id
+4. `bs_thresholds` has >= 1 row для user_id
+
+**Output пример:**
+```
+Graph Health — user: serhio
+──────────────────────────────────────────────────
+  ✅ replay               rejection=23.4% (stable)
+  ✅ audit                no critical issues
+  ✅ entity_metrics       47 entity metric row(s)
+  ✅ bs_thresholds        1 threshold row(s)
+
+All checks passed — graph is ready for biography generation.
+```
+
+**Правило в graph.md:** "graph-health exit 0 required before book-chapter"
+
+---
+
 ## [2026-04-25c] — Knowledge Graph: Этап 4 (THRESHOLD INTEGRATION — использование BSCalibrator в cards)
 
 ### Changed — deliver/card_generator.py, aggregate/summary_builder.py

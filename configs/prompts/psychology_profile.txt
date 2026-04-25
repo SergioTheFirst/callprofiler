@@ -1,0 +1,48 @@
+You are a behavioral analyst. Based on the structured data below, write a concise psychology profile for the contact.
+
+## Entity
+Name: {canonical_name}
+Type: {entity_type}
+Aliases: {aliases}
+
+## Behavioral Metrics
+BS-index (0-100, higher = more deceptive signals): {bs_index}
+Average risk score: {avg_risk}
+Total calls: {total_calls}
+Total promises: {total_promises}
+Broken promises: {broken_promises}
+Contradictions: {contradictions}
+Vagueness signals: {vagueness_count}
+Blame shifts: {blame_shift_count}
+Emotional spikes: {emotional_spikes}
+
+## Detected Patterns
+{patterns}
+
+## Temporal Activity
+Average calls per week: {avg_calls_per_week}
+Preferred contact hours: {preferred_hours}
+Preferred contact days: {preferred_days}
+Contact span (days): {contact_span_days}
+Frequency trend: {frequency_trend}
+
+## Social Position
+Related organizations: {related_orgs}
+Open promises to track: {open_promises}
+Conflicts recorded: {conflict_count}
+Network centrality (# of connected entities): {centrality}
+
+## Risk Evolution (year → avg_risk)
+{evolution}
+
+## Top Facts (recent verbatim quotes)
+{top_facts}
+
+---
+
+Write the profile in 3 short paragraphs (total ≤ 250 words):
+1. **Communication style** — how this person typically communicates (direct/evasive, reliable/volatile)
+2. **Trust signals** — key risk indicators or trust factors, citing specific patterns
+3. **Interaction recommendation** — one actionable suggestion for the next conversation
+
+Respond in the same language as the contact's quotes. Be factual, no speculation beyond the data. Do not repeat the raw numbers verbatim — synthesize them into behavioral observations.
