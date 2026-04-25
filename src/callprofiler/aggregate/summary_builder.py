@@ -7,26 +7,78 @@ SummaryBuilder синтезирует полный профиль контакт
 - Открытых событий (обещания, долги, факты)
 - Последних личных взаимодействий
 - Выявленных паттернов поведения
+
+Integration (Step 4 — THRESHOLD INTEGRATION):
+- Используется BSCalibrator для data-driven risk emoji на основе перцентилей
+- Fallback на hardcoded thresholds если calibration недоступна
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from callprofiler.db.repository import Repository
 
+from callprofiler.graph.calibration import BSCalibrator
+from callprofiler.graph.repository import GraphRepository
+
 log = logging.getLogger(__name__)
 
 
 class SummaryBuilder:
-    """Синтезирует и обновляет профили контактов (contact_summaries)."""
+    """Синтезирует и обновляет профили контактов (contact_summaries).
+
+    Integration (Step 4):
+    - Использует BSCalibrator для data-driven risk emoji
+    - Fallback на hardcoded thresholds если calibration недоступна
+    """
 
     def __init__(self, repo: Repository) -> None:
         self.repo = repo
+        self._graph_conn: sqlite3.Connection | None = None
+        self._calibrator: BSCalibrator | None = None
+
+    def _get_calibrator(self) -> BSCalibrator | None:
+        """Ленивая инициализация калибратора."""
+        if self._calibrator is not None:
+            return self._calibrator
+
+        try:
+            if not hasattr(self.repo, '_db_path'):
+                return None
+
+            if self._graph_conn is None:
+                self._graph_conn = sqlite3.connect(self.repo._db_path)
+                self._graph_conn.row_factory = sqlite3.Row
+
+            grepo = GraphRepository(self._graph_conn)
+            self._calibrator = BSCalibrator(grepo)
+            return self._calibrator
+        except Exception as e:
+            log.debug("[summary] Failed to initialize BSCalibrator: %s", e)
+            return None
+
+    def _risk_emoji_with_calibration(self, risk: int, user_id: str) -> str:
+        """Получить emoji для risk используя BSCalibrator если доступен."""
+        try:
+            calibrator = self._get_calibrator()
+            if calibrator:
+                label, emoji = calibrator.get_label(float(risk), user_id)
+                return emoji
+        except Exception as e:
+            log.debug("[summary] Failed to get calibrated label: %s", e)
+
+        # Fallback: hardcoded thresholds
+        if risk >= 70:
+            return "🔴"
+        if risk >= 30:
+            return "🟡"
+        return "🟢"
 
     def rebuild_contact(self, contact_id: int) -> None:
         """Пересчитать summary одного контакта.
@@ -156,9 +208,10 @@ class SummaryBuilder:
         risk = summary.get("global_risk") or 0
         hook = summary.get("top_hook") or ""
         advice = summary.get("advice") or ""
+        user_id = contact.get("user_id") or ""
 
-        # Risk emoji
-        risk_emoji = "🟢" if risk < 30 else "🟡" if risk < 70 else "🔴"
+        # Risk emoji (data-driven with calibration fallback)
+        risk_emoji = self._risk_emoji_with_calibration(risk, user_id)
 
         # Bullets (обещания, долги, факты)
         bullets = []
