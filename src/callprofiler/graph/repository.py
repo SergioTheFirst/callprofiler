@@ -161,6 +161,34 @@ CREATE TABLE IF NOT EXISTS entity_merges_log (
 );
 CREATE INDEX IF NOT EXISTS idx_entity_merges_user ON entity_merges_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_entity_merges_canonical ON entity_merges_log(canonical_id);
+
+CREATE TABLE IF NOT EXISTS graph_replay_runs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         TEXT    NOT NULL,
+    calls_processed INTEGER DEFAULT 0,
+    facts_total     INTEGER DEFAULT 0,
+    facts_inserted  INTEGER DEFAULT 0,
+    facts_rejected  INTEGER DEFAULT 0,
+    rejection_rate  REAL    DEFAULT 0,
+    entities_count  INTEGER DEFAULT 0,
+    avg_bs_index    REAL,
+    audit_critical  INTEGER DEFAULT 0,
+    created_at      TEXT    DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_replay_runs_user ON graph_replay_runs(user_id, created_at);
+
+CREATE TABLE IF NOT EXISTS bs_thresholds (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         TEXT    NOT NULL,
+    reliable_max    REAL    NOT NULL,
+    noisy_max       REAL    NOT NULL,
+    risky_max       REAL    NOT NULL,
+    unreliable_max  REAL    NOT NULL,
+    entity_count    INTEGER DEFAULT 0,
+    std_dev         REAL,
+    created_at      TEXT    DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_bs_thresholds_user ON bs_thresholds(user_id, created_at);
 """
 
 
@@ -463,6 +491,86 @@ class GraphRepository:
             (entity_id, user_id),
         ).fetchone()
         return row["last_dt"] if row else None
+
+    # ── replay runs ───────────────────────────────────────────────────────
+
+    def save_replay_run(
+        self,
+        user_id: str,
+        calls_processed: int,
+        facts_total: int,
+        facts_inserted: int,
+        facts_rejected: int,
+        entities_count: int,
+        avg_bs_index: float | None,
+        audit_critical: int,
+    ) -> int:
+        """Save a replay run record; returns the new row id."""
+        rejection_rate = facts_rejected / facts_total if facts_total > 0 else 0.0
+        self._conn.execute(
+            """INSERT INTO graph_replay_runs
+               (user_id, calls_processed, facts_total, facts_inserted,
+                facts_rejected, rejection_rate, entities_count, avg_bs_index, audit_critical)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, calls_processed, facts_total, facts_inserted,
+             facts_rejected, rejection_rate, entities_count, avg_bs_index, audit_critical),
+        )
+        self._conn.commit()
+        return self._conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    def get_last_replay_run(self, user_id: str) -> dict | None:
+        row = self._conn.execute(
+            """SELECT * FROM graph_replay_runs
+               WHERE user_id=? ORDER BY created_at DESC LIMIT 1""",
+            (user_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    # ── bs_thresholds ────────────────────────────────────────────────────
+
+    def save_bs_thresholds(
+        self,
+        user_id: str,
+        thresholds: dict[str, float],
+        entity_count: int,
+        std_dev: float,
+    ) -> None:
+        self._conn.execute(
+            """INSERT INTO bs_thresholds
+               (user_id, reliable_max, noisy_max, risky_max, unreliable_max,
+                entity_count, std_dev)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (user_id,
+             thresholds["reliable_max"], thresholds["noisy_max"],
+             thresholds["risky_max"], thresholds["unreliable_max"],
+             entity_count, std_dev),
+        )
+        self._conn.commit()
+
+    def get_latest_bs_thresholds(self, user_id: str) -> dict | None:
+        row = self._conn.execute(
+            """SELECT * FROM bs_thresholds
+               WHERE user_id=? ORDER BY created_at DESC LIMIT 1""",
+            (user_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def get_bs_scores_filtered(
+        self,
+        user_id: str,
+        min_calls: int = 3,
+        min_promises: int = 1,
+    ) -> list[float]:
+        rows = self._conn.execute(
+            """SELECT m.bs_index
+               FROM entity_metrics m
+               JOIN entities e ON e.id = m.entity_id
+               WHERE m.user_id=? AND e.archived=0 AND COALESCE(e.is_owner,0)=0
+                 AND m.total_calls >= ? AND m.total_promises >= ?
+               ORDER BY m.bs_index""",
+            (user_id, min_calls, min_promises),
+        ).fetchall()
+        return [float(r["bs_index"]) for r in rows]
 
     # ── stats ─────────────────────────────────────────────────────────────
 

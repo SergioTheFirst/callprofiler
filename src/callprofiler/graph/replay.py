@@ -14,6 +14,7 @@ from typing import Any
 
 from callprofiler.db.repository import Repository
 from callprofiler.graph.aggregator import EntityMetricsAggregator
+from callprofiler.graph.auditor import GraphAuditor
 from callprofiler.graph.builder import GraphBuilder
 from callprofiler.graph.repository import GraphRepository
 
@@ -37,22 +38,20 @@ class GraphReplayer:
         """
         Rebuild graph layer for user_id from v2 analyses.
 
+        Collects per-fact stats (total/inserted/rejected), runs GraphAuditor
+        after rebuild, and saves a graph_replay_runs row for posterity.
+
         Args:
             user_id: User identifier
             limit: Max calls to process (for testing/partial replay)
 
         Returns:
-            Stats dict with counts and assertions
+            Stats dict with counts, rejection_rate, audit_critical, and warnings
         """
         conn = self._graph_repo._conn
+        self._builder.reset_stats()
 
-        # Step 1: Clear derived tables (safe — derived from analyses only)
-        log.info("[replay] clearing derived tables for user_id=%s", user_id)
-        conn.execute("DELETE FROM entity_metrics WHERE user_id=?", (user_id,))
-        conn.execute("DELETE FROM relations WHERE user_id=?", (user_id,))
-        conn.execute("DELETE FROM entities WHERE user_id=? AND archived=0", (user_id,))
-
-        # Step 2: Clear graph columns in events (only v2, preserve v1)
+        # Step 1: Clear graph columns in events FIRST (to break FK references)
         log.info("[replay] clearing graph columns in events (v2 only)")
         conn.execute(
             """UPDATE events
@@ -66,6 +65,13 @@ class GraphReplayer:
                )""",
             (user_id, user_id, user_id),
         )
+        conn.commit()
+
+        # Step 2: Clear derived tables (safe — derived from analyses only)
+        log.info("[replay] clearing derived tables for user_id=%s", user_id)
+        conn.execute("DELETE FROM entity_metrics WHERE user_id=?", (user_id,))
+        conn.execute("DELETE FROM relations WHERE user_id=?", (user_id,))
+        conn.execute("DELETE FROM entities WHERE user_id=? AND archived=0", (user_id,))
         conn.commit()
 
         # Step 3: Fetch v2 analyses for processing
@@ -86,34 +92,26 @@ class GraphReplayer:
                 "entities_count": 0,
                 "relations_count": 0,
                 "facts_count": 0,
-                "rejected_facts": 0,
+                "facts_total": 0,
+                "facts_inserted": 0,
+                "facts_rejected": 0,
+                "rejection_rate": 0.0,
                 "avg_bs_index": None,
+                "audit_critical": 0,
                 "warnings": ["no v2 analyses to replay"],
             }
 
         if limit:
             rows = rows[:limit]
 
-        stats = {
-            "calls_processed": 0,
-            "entities_count": 0,
-            "relations_count": 0,
-            "facts_count": 0,
-            "rejected_facts": 0,
-            "facts_before_filter": 0,
-        }
+        calls_processed = 0
 
         # Step 4: Replay each analysis
         for idx, (_, call_id, raw_response_str) in enumerate(rows):
             try:
-                raw = json.loads(raw_response_str)
+                json.loads(raw_response_str)
             except (json.JSONDecodeError, ValueError) as e:
-                log.warning(
-                    "[replay] call_id=%d: JSON parse failed: %s",
-                    call_id,
-                    e,
-                )
-                stats["rejected_facts"] += 1
+                log.warning("[replay] call_id=%d: JSON parse failed: %s", call_id, e)
                 continue
 
             # Get transcript for this call (fallback to None if not available)
@@ -131,32 +129,25 @@ class GraphReplayer:
             except Exception as e:
                 log.error(
                     "[replay] call_id=%s: graph update failed: %s",
-                    call_id,
-                    e,
-                    exc_info=True,
+                    call_id, e, exc_info=True,
                 )
                 continue
 
-            stats["calls_processed"] += 1
+            calls_processed += 1
 
             # Log progress every 100 calls
             if (idx + 1) % 100 == 0:
+                bstats = self._builder.get_stats()
                 current_entities = conn.execute(
                     "SELECT COUNT(*) FROM entities WHERE user_id=?", (user_id,)
                 ).fetchone()[0]
-                current_relations = conn.execute(
-                    "SELECT COUNT(*) FROM relations WHERE user_id=?", (user_id,)
-                ).fetchone()[0]
-                current_facts = conn.execute(
-                    "SELECT COUNT(*) FROM events WHERE user_id=? AND fact_id IS NOT NULL",
-                    (user_id,),
-                ).fetchone()[0]
                 log.info(
-                    "[replay] processed %d calls → %d entities, %d relations, %d facts",
-                    stats["calls_processed"],
+                    "[replay][%d] entities=%d facts_inserted=%d rejected=%d rate=%.1f%%",
+                    calls_processed,
                     current_entities,
-                    current_relations,
-                    current_facts,
+                    bstats["facts_inserted"],
+                    bstats["facts_rejected"],
+                    (bstats["facts_rejected"] / max(bstats["facts_total"], 1)) * 100,
                 )
 
         # Step 5: Recalculate metrics for all entities
@@ -171,55 +162,95 @@ class GraphReplayer:
             except Exception as e:
                 log.error(
                     "[replay] entity_id=%d: metrics recalc failed: %s",
-                    entity_id,
-                    e,
-                    exc_info=True,
+                    entity_id, e, exc_info=True,
                 )
 
-        # Final counts
-        stats["entities_count"] = conn.execute(
+        # Collect final DB counts
+        entities_count = conn.execute(
             "SELECT COUNT(*) FROM entities WHERE user_id=?", (user_id,)
         ).fetchone()[0]
-        stats["relations_count"] = conn.execute(
+        relations_count = conn.execute(
             "SELECT COUNT(*) FROM relations WHERE user_id=?", (user_id,)
         ).fetchone()[0]
-        stats["facts_count"] = conn.execute(
+        facts_count = conn.execute(
             "SELECT COUNT(*) FROM events WHERE user_id=? AND fact_id IS NOT NULL",
             (user_id,),
         ).fetchone()[0]
-
-        # Assertions
-        warnings = []
-        if stats["calls_processed"] > 0 and stats["facts_count"] == 0:
-            warnings.append("ASSERT FAILED: facts_count=0 after processing calls")
-        if stats["calls_processed"] < 5 and stats["entities_count"] == 0:
-            warnings.append(f"WARNING: {stats['entities_count']} entities after {stats['calls_processed']} calls")
-
-        # Check orphan events (events.entity_id pointing to non-existent entity)
-        orphan_count = conn.execute(
-            """SELECT COUNT(*) FROM events e
-               WHERE e.user_id=? AND e.entity_id IS NOT NULL
-               AND NOT EXISTS (SELECT 1 FROM entities WHERE id=e.entity_id)""",
-            (user_id,),
-        ).fetchone()[0]
-        if orphan_count > 0:
-            warnings.append(f"ASSERT FAILED: orphan_events={orphan_count}")
-
-        # Check owner contamination
-        owner_with_bs = conn.execute(
-            """SELECT COUNT(*) FROM entities e
-               WHERE e.user_id=? AND e.is_owner=1
-               AND EXISTS (SELECT 1 FROM entity_metrics m WHERE m.entity_id=e.id AND m.bs_index > 0)""",
-            (user_id,),
-        ).fetchone()[0]
-        if owner_with_bs > 0:
-            warnings.append(f"ASSERT FAILED: owner_contamination={owner_with_bs} (owner entities with bs_index>0)")
-
-        # Compute avg_bs_index
-        avg_bs = conn.execute(
+        avg_bs_raw = conn.execute(
             "SELECT AVG(bs_index) FROM entity_metrics WHERE user_id=?", (user_id,)
         ).fetchone()[0]
-        stats["avg_bs_index"] = round(avg_bs, 2) if avg_bs else None
+        avg_bs_index = round(avg_bs_raw, 2) if avg_bs_raw else None
 
-        stats["warnings"] = warnings
-        return stats
+        # Collect builder stats
+        bstats = self._builder.get_stats()
+        facts_total = bstats["facts_total"]
+        facts_inserted = bstats["facts_inserted"]
+        facts_rejected = bstats["facts_rejected"]
+        rejection_rate = facts_rejected / facts_total if facts_total > 0 else 0.0
+
+        # Step 6: Run auditor
+        auditor = GraphAuditor(conn)
+        audit_result = auditor.run_checks(user_id)
+        audit_critical = 1 if audit_result["has_critical"] else 0
+
+        # Step 7: Save replay run to DB
+        try:
+            self._graph_repo.save_replay_run(
+                user_id=user_id,
+                calls_processed=calls_processed,
+                facts_total=facts_total,
+                facts_inserted=facts_inserted,
+                facts_rejected=facts_rejected,
+                entities_count=entities_count,
+                avg_bs_index=avg_bs_index,
+                audit_critical=audit_critical,
+            )
+        except Exception as e:
+            log.warning("[replay] failed to save replay run record: %s", e)
+
+        # Step 8: Assertions + warnings
+        warnings = []
+
+        if calls_processed > 0 and facts_inserted == 0:
+            warnings.append("ASSERT FAILED: facts_inserted=0 after processing calls")
+
+        if calls_processed > 0 and rejection_rate >= 0.90:
+            warnings.append(
+                f"ASSERT FAILED: rejection_rate={rejection_rate:.1%} >= 0.90 "
+                f"— validator may be broken"
+            )
+
+        if audit_critical:
+            for name, check in audit_result["checks"].items():
+                if not check["ok"] and name in ("owner_contamination", "orphan_events"):
+                    warnings.append(
+                        f"ASSERT FAILED: audit.{name} count={check['count']}"
+                    )
+
+        if calls_processed > 0 and facts_total > 0:
+            if rejection_rate > 0.60:
+                warnings.append(
+                    f"WARN: rejection_rate={rejection_rate:.1%} > 60% — "
+                    f"validator too aggressive, check thresholds"
+                )
+            elif rejection_rate < 0.05 and facts_total > 10:
+                warnings.append(
+                    f"WARN: rejection_rate={rejection_rate:.1%} < 5% — "
+                    f"validator too weak, hallucinations may pass"
+                )
+
+        return {
+            "user_id": user_id,
+            "calls_processed": calls_processed,
+            "entities_count": entities_count,
+            "relations_count": relations_count,
+            "facts_count": facts_count,
+            "facts_total": facts_total,
+            "facts_inserted": facts_inserted,
+            "facts_rejected": facts_rejected,
+            "rejection_rate": round(rejection_rate, 4),
+            "avg_bs_index": avg_bs_index,
+            "audit_critical": audit_critical,
+            "audit_result": audit_result,
+            "warnings": warnings,
+        }

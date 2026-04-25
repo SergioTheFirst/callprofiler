@@ -833,8 +833,8 @@ def test_graph_replay_assertions_facts_count(setup):
     # Processed 1 call but 0 facts
     assert stats["calls_processed"] == 1
     assert stats["facts_count"] == 0
-    # Should have warning (facts_count=0 after processing)
-    assert any("facts_count=0" in w.lower() for w in stats["warnings"])
+    # Should have warning (facts_inserted=0 after processing)
+    assert any("facts_inserted=0" in w.lower() for w in stats["warnings"])
 
 
 # ── FactValidator tests ──────────────────────────────────────────────────────

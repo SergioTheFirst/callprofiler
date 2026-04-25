@@ -43,6 +43,15 @@ class GraphBuilder:
         self._repo = GraphRepository(conn)
         self._aggregator = EntityMetricsAggregator(self._repo)
         self._validator = FactValidator()
+        self._stats: dict[str, int] = {"facts_total": 0, "facts_inserted": 0, "facts_rejected": 0}
+
+    def reset_stats(self) -> None:
+        """Reset accumulated fact counters. Call before each replay run."""
+        self._stats = {"facts_total": 0, "facts_inserted": 0, "facts_rejected": 0}
+
+    def get_stats(self) -> dict[str, int]:
+        """Return a snapshot of accumulated fact counters."""
+        return dict(self._stats)
 
     def update_from_call(self, call_id: int, transcript_text: str | None = None) -> bool:
         """Process one call's analysis into the graph.
@@ -162,11 +171,14 @@ class GraphBuilder:
             if confidence < MIN_FACT_CONFIDENCE:
                 continue
 
+            self._stats["facts_total"] += 1
+
             # Run enhanced validator (Этап 2)
             validation = self._validator.validate(fact, transcript_text)
             if not validation["valid"]:
                 for error in validation["errors"]:
                     log.debug("[graph] call_id=%d: fact rejected: %s", call_id, error)
+                self._stats["facts_rejected"] += 1
                 continue
             for warning in validation["warnings"]:
                 log.debug("[graph] call_id=%d: fact warning: %s", call_id, warning)
@@ -194,10 +206,12 @@ class GraphBuilder:
                     start_ms=_int_or_none(fact.get("start_ms")),
                     end_ms=_int_or_none(fact.get("end_ms")),
                 )
+                self._stats["facts_inserted"] += 1
             except Exception:
                 log.exception(
                     "[graph] call_id=%d: upsert_fact failed for fact_id=%s", call_id, fact_id
                 )
+                self._stats["facts_rejected"] += 1
 
         # ── 4. Recalculate metrics for affected entities ───────────────────
         if entity_id_by_key:
