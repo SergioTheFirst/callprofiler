@@ -203,6 +203,21 @@ src/callprofiler/graph/
 
 ---
 
+## Health Gate Rule
+
+**`graph-health --user X` exit 0 is REQUIRED before running `book-chapter` or any
+biography pass that reads entity_metrics.**
+
+`graph-health` runs 4 checks (exit 0 = all pass, exit 1 = any fail):
+1. Last `graph-replay` run: `rejection_rate < 0.90`
+2. `graph-audit` → no CRITICAL issues
+3. `entity_metrics` has at least 1 row for `user_id`
+4. `bs_thresholds` has calibrated thresholds for `user_id`
+
+If the gate fails, fix the indicated issue then re-run `graph-replay --user X`.
+
+---
+
 ## CLI Commands
 
 ```bash
@@ -214,6 +229,9 @@ python -m callprofiler reenrich-v2 --user USER_ID [--limit N]
 
 # Print graph stats (entity/relation/fact counts)
 python -m callprofiler graph-stats --user USER_ID
+
+# Run 4 stability checks (REQUIRED before book-chapter)
+python -m callprofiler graph-health --user USER_ID
 ```
 
 ---

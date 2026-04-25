@@ -1565,6 +1565,170 @@ def cmd_book_chapter(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_person_profile(args: argparse.Namespace) -> int:
+    """person-profile — generate psychology profile for one graph entity."""
+    _setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = _load_config_and_repo(args.config)
+
+    from callprofiler.biography.psychology_profiler import PsychologyProfiler
+    from callprofiler.graph.repository import apply_graph_schema
+
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+
+    llm_url = getattr(cfg, "llm_url", "http://127.0.0.1:8080/v1/chat/completions")
+    profiler = PsychologyProfiler(conn, llm_url=llm_url)
+    profile = profiler.build_profile(args.entity_id, args.user_id)
+
+    if not profile:
+        print(f"Entity {args.entity_id} not found for user {args.user_id}.")
+        return 1
+
+    import json as _json
+
+    if getattr(args, "json", False):
+        print(_json.dumps(profile, ensure_ascii=False, indent=2))
+    else:
+        print(f"\n=== Psychology Profile: {profile['canonical_name']} ===")
+        print(f"Type: {profile['entity_type']}  |  Aliases: {', '.join(profile['aliases']) or 'none'}")
+        print(f"BS-index: {profile['metrics'].get('bs_index', 'n/a')}  |  avg_risk: {profile['metrics'].get('avg_risk', 'n/a')}")
+        print(f"Temporal: {profile['temporal']['avg_calls_per_week']} calls/week  |  trend: {profile['temporal']['frequency_trend']}")
+        print("\nPatterns:")
+        for p in profile["patterns"]:
+            print(f"  [{p['severity']}] {p['name']}: {p['label']}")
+        print(f"\nSocial: centrality={profile['social']['centrality']}, open_promises={profile['social']['open_promises']}, conflicts={profile['social']['conflict_count']}")
+        if profile.get("interpretation"):
+            print(f"\n--- Interpretation ---\n{profile['interpretation']}")
+        else:
+            print("\n(LLM interpretation unavailable)")
+    return 0
+
+
+def cmd_profile_all(args: argparse.Namespace) -> int:
+    """profile-all — generate psychology profiles for all entities of a user."""
+    _setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = _load_config_and_repo(args.config)
+
+    from callprofiler.biography.psychology_profiler import PsychologyProfiler
+    from callprofiler.graph.repository import apply_graph_schema
+
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+
+    limit = getattr(args, "limit", 0) or 0
+
+    query = "SELECT id FROM entities WHERE user_id=? AND archived=0 ORDER BY id"
+    params: list = [args.user_id]
+    if limit > 0:
+        query += " LIMIT ?"
+        params.append(limit)
+
+    rows = conn.execute(query, params).fetchall()
+    if not rows:
+        print(f"No entities found for user {args.user_id}.")
+        return 0
+
+    llm_url = getattr(cfg, "llm_url", "http://127.0.0.1:8080/v1/chat/completions")
+    profiler = PsychologyProfiler(conn, llm_url=llm_url)
+
+    success = 0
+    failed = 0
+    for row in rows:
+        eid = row[0]
+        try:
+            profile = profiler.build_profile(eid, args.user_id)
+            if profile:
+                name = profile.get("canonical_name", str(eid))
+                interp = profile.get("interpretation")
+                status = "ok" if interp else "no-llm"
+                print(f"  [{status}] {eid}: {name}")
+                success += 1
+            else:
+                print(f"  [skip] {eid}: not found")
+        except Exception as exc:
+            logging.getLogger(__name__).error("profile-all entity %d failed: %s", eid, exc)
+            failed += 1
+
+    print(f"\nDone: {success} profiled, {failed} failed.")
+    return 0 if failed == 0 else 1
+
+
+def cmd_graph_health(args: argparse.Namespace) -> int:
+    """graph-health — 4 stability checks before biography generation.
+
+    Exit 0 if all checks pass. Exit 1 if any check fails.
+    """
+    _setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = _load_config_and_repo(args.config)
+    user_id = args.user_id
+
+    from callprofiler.graph.auditor import GraphAuditor
+    from callprofiler.graph.repository import GraphRepository, apply_graph_schema
+
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+    grepo = GraphRepository(conn)
+
+    checks: list[tuple[str, bool, str]] = []
+
+    # Check 1: last replay run rejection_rate < 0.90
+    last_run = grepo.get_last_replay_run(user_id)
+    if last_run:
+        rr = float(last_run.get("rejection_rate") or 0.0)
+        ok1 = rr < 0.90
+        label1 = f"rejection={rr * 100:.1f}% ({'stable' if ok1 else 'UNSTABLE'})"
+    else:
+        ok1 = False
+        label1 = "no replay run found — run graph-replay first"
+    checks.append(("replay", ok1, label1))
+
+    # Check 2: graph-audit → no critical issues
+    auditor = GraphAuditor(conn)
+    audit_result = auditor.run_checks(user_id)
+    ok2 = not audit_result["has_critical"]
+    label2 = (
+        "no critical issues"
+        if ok2
+        else f"{sum(1 for c in audit_result['checks'].values() if not c['ok'])} check(s) failed"
+    )
+    checks.append(("audit", ok2, label2))
+
+    # Check 3: entity_metrics has rows for user
+    em_count = conn.execute(
+        """SELECT COUNT(*) FROM entity_metrics em
+           JOIN entities e ON e.id = em.entity_id
+           WHERE e.user_id = ?""",
+        (user_id,),
+    ).fetchone()[0]
+    ok3 = em_count > 0
+    label3 = f"{em_count} entity metric row(s)"
+    checks.append(("entity_metrics", ok3, label3))
+
+    # Check 4: bs_thresholds calibrated for user
+    th_count = conn.execute(
+        "SELECT COUNT(*) FROM bs_thresholds WHERE user_id = ?", (user_id,)
+    ).fetchone()[0]
+    ok4 = th_count > 0
+    label4 = f"{th_count} threshold row(s)" if ok4 else "no thresholds — run graph-replay to calibrate"
+    checks.append(("bs_thresholds", ok4, label4))
+
+    print(f"\nGraph Health — user: {user_id}")
+    print("─" * 50)
+    all_ok = True
+    for name, ok, detail in checks:
+        icon = "✅" if ok else "❌"
+        print(f"  {icon} {name:<20} {detail}")
+        if not ok:
+            all_ok = False
+
+    print()
+    if all_ok:
+        print("All checks passed — graph is ready for biography generation.")
+        return 0
+    print("Health gate FAILED — fix issues above before running book-chapter.")
+    return 1
+
+
 # ── Построение парсера ────────────────────────────────────────────────────
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -1908,6 +2072,45 @@ def _build_parser() -> argparse.ArgumentParser:
         help="ID сущности из Knowledge Graph",
     )
 
+    # ── person-profile ─────────────────────────────────────────────
+    p_person_profile = sub.add_parser(
+        "person-profile",
+        help="Сгенерировать психологический профиль для одной сущности",
+    )
+    p_person_profile.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+    )
+    p_person_profile.add_argument(
+        "entity_id", type=int, metavar="ENTITY_ID",
+    )
+    p_person_profile.add_argument(
+        "--json", action="store_true", dest="json",
+        help="Выводить полный профиль в JSON",
+    )
+
+    # ── profile-all ────────────────────────────────────────────────
+    p_profile_all = sub.add_parser(
+        "profile-all",
+        help="Сгенерировать профили для всех сущностей пользователя",
+    )
+    p_profile_all.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+    )
+    p_profile_all.add_argument(
+        "--limit", type=int, default=0, metavar="N",
+        help="Максимум сущностей (0 = все)",
+    )
+
+    # ── graph-health ───────────────────────────────────────────────
+    p_graph_health = sub.add_parser(
+        "graph-health",
+        help="4 stability checks: replay rejection, audit, entity_metrics, bs_thresholds",
+    )
+    p_graph_health.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+
     # ── graph-stats ────────────────────────────────────────────────
     p_graph_stats = sub.add_parser(
         "graph-stats",
@@ -1979,7 +2182,10 @@ def main() -> None:
         "entity-merge": cmd_entity_merge,
         "entity-unmerge": cmd_entity_unmerge,
         "graph-audit": cmd_graph_audit,
+        "graph-health": cmd_graph_health,
         "book-chapter": cmd_book_chapter,
+        "person-profile": cmd_person_profile,
+        "profile-all": cmd_profile_all,
     }
 
     handler = dispatch.get(args.command)
