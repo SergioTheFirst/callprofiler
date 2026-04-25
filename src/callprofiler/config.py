@@ -45,6 +45,7 @@ class FeaturesConfig:
     enable_name_extraction: bool = True
     enable_event_extraction: bool = True
     enable_telegram_notification: bool = False
+    enable_graph_update: bool = True
 
 
 @dataclass
@@ -139,6 +140,9 @@ def _load_features(config_dir: Path, inline: dict | None) -> FeaturesConfig:
         ),
         enable_telegram_notification=bool(
             raw.get("enable_telegram_notification", feats.enable_telegram_notification)
+        ),
+        enable_graph_update=bool(
+            raw.get("enable_graph_update", feats.enable_graph_update)
         ),
     )
 

@@ -390,6 +390,16 @@ class Orchestrator:
         if analysis.promises and contact_id:
             self.repo.save_promises(user_id, contact_id, call_id, analysis.promises)
 
+        # Обновить Knowledge Graph (только v2 analyses, non-fatal)
+        try:
+            from callprofiler.graph.builder import GraphBuilder
+            from callprofiler.graph.repository import apply_graph_schema
+            conn = self.repo._get_conn()
+            apply_graph_schema(conn)
+            GraphBuilder(conn).update_from_call(call_id)
+        except Exception as _graph_exc:
+            logger.warning("graph update failed for call_id=%d: %s", call_id, _graph_exc)
+
         logger.info(
             "Анализ: call_id=%d, priority=%d, risk=%d",
             call_id, analysis.priority, analysis.risk_score,

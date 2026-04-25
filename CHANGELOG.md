@@ -8,6 +8,465 @@
 
 ## [Unreleased]
 
+## [2026-04-25e] — Psychology Profiler MVP (biography/psychology_profiler.py)
+
+### Added — biography/psychology_profiler.py, configs/prompts/psychology_profile.txt
+
+**Задача:** Генерировать психологический профиль контакта из агрегированных данных Knowledge Graph + ONE LLM call.
+
+**Новые файлы:**
+- `src/callprofiler/biography/psychology_profiler.py` — `PsychologyProfiler` class:
+  - `build_profile(entity_id, user_id)` → полный dict профиля
+  - `_analyze_temporal()` — avg_calls_per_week, preferred_hours/days, trend
+  - `_extract_patterns()` — behavioral patterns с severity из entity_metrics
+  - `_analyze_social()` — org_links, open_promises, conflict_count, centrality
+  - `_build_evolution()` — годовые avg_risk bucket-ы
+  - `_interpret()` — ONE LLM call → 3 параграфа, fallback to None
+- `configs/prompts/psychology_profile.txt` — шаблон промпта (3 параграфа ≤ 250 слов)
+- `.claude/rules/biography-style.md` — Psychology Profile Output Contract
+
+**CLI:**
+- `person-profile --user ID ENTITY_ID [--json]`
+- `profile-all --user ID [--limit N]`
+
+**Тесты:** 11 новых тестов в `tests/test_psychology_profiler.py`, итого 197 pass.
+
+---
+
+## [2026-04-25d] — HEALTH GATE (graph-health CLI command)
+
+### Added — cli/main.py: cmd_graph_health, .claude/rules/graph.md update
+
+**Задача:** Дать gate-команду, которую нужно пройти перед `book-chapter`.
+
+**4 проверки (exit 0 = все прошли, exit 1 = что-то упало):**
+1. Last replay run: `rejection_rate < 0.90`
+2. `graph-audit` → audit_critical == 0
+3. `entity_metrics` has >= 1 row для user_id
+4. `bs_thresholds` has >= 1 row для user_id
+
+**Output пример:**
+```
+Graph Health — user: serhio
+──────────────────────────────────────────────────
+  ✅ replay               rejection=23.4% (stable)
+  ✅ audit                no critical issues
+  ✅ entity_metrics       47 entity metric row(s)
+  ✅ bs_thresholds        1 threshold row(s)
+
+All checks passed — graph is ready for biography generation.
+```
+
+**Правило в graph.md:** "graph-health exit 0 required before book-chapter"
+
+---
+
+## [2026-04-25c] — Knowledge Graph: Этап 4 (THRESHOLD INTEGRATION — использование BSCalibrator в cards)
+
+### Changed — deliver/card_generator.py, aggregate/summary_builder.py
+
+**Проблема:** Card emoji используют hardcoded пороги (risk >= 70 → 🔴). Нужны data-driven user-specific thresholds.
+
+**Решение:**
+- CardGenerator._risk_emoji_with_calibration(risk, user_id) использует BSCalibrator
+- SummaryBuilder._risk_emoji_with_calibration() аналогично
+- Fallback на hardcoded thresholds если calibration недоступна
+- Lazy-load graph connection и calibrator при первом обращении
+
+**Integration:**
+```python
+calibrator = self._get_calibrator()  # Lazy init
+if calibrator:
+    label, emoji = calibrator.get_label(float(risk), user_id)  # Data-driven
+else:
+    emoji = hardcoded(risk)  # Fallback
+```
+
+**Result:** All 186 tests pass. Cards теперь используют user-specific percentile-based emoji.
+Fallback ensures backward compatibility при отсутствии calibration.
+
+---
+
+## [2026-04-25b] — Knowledge Graph: Этап 3 (BS CALIBRATION — percentile-based thresholds)
+
+### Added — graph/calibration.py (новый модуль)
+
+**Проблема:** Hardcoded пороги для BS-index (reliable/noisy/risky) не учитывают распределение данных user-а.
+
+**Решение:**
+- BSCalibrator.analyze(user_id) вычисляет перцентили p25/p50/p75/p90 из BS-индексов entities
+- get_label(bs_index, user_id) присваивает label на основе user-specific thresholds
+- Сохраняет пороги в bs_thresholds table для переиспользования
+
+**Алгоритм:**
+1. Получить BS-scores всех entities с фильтрацией (min_calls, min_promises)
+2. Вычислить перцентили линейной интерполяцией
+3. Определить пороги: reliable_max=p25, noisy_max=p50, risky_max=p75, unreliable_max=p90
+4. Сохранить в bs_thresholds с std_dev
+
+**Labels:**
+- 🟢 reliable: bs_index <= p25
+- 🟡 noisy: p25 < bs_index <= p50
+- 🔴 risky: p50 < bs_index <= p75
+- 🔴 unreliable: p75 < bs_index <= p90
+- ⚫ critical: bs_index > p90
+- ⚪ uncalibrated: no thresholds
+
+**Тесты:** 18 новых в `test_bs_calibration.py` (93 total):
+- Percentile calculation with linear interpolation
+- Label assignment for all 5 categories
+- Filtering by min_calls, min_promises
+- Exclusion of owner and archived entities
+- Database persistence
+
+**Result:** BS-index labeling теперь data-driven. Каждый user имеет свои пороги.
+
+---
+
+## [2026-04-25b] — Knowledge Graph: Этап 2.2 (DRIFT CHECK — проверка смещения метрик BS-индекса)
+
+### Added — graph/auditor.py (_check_validator_impact_drift method)
+
+**Проблема:** При пересчёте BS-индекса (recalc_from_events) может возникнуть дрейф
+формулы или данных. Нужно автоматически обнаруживать ненадёжные метрики.
+
+**Решение** в `graph/auditor.py`:
+```python
+def _check_validator_impact_drift(self, user_id: str) -> dict:
+    # Стратифицированная выборка: 40% с bs_index > 50, 40% с total_calls > 10, 20% random
+    # Для каждого: full_recalc_from_events() и вычислить drift
+    # drift = abs(stored_bs - recalc_bs) / max(stored_bs, 1.0)
+    # Returns: ok=(drift_pct <= 0.10), count=drifted_entities, details
+```
+
+**Алгоритм:**
+1. Получить все entities с metrics для user_id
+2. Классифицировать по bs_index, total_calls
+3. Стратифицированная выборка (40/40/20), размер = max(10, min(100, count // 3))
+4. Для каждого в sample: recalc_from_events()
+5. Если drift > 0.10 → счётчик drifted_count
+6. Вернуть ok=(drift_pct <= 0.10)
+
+**Результаты проверки:**
+- Если drift_pct <= 10% → ok=True (стабильные метрики)
+- Если drift_pct > 10% → ok=False (требуется внимание)
+- details dict с sample_size, drifted_count, drift_pct, examples
+
+**Интеграция:** Добавлена в run_checks() как 10-й check (наряду с orphan_events, owner_contamination).
+
+**Тесты:** 6 новых в `test_graph.py` (75 total):
+- test_auditor_drift_check_empty_graph: пустой граф → ok=True
+- test_auditor_drift_check_small_sample: < 3 entities → ok=True
+- test_auditor_drift_check_no_drift: свежие данные → drift минимален
+- test_auditor_drift_check_stratified_sampling: стратификация работает корректно
+- test_auditor_drift_check_details_structure: структура details match contract
+- test_auditor_drift_check_with_low_drift: drift <= 10% → ok=True
+
+**Result:** Auditor теперь проверяет консистентность BS-индекса. Обнаруживает дрейф
+в 10% выборке entities, стратифицированной по качеству. Все 75 tests pass.
+
+---
+
+## [2026-04-25] — Knowledge Graph: Этап 2 (FACT VALIDATOR — усиленная валидация фактов)
+
+### Added — graph/validator.py (FactValidator class)
+
+**Проблема:** LLM может генерировать факты с неполными или неточными цитатами.
+Требуется валидация ДО записи в events table.
+
+**Решение** в `graph/validator.py`:
+```python
+class FactValidator:
+    def validate(fact, transcript_text=None) -> dict:
+        # Check 1: Quote length >= 8 chars
+        # Check 2: Rolling window search в transcript (ratio >= 0.72)
+        # Check 3: Speaker attribution detection ([me] vs [s2])
+        # Check 4: Semantic checks (future markers, negations, vagueness)
+        # Returns: valid, errors[], warnings[], speaker, is_future, is_negated, is_vague
+```
+
+**Валидация включает:**
+1. **Length:** quote.strip() >= 8 (MIN_QUOTE_LEN)
+2. **Verbatimness:** rolling window match ratio >= 0.72 (если transcript_text есть)
+3. **Speaker:** detect [me] vs [s2] from context (last marker in lookback window)
+4. **Semantics:**
+   - Future markers (EN: will, shall, plan; RU: буду, будет, планирую, обещаю)
+   - Negations (EN: not, no, never; RU: не, нет, никогда)
+   - Vague words (EN: maybe, probably, seems; RU: может, наверное, похоже)
+
+Warnings генерируются для семантических проблем но не блокируют upsert.
+
+### Changed — graph/builder.py (FactValidator integration)
+
+- Импорт FactValidator
+- `__init__()` создаёт `self._validator = FactValidator()`
+- `_update()` вызывает `validator.validate(fact, transcript_text)` перед upsert
+- Факты с errors отклоняются; warnings логируются как debug
+
+**Фильтрация (до upsert):**
+```
+1. MIN_FACT_CONFIDENCE >= 0.6 (как раньше)
+2. validator.validate() — если errors → skip
+```
+
+### Updated graph/builder.py docstring
+
+Документированы валидация checks в `update_from_call()` docstring.
+
+### Changed — .claude/rules/graph.md (Anti-Noise Filters)
+
+Уточнена роль FactValidator (Этап 2) в валидационном конвейере.
+Described quote verification strategy (rolling window + speaker detection).
+
+**Тесты:** 13 новых в `test_graph.py` (56 total, все pass):
+- test_validator_quote_length_valid/invalid
+- test_validator_quote_found_exact_in_transcript
+- test_validator_quote_found_fuzzy_in_transcript
+- test_validator_quote_not_found_in_transcript
+- test_validator_detects_speaker_me/s2
+- test_validator_future_markers
+- test_validator_negation_detection
+- test_validator_vague_word_detection
+- test_validator_combined_warnings
+- test_validator_no_transcript_warning
+- test_builder_uses_validator_rejects_short_quotes
+- test_builder_uses_validator_with_transcript
+
+**Result:** Facts now validated before upsert. Exact and fuzzy match support.
+Speaker attribution enabled for call context. Semantic warnings logged (debug level).
+
+---
+
+## [2026-04-25] — Knowledge Graph: Этап 5 (REPLAY — идемпотентная пересборка)
+
+### Added — graph/replay.py (GraphReplayer class)
+
+**Проблема:** После исправления raw_response в analyses нужно пересоздать граф
+(entities/relations/entity_metrics). Требуется идемпотентная пересборка, которая
+при повторном запуске на том же data не создаёт новые rows.
+
+**Решение** в `graph/replay.py`:
+```python
+class GraphReplayer:
+    def replay(user_id, limit=None) -> dict:
+        # DELETE entity_metrics, relations, entities (unarchived)
+        # UPDATE events SET entity_id/fact_id/quote = NULL (v2 only, не трогает v1)
+        # GraphBuilder.update_from_call() для каждого v2 analysis
+        # full_recalc_from_events() для каждого entity
+        # Returns: stats с assertions
+```
+
+**Assertions (exit code !=0 если нарушено):**
+- `facts_count > 0` после обработки calls
+- `orphan_events == 0` (event.entity_id → несуществующая entity)
+- `owner_contamination == 0` (is_owner=1 entity не имеет bs_index > 0)
+
+**Используется:**
+- Ручное исправление raw_response в analyses + `graph-replay`
+- Смена BS-formula версии + `graph-replay`
+- Тестирование детерминизма
+
+### Added — graph-replay CLI command
+
+```bash
+python -m callprofiler graph-replay --user USER_ID [--limit N]
+```
+
+Outputs stats JSON: calls_processed, entities_count, relations_count, facts_count,
+avg_bs_index, warnings.
+
+Exit 0 = ok, 1 = warnings, 2 = critical assertions failed.
+
+### Changed — graph/builder.py (transcript_text parameter)
+
+- `update_from_call(call_id, transcript_text=None)` — новый опциональный параметр
+- Используется на шаге 2 (FactValidator) для верификации цитат
+
+### Changed — .claude/rules/graph.md (Layer Contract + CLI docs)
+
+- Добавлен **Layer Contract**: events = DERIVED (computed from analyses.raw_response)
+- Добавлена документация по graph-replay команде
+
+### Updated architecture documentation
+
+Зафиксировано что events.entity_id/fact_id/quote — **derived fields**, безопасно
+пересоздаются при replay. events WHERE schema_version='v1' OR entity_id IS NULL
+не трогаются при replay (безопасность для legacy pipeline).
+
+**Тесты:** 5 новых в `test_graph_replay*` (42 total). Все pass.
+- test_graph_replay_empty_user, test_graph_replay_v2_only, test_graph_replay_idempotent
+- test_graph_replay_skips_v1, test_graph_replay_assertions_facts_count
+
+## [2026-04-25] — Knowledge Graph: Этапы 3-4 (EntityResolver + LLM Disambiguator)
+
+### Added — full_recalc_from_events() INVARIANT (aggregator.py)
+
+**Проблема:** После merge двух сущностей `recalc_for_entities()` читал метрики
+инкрементально, что давало двойной счёт (события обеих сущностей уже объединены,
+но старые метрики накапливались поверх).
+
+**Исправление** в `aggregator.py`:
+```python
+def full_recalc_from_events(self, entity_id: int) -> dict:
+    # Читает user_id из entities, запрашивает DISTINCT call_ids через events,
+    # группирует по fact_type, JOIN analyses для avg_risk, JOIN calls для
+    # last_interaction, вычисляет emotional_pattern JSON, вызывает _bs_v1_linear(),
+    # UPSERT через upsert_entity_metrics(), коммит, возвращает полный snapshot dict.
+```
+
+INVARIANT: `entity_metrics = PURE FUNCTION(events + calls + promises)`
+После merge executor вызывает `full_recalc_from_events(canonical_id)` вместо
+`recalc_for_entities()`.
+
+**Тесты:** test_full_recalc_returns_dict_for_empty_entity, test_full_recalc_idempotent,
+test_full_recalc_entity_not_found_raises, test_full_recalc_counts_facts_correctly
+
+### Fixed — 5 багов в resolver.py (execute_merge + _fetch_entities)
+
+**Баг 1:** `_fetch_entities()` не читал `is_owner` — владелец мог попасть в кандидаты.
+**Баг 2:** `_fetch_entity_by_id()` — неправильные индексы колонок row[5]/row[6].
+**Баг 3:** `execute_merge()` — user_id брался из `canonical_name.split(":")[0]` (неверно).
+**Баг 4:** `EntityMetricsAggregator(self)` — self это EntityResolver, не GraphRepository.
+**Баг 5:** `recalc_for_entities([canonical_id], user_id)` → `full_recalc_from_events(canonical_id)`.
+**Баг 6 (pre-existing):** `_find_blocking_pairs` — `sum([v for v in blocks.values()], [])` —
+  blocks.values() суть dict'ы, а не lists. Исправлено на:
+  `[lst for block_dict in blocks.values() for lst in block_dict.values()]`
+
+### Added — is_owner migration (repository.py)
+
+- `("entities", "is_owner", "INTEGER DEFAULT 0")` добавлено в `_entity_migrations`
+- Индекс `idx_entities_owner` на `entities(user_id, is_owner)`
+- `_fetch_entities()` теперь фильтрует `COALESCE(is_owner, 0) = 0`
+
+**Тесты:** test_is_owner_column_exists_after_migration, test_is_owner_index_exists,
+test_resolver_find_candidates_excludes_owner, test_resolver_execute_merge_owner_blocked
+
+### Added — graph/auditor.py (9 sanity checks, exit code 2 for CRITICAL)
+
+```python
+class GraphAuditor:
+    CRITICAL_CHECKS = {"owner_contamination", "orphan_events"}
+    # 9 проверок: entities_without_events, high_bs_no_contradictions,
+    # high_risk_no_promises, orphan_events (CRITICAL), metrics_drift,
+    # archived_referenced, merge_candidates_residual,
+    # owner_contamination (CRITICAL), empty_canonical_quotes
+```
+
+CLI: `graph-audit --user X` → exit 0 (ok) / 1 (warnings) / 2 (critical).
+
+**Тесты:** test_auditor_clean_graph_all_ok, test_auditor_detects_orphan_events,
+test_auditor_detects_owner_contamination
+
+### Added — Post-merge chain detection (resolver.py Step 3)
+
+После закрытия merge-транзакции `execute_merge()` вызывает `find_candidates()` для
+canonical entity и логирует предупреждение, если обнаружены цепочки (chain merge candidates).
+
+### Added — biography/data_extractor.py (3 pure-read functions)
+
+```python
+def get_entity_profile_from_graph(entity_id, conn) -> dict
+# → canonical_name, entity_type, aliases, metrics, top_facts, conflicts,
+#   promise_chain, top_relations, timeline, evolution
+
+def get_behavioral_patterns(entity_id, conn) -> dict
+# Детерминированные паттерны из метрик:
+# promise_breaker, contradictory, vague_communicator, blame_shifter,
+# emotionally_volatile, reliable, high_risk
+
+def get_social_position(entity_id, conn) -> dict
+# → org_links, open_promises, conflict_count, centrality
+```
+
+### Changed — biography/p6_chapters.py (graph integration)
+
+- `run()` принимает `graph_conn=None`
+- `_enrich_portraits_with_graph(portraits, graph_conn)`: добавляет `graph_profile`
+  и `behavioral_patterns` к каждому portrait
+- Lazy import с флагом `_GRAPH_AVAILABLE`
+
+### Added — graph/llm_disambiguator.py (Этап 4 — LLM Advisory)
+
+```python
+class LLMDisambiguator:
+    GRAY_ZONE_MIN = 0.50  # score ≥ 0.65 → manual merge (no LLM)
+    GRAY_ZONE_MAX = 0.64  # score < 0.50 → skip
+    def disambiguate_pair(self, entity_a, entity_b, score, signals) -> dict:
+        # Returns: llm_says (MERGE|SEPARATE|UNCLEAR), confidence 0-1,
+        # reasoning, signals_for, signals_against, raw_response
+```
+
+LLM только советует — НЕ принимает решение о merge. `llm_says` = advisory.
+
+### Added — configs/prompts/entity_disambiguation.txt
+
+Русскоязычный промпт (4 аспекта: temporal, role_consistency, mutual_exclusivity,
+behavioral_fingerprint). Явно указано: "Ты НЕ принимаешь решение об объединении."
+Возвращает JSON: `{verdict, confidence, reasoning, signals_for, signals_against}`.
+
+### Added — CLI commands (cli/main.py)
+
+- `entity-merge --user X [--dry-run] [--loop]` — слияние с preview и итерацией
+- `entity-unmerge --user X --merge-id N` — откат слияния из snapshot
+- `graph-audit --user X` — 9 sanity checks, exit 2 for CRITICAL
+- `book-chapter --user X --entity N` — JSON профиль сущности для biography
+
+**Тесты итого:** 37 pass (было 25 → +12 в этой сессии). Время 0.24s.
+
+## [2026-04-24] — Knowledge Graph: Этапы 1-2
+
+### Added — Knowledge Graph layer (graph module)
+
+**Проблема:** Structured data (entities, relations, facts) extracted by LLM
+lived only as unstructured JSON in `analyses.raw_response`. No queryable graph.
+
+**Что реализовано (Этапы 1-2):**
+
+**Схема (Этап 1):**
+- `entities` table: canonical entity storage (PERSON/PLACE/COMPANY/PROJECT/EVENT)
+  with `normalized_key` (Latin transliteration, snake_case, LLM-generated)
+- `relations` table: time-decayed weighted edges between entities
+  (decay formula: `weight * 0.5^(days/180) + confidence`)
+- `entity_metrics` table: aggregated BS-index + per-type fact counts
+- `analyses.schema_version` column (ALTER TABLE, DEFAULT 'v1')
+- 7 columns added to `events`: `entity_id`, `fact_id`, `quote`, `start_ms`,
+  `end_ms`, `polarity`, `intensity`
+- Partial unique index on `events.fact_id` for deduplication
+- `apply_graph_schema(conn)`: idempotent migration callable on startup
+
+**Модуль `src/callprofiler/graph/` (Этап 2):**
+- `config.py`: thresholds (MIN_FACT_CONFIDENCE=0.6, RELATION_DECAY_DAYS=180)
+- `repository.py`: `GraphRepository` — upsert/get for all graph tables
+- `builder.py`: `GraphBuilder.update_from_call()` — reads raw_response,
+  skips v1 silently, processes v2: upserts entities → relations (with decay)
+  → facts (anti-noise filtered, INSERT OR IGNORE dedup)
+- `aggregator.py`: `EntityMetricsAggregator` — deterministic BS-index v1_linear:
+  `0.40*broken_ratio + 0.20*contradiction_dens + 0.15*vagueness_dens
+  + 0.15*blame_dens + 0.10*emotional_dens`
+
+**Промпт `analyze_v001.txt`:**
+- Добавлены `schema_version: "v2"`, `entities`, `relations`, `structured_facts`
+  arrays с полными инструкциями по извлечению (normalized_key, quote-контракт)
+
+**Интеграция:**
+- `enricher.py`: `_update_graph()` вызывается после batch flush; lazy import;
+  non-fatal; gated by `cfg.features.enable_graph_update`
+- `orchestrator.py`: graph update после `save_promises()`; same pattern
+- `config.py`: `FeaturesConfig.enable_graph_update = True`
+
+**CLI:**
+- `graph-backfill --user X [--schema v2|all]`
+- `reenrich-v2 --user X [--limit N]`
+- `graph-stats --user X`
+
+**Тесты:** 25 тестов в `tests/test_graph.py` — все pass (0.15s).
+Покрытие: schema idempotency, repository CRUD, user isolation, builder
+(v1 skip, v2 process, relations, fact filtering, dedup), BS-index formula,
+aggregator persistence.
+
+**Документация:** `.claude/rules/graph.md` (layer principles, anti-noise rules,
+BS-formula versioning, schema_version contract, Этапы 3-4 roadmap).
+
 ### Added — Biography: Behavioral Engine p3b + bio-v7 (2026-04-20)
 
 **Новый детерминированный проход p3b_behavioral между p3 и p4:**

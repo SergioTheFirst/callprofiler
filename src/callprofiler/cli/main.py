@@ -1206,6 +1206,553 @@ def cmd_biography_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_graph_backfill(args: argparse.Namespace) -> int:
+    """graph-backfill — populate Knowledge Graph from v2 analyses."""
+    _setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = _load_config_and_repo(args.config)
+    log = logging.getLogger(__name__)
+
+    from callprofiler.graph.builder import GraphBuilder
+    from callprofiler.graph.repository import apply_graph_schema
+
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+    builder = GraphBuilder(conn)
+
+    schema_filter = getattr(args, "schema", "v2")
+    rows = conn.execute(
+        """SELECT a.call_id FROM analyses a
+           JOIN calls c ON c.call_id = a.call_id
+           WHERE c.user_id = ? AND (a.schema_version = ? OR ? = 'all')
+           ORDER BY a.call_id""",
+        (args.user_id, schema_filter, schema_filter),
+    ).fetchall()
+
+    total = len(rows)
+    log.info("[graph-backfill] %d analyses to process (schema=%s)", total, schema_filter)
+    ok = fail = skip = 0
+    for i, row in enumerate(rows, 1):
+        call_id = row[0]
+        try:
+            updated = builder.update_from_call(call_id)
+            if updated:
+                ok += 1
+            else:
+                skip += 1
+        except Exception as exc:
+            log.error("[graph-backfill] call_id=%d failed: %s", call_id, exc)
+            fail += 1
+        if i % 100 == 0:
+            log.info("[graph-backfill] %d/%d  ok=%d skip=%d fail=%d", i, total, ok, skip, fail)
+
+    log.info("[graph-backfill] done: ok=%d skip=%d fail=%d / total=%d", ok, skip, fail, total)
+    return 0
+
+
+def cmd_reenrich_v2(args: argparse.Namespace) -> int:
+    """reenrich-v2 — re-run LLM analysis on v1 calls to produce v2 schema_version."""
+    _setup_logging(verbose=getattr(args, "verbose", False))
+    log = logging.getLogger(__name__)
+    log.info(
+        "[reenrich-v2] Re-enriching v1 analyses for user=%s limit=%s",
+        args.user_id, args.limit,
+    )
+    # Delegate to bulk_enrich — it always uses the current prompt (v2).
+    # We filter for calls that have v1 analysis so they get re-processed.
+    from callprofiler.bulk.enricher import bulk_enrich
+    cfg, repo = _load_config_and_repo(args.config)
+
+    conn = repo._get_conn()
+    # Mark v1 analyses as needing reenrichment by deleting them (idempotent via MD5 dedup).
+    limit = args.limit or 0
+    rows = conn.execute(
+        """SELECT a.call_id FROM analyses a
+           JOIN calls c ON c.call_id = a.call_id
+           WHERE c.user_id = ? AND (a.schema_version IS NULL OR a.schema_version = 'v1')
+           ORDER BY a.call_id LIMIT ?""",
+        (args.user_id, limit if limit else -1),
+    ).fetchall()
+
+    call_ids = [r[0] for r in rows]
+    if not call_ids:
+        log.info("[reenrich-v2] No v1 analyses found.")
+        return 0
+
+    log.info("[reenrich-v2] Deleting %d v1 analyses to trigger re-enrichment", len(call_ids))
+    placeholders = ",".join("?" * len(call_ids))
+    conn.execute(f"DELETE FROM analyses WHERE call_id IN ({placeholders})", call_ids)
+    conn.commit()
+
+    db_path = str(Path(cfg.data_dir) / "db" / "callprofiler.db")
+    stats = bulk_enrich(
+        user_id=args.user_id,
+        db_path=db_path,
+        config_path=args.config,
+        limit=limit,
+    )
+    log.info("[reenrich-v2] bulk_enrich result: %s", stats)
+    return 0
+
+
+def cmd_graph_stats(args: argparse.Namespace) -> int:
+    """graph-stats — show Knowledge Graph statistics for a user."""
+    _setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = _load_config_and_repo(args.config)
+    log = logging.getLogger(__name__)
+
+    from callprofiler.graph.repository import GraphRepository, apply_graph_schema
+
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+    grepo = GraphRepository(conn)
+    stats = grepo.stats(args.user_id)
+
+    print(f"\nKnowledge Graph — user: {args.user_id}")
+    print("─" * 40)
+    print("Entities:")
+    for etype, cnt in sorted(stats["entities"].items()):
+        print(f"  {etype:<20} {cnt:>6}")
+    if not stats["entities"]:
+        print("  (none)")
+
+    print("Relations:")
+    for rtype, cnt in sorted(stats["relations"].items()):
+        print(f"  {rtype:<20} {cnt:>6}")
+    if not stats["relations"]:
+        print("  (none)")
+
+    print("Facts (graph-linked events):")
+    for ftype, cnt in sorted(stats["facts"].items()):
+        print(f"  {ftype:<20} {cnt:>6}")
+    if not stats["facts"]:
+        print("  (none)")
+
+    print(f"Entities with metrics: {stats['entities_with_metrics']}")
+    print()
+    return 0
+
+
+def cmd_graph_replay(args: argparse.Namespace) -> int:
+    """graph-replay — rebuild graph layer from v2 analyses."""
+    _setup_logging(verbose=getattr(args, "verbose", False))
+    log = logging.getLogger(__name__)
+    cfg, repo = _load_config_and_repo(args.config)
+
+    from callprofiler.graph.repository import GraphRepository, apply_graph_schema
+    from callprofiler.graph.replay import GraphReplayer
+
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+
+    graph_repo = GraphRepository(conn)
+    replayer = GraphReplayer(repo, graph_repo)
+
+    user_id = args.user
+    limit = getattr(args, "limit", None)
+
+    log.info("[graph-replay] starting for user_id=%s, limit=%s", user_id, limit)
+    stats = replayer.replay(user_id, limit=limit)
+
+    print("\n=== GRAPH REPLAY STATS ===\n")
+    print(f"Calls processed:    {stats['calls_processed']}")
+    print(f"Entities:           {stats['entities_count']}")
+    print(f"Relations:          {stats['relations_count']}")
+    print(f"Facts:              {stats['facts_count']}")
+    print(f"Avg BS-index:       {stats['avg_bs_index']}")
+    print()
+
+    if stats["warnings"]:
+        print("WARNINGS:")
+        for w in stats["warnings"]:
+            print(f"  ⚠️  {w}")
+        return 2 if any("ASSERT FAILED" in w for w in stats["warnings"]) else 1
+
+    return 0
+
+
+def cmd_entity_merge(args: argparse.Namespace) -> int:
+    """entity-merge — merge duplicate entity into canonical."""
+    _setup_logging(verbose=getattr(args, "verbose", False))
+    log = logging.getLogger(__name__)
+    cfg, repo = _load_config_and_repo(args.config)
+
+    from callprofiler.graph.repository import apply_graph_schema
+    from callprofiler.graph.resolver import EntityResolver
+
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+    resolver = EntityResolver(conn)
+
+    loop = getattr(args, "loop", False)
+    max_iterations = 50  # safety cap for --loop
+
+    iteration = 0
+    while True:
+        iteration += 1
+        if getattr(args, "dry_run", False):
+            preview = resolver.preview_merge(args.canonical_id, args.duplicate_id)
+            import json as _json
+            print(_json.dumps(preview, ensure_ascii=False, indent=2))
+            return 0
+
+        try:
+            resolver.execute_merge(
+                canonical_id=args.canonical_id,
+                duplicate_id=args.duplicate_id,
+                signals={"score": getattr(args, "score", 0.0)},
+                merged_by="manual",
+                reason=getattr(args, "reason", "") or "",
+            )
+            log.info(
+                "[entity-merge] merged %d → %d (iteration %d)",
+                args.duplicate_id, args.canonical_id, iteration,
+            )
+        except Exception as exc:
+            log.error("[entity-merge] failed: %s", exc)
+            return 1
+
+        if not loop:
+            break
+
+        # In --loop mode: find next candidate for the same canonical
+        user_row = conn.execute(
+            "SELECT user_id, entity_type FROM entities WHERE id=?", (args.canonical_id,)
+        ).fetchone()
+        if not user_row:
+            break
+        candidates = resolver.find_candidates(
+            user_row[0], user_row[1], min_score=0.65, limit=1
+        )
+        candidates = [c for c in candidates if c.canonical_id == args.canonical_id]
+        if not candidates:
+            log.info("[entity-merge] no more candidates for canonical_id=%d", args.canonical_id)
+            break
+        if iteration >= max_iterations:
+            log.warning("[entity-merge] loop safety cap reached (%d)", max_iterations)
+            break
+        args.duplicate_id = candidates[0].duplicate_id
+        log.info(
+            "[entity-merge] loop: next candidate duplicate_id=%d score=%.3f",
+            args.duplicate_id, candidates[0].score,
+        )
+
+    return 0
+
+
+def cmd_entity_unmerge(args: argparse.Namespace) -> int:
+    """entity-unmerge — reverse a previously recorded merge."""
+    _setup_logging(verbose=getattr(args, "verbose", False))
+    log = logging.getLogger(__name__)
+    cfg, repo = _load_config_and_repo(args.config)
+
+    from callprofiler.graph.repository import GraphRepository, apply_graph_schema
+    from callprofiler.graph.aggregator import EntityMetricsAggregator
+
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+
+    # Fetch merge log entry
+    log_row = conn.execute(
+        """SELECT * FROM entity_merges_log
+           WHERE canonical_id=? AND duplicate_id=? AND reversible=1
+           ORDER BY merged_at DESC LIMIT 1""",
+        (args.canonical_id, args.duplicate_id),
+    ).fetchone()
+    if not log_row:
+        log.error(
+            "[entity-unmerge] no reversible merge found for canonical=%d duplicate=%d",
+            args.canonical_id, args.duplicate_id,
+        )
+        return 1
+
+    import json as _json
+    snapshot = _json.loads(log_row["snapshot_json"] or "{}")
+
+    with conn:
+        # Restore duplicate entity from snapshot
+        conn.execute(
+            "UPDATE entities SET archived=0, merged_into_id=NULL WHERE id=?",
+            (args.duplicate_id,),
+        )
+        # Restore aliases from snapshot
+        if "aliases" in snapshot:
+            conn.execute(
+                "UPDATE entities SET aliases=? WHERE id=?",
+                (_json.dumps(snapshot["aliases"]), args.duplicate_id),
+            )
+        # Transfer events back (all events currently on canonical that came from duplicate)
+        # Without per-event provenance we cannot split them perfectly;
+        # we mark the merge log entry as reversed and warn the user.
+        conn.execute(
+            "UPDATE entity_merges_log SET unmerged_at=CURRENT_TIMESTAMP, reversible=0 "
+            "WHERE id=?",
+            (log_row["id"],),
+        )
+
+    # Recalculate both entities
+    grepo = GraphRepository(conn)
+    agg = EntityMetricsAggregator(grepo)
+    for eid in (args.canonical_id, args.duplicate_id):
+        try:
+            agg.full_recalc_from_events(eid)
+        except Exception as exc:
+            log.warning("[entity-unmerge] recalc failed for %d: %s", eid, exc)
+
+    log.info(
+        "[entity-unmerge] restored entity %d from canonical %d. "
+        "NOTE: event ownership cannot be split — manual review recommended.",
+        args.duplicate_id, args.canonical_id,
+    )
+    return 0
+
+
+def cmd_graph_audit(args: argparse.Namespace) -> int:
+    """graph-audit — run 9 sanity checks on the Knowledge Graph."""
+    _setup_logging(verbose=getattr(args, "verbose", False))
+    log = logging.getLogger(__name__)
+    cfg, repo = _load_config_and_repo(args.config)
+
+    from callprofiler.graph.auditor import GraphAuditor
+    from callprofiler.graph.repository import apply_graph_schema
+
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+    auditor = GraphAuditor(conn)
+    result = auditor.run_checks(args.user_id)
+
+    print(f"\nGraph Audit — user: {args.user_id}")
+    print("─" * 50)
+    for name, check in sorted(result["checks"].items()):
+        status = "CRITICAL" if (not check["ok"] and name in {"owner_contamination", "orphan_events"}) \
+                 else "WARN" if not check["ok"] else "OK"
+        flag = "✗" if not check["ok"] else "✓"
+        print(f"  {flag} {name:<40} {status}  (n={check['count']})")
+        if not check["ok"] and check["details"]:
+            for d in check["details"][:3]:
+                print(f"      {d}")
+
+    print()
+    if result["has_critical"]:
+        print("CRITICAL issues found — data integrity requires attention.")
+        return 2
+    if result["has_warnings"]:
+        print("Warnings found.")
+        return 1
+    print("All checks passed.")
+    return 0
+
+
+def cmd_book_chapter(args: argparse.Namespace) -> int:
+    """book-chapter — show structured graph profile for one entity."""
+    _setup_logging(verbose=getattr(args, "verbose", False))
+    log = logging.getLogger(__name__)
+    cfg, repo = _load_config_and_repo(args.config)
+
+    from callprofiler.graph.repository import apply_graph_schema
+    from callprofiler.biography.data_extractor import (
+        get_entity_profile_from_graph,
+        get_behavioral_patterns,
+        get_social_position,
+    )
+
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+
+    import json as _json
+
+    profile = get_entity_profile_from_graph(args.entity_id, conn)
+    if not profile:
+        log.error("[book-chapter] entity_id=%d not found", args.entity_id)
+        return 1
+
+    patterns = get_behavioral_patterns(args.entity_id, conn)
+    social = get_social_position(args.entity_id, conn)
+
+    output = {
+        "entity_id": args.entity_id,
+        "canonical_name": profile.get("canonical_name"),
+        "entity_type": profile.get("entity_type"),
+        "aliases": profile.get("aliases", []),
+        "metrics": profile.get("metrics", {}),
+        "behavioral_patterns": patterns.get("patterns", []),
+        "behavioral_raw": patterns.get("raw", {}),
+        "top_relations": profile.get("top_relations", []),
+        "org_links": social.get("org_links", []),
+        "open_promises": social.get("open_promises", 0),
+        "conflict_count": social.get("conflict_count", 0),
+        "centrality": social.get("centrality", 0),
+        "timeline": profile.get("timeline", []),
+        "top_facts": profile.get("top_facts", [])[:10],
+    }
+
+    print(_json.dumps(output, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_person_profile(args: argparse.Namespace) -> int:
+    """person-profile — generate psychology profile for one graph entity."""
+    _setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = _load_config_and_repo(args.config)
+
+    from callprofiler.biography.psychology_profiler import PsychologyProfiler
+    from callprofiler.graph.repository import apply_graph_schema
+
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+
+    llm_url = getattr(cfg, "llm_url", "http://127.0.0.1:8080/v1/chat/completions")
+    profiler = PsychologyProfiler(conn, llm_url=llm_url)
+    profile = profiler.build_profile(args.entity_id, args.user_id)
+
+    if not profile:
+        print(f"Entity {args.entity_id} not found for user {args.user_id}.")
+        return 1
+
+    import json as _json
+
+    if getattr(args, "json", False):
+        print(_json.dumps(profile, ensure_ascii=False, indent=2))
+    else:
+        print(f"\n=== Psychology Profile: {profile['canonical_name']} ===")
+        print(f"Type: {profile['entity_type']}  |  Aliases: {', '.join(profile['aliases']) or 'none'}")
+        print(f"BS-index: {profile['metrics'].get('bs_index', 'n/a')}  |  avg_risk: {profile['metrics'].get('avg_risk', 'n/a')}")
+        print(f"Temporal: {profile['temporal']['avg_calls_per_week']} calls/week  |  trend: {profile['temporal']['frequency_trend']}")
+        print("\nPatterns:")
+        for p in profile["patterns"]:
+            print(f"  [{p['severity']}] {p['name']}: {p['label']}")
+        print(f"\nSocial: centrality={profile['social']['centrality']}, open_promises={profile['social']['open_promises']}, conflicts={profile['social']['conflict_count']}")
+        if profile.get("interpretation"):
+            print(f"\n--- Interpretation ---\n{profile['interpretation']}")
+        else:
+            print("\n(LLM interpretation unavailable)")
+    return 0
+
+
+def cmd_profile_all(args: argparse.Namespace) -> int:
+    """profile-all — generate psychology profiles for all entities of a user."""
+    _setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = _load_config_and_repo(args.config)
+
+    from callprofiler.biography.psychology_profiler import PsychologyProfiler
+    from callprofiler.graph.repository import apply_graph_schema
+
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+
+    limit = getattr(args, "limit", 0) or 0
+
+    query = "SELECT id FROM entities WHERE user_id=? AND archived=0 ORDER BY id"
+    params: list = [args.user_id]
+    if limit > 0:
+        query += " LIMIT ?"
+        params.append(limit)
+
+    rows = conn.execute(query, params).fetchall()
+    if not rows:
+        print(f"No entities found for user {args.user_id}.")
+        return 0
+
+    llm_url = getattr(cfg, "llm_url", "http://127.0.0.1:8080/v1/chat/completions")
+    profiler = PsychologyProfiler(conn, llm_url=llm_url)
+
+    success = 0
+    failed = 0
+    for row in rows:
+        eid = row[0]
+        try:
+            profile = profiler.build_profile(eid, args.user_id)
+            if profile:
+                name = profile.get("canonical_name", str(eid))
+                interp = profile.get("interpretation")
+                status = "ok" if interp else "no-llm"
+                print(f"  [{status}] {eid}: {name}")
+                success += 1
+            else:
+                print(f"  [skip] {eid}: not found")
+        except Exception as exc:
+            logging.getLogger(__name__).error("profile-all entity %d failed: %s", eid, exc)
+            failed += 1
+
+    print(f"\nDone: {success} profiled, {failed} failed.")
+    return 0 if failed == 0 else 1
+
+
+def cmd_graph_health(args: argparse.Namespace) -> int:
+    """graph-health — 4 stability checks before biography generation.
+
+    Exit 0 if all checks pass. Exit 1 if any check fails.
+    """
+    _setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = _load_config_and_repo(args.config)
+    user_id = args.user_id
+
+    from callprofiler.graph.auditor import GraphAuditor
+    from callprofiler.graph.repository import GraphRepository, apply_graph_schema
+
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+    grepo = GraphRepository(conn)
+
+    checks: list[tuple[str, bool, str]] = []
+
+    # Check 1: last replay run rejection_rate < 0.90
+    last_run = grepo.get_last_replay_run(user_id)
+    if last_run:
+        rr = float(last_run.get("rejection_rate") or 0.0)
+        ok1 = rr < 0.90
+        label1 = f"rejection={rr * 100:.1f}% ({'stable' if ok1 else 'UNSTABLE'})"
+    else:
+        ok1 = False
+        label1 = "no replay run found — run graph-replay first"
+    checks.append(("replay", ok1, label1))
+
+    # Check 2: graph-audit → no critical issues
+    auditor = GraphAuditor(conn)
+    audit_result = auditor.run_checks(user_id)
+    ok2 = not audit_result["has_critical"]
+    label2 = (
+        "no critical issues"
+        if ok2
+        else f"{sum(1 for c in audit_result['checks'].values() if not c['ok'])} check(s) failed"
+    )
+    checks.append(("audit", ok2, label2))
+
+    # Check 3: entity_metrics has rows for user
+    em_count = conn.execute(
+        """SELECT COUNT(*) FROM entity_metrics em
+           JOIN entities e ON e.id = em.entity_id
+           WHERE e.user_id = ?""",
+        (user_id,),
+    ).fetchone()[0]
+    ok3 = em_count > 0
+    label3 = f"{em_count} entity metric row(s)"
+    checks.append(("entity_metrics", ok3, label3))
+
+    # Check 4: bs_thresholds calibrated for user
+    th_count = conn.execute(
+        "SELECT COUNT(*) FROM bs_thresholds WHERE user_id = ?", (user_id,)
+    ).fetchone()[0]
+    ok4 = th_count > 0
+    label4 = f"{th_count} threshold row(s)" if ok4 else "no thresholds — run graph-replay to calibrate"
+    checks.append(("bs_thresholds", ok4, label4))
+
+    print(f"\nGraph Health — user: {user_id}")
+    print("─" * 50)
+    all_ok = True
+    for name, ok, detail in checks:
+        icon = "✅" if ok else "❌"
+        print(f"  {icon} {name:<20} {detail}")
+        if not ok:
+            all_ok = False
+
+    print()
+    if all_ok:
+        print("All checks passed — graph is ready for biography generation.")
+        return 0
+    print("Health gate FAILED — fix issues above before running book-chapter.")
+    return 1
+
+
 # ── Построение парсера ────────────────────────────────────────────────────
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -1438,6 +1985,166 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Максимум попыток LLM-запроса перед отказом (по умолчанию: 5)",
     )
 
+    # ── graph-backfill ─────────────────────────────────────────────
+    p_graph_bf = sub.add_parser(
+        "graph-backfill",
+        help="Наполнить Knowledge Graph из существующих v2 analyses",
+    )
+    p_graph_bf.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_graph_bf.add_argument(
+        "--schema", default="v2", metavar="VERSION",
+        help="Фильтр по schema_version: v2 (по умолчанию) или all",
+    )
+
+    # ── reenrich-v2 ────────────────────────────────────────────────
+    p_reenrich = sub.add_parser(
+        "reenrich-v2",
+        help="Переобогатить v1 analyses через LLM для получения v2 (entities/facts)",
+    )
+    p_reenrich.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_reenrich.add_argument(
+        "--limit", type=int, default=0, metavar="N",
+        help="Максимум записей (0 = все)",
+    )
+
+    # ── graph-replay ───────────────────────────────────────────────
+    p_graph_replay = sub.add_parser(
+        "graph-replay",
+        help="Пересоздать Knowledge Graph из v2 analyses (идемпотентно)",
+    )
+    p_graph_replay.add_argument(
+        "--user", dest="user", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_graph_replay.add_argument(
+        "--limit", type=int, default=None, metavar="N",
+        help="Максимум calls для обработки (для тестирования)",
+    )
+
+    # ── entity-merge ───────────────────────────────────────────────
+    p_entity_merge = sub.add_parser(
+        "entity-merge",
+        help="Слить дублирующую сущность в каноническую (Knowledge Graph)",
+    )
+    p_entity_merge.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_entity_merge.add_argument(
+        "--canonical", dest="canonical_id", type=int, required=True,
+        metavar="ID", help="ID канонической сущности",
+    )
+    p_entity_merge.add_argument(
+        "--duplicate", dest="duplicate_id", type=int, required=True,
+        metavar="ID", help="ID дублирующей сущности (будет архивирована)",
+    )
+    p_entity_merge.add_argument(
+        "--score", type=float, default=0.0, help="Оценка схожести (0-1)",
+    )
+    p_entity_merge.add_argument(
+        "--reason", default="", help="Комментарий к слиянию",
+    )
+    p_entity_merge.add_argument(
+        "--dry-run", action="store_true", dest="dry_run",
+        help="Показать предпросмотр без записи",
+    )
+    p_entity_merge.add_argument(
+        "--loop", action="store_true",
+        help="Продолжать слияние пока есть кандидаты для canonical_id",
+    )
+
+    # ── entity-unmerge ─────────────────────────────────────────────
+    p_entity_unmerge = sub.add_parser(
+        "entity-unmerge",
+        help="Отменить слияние сущностей (восстановить дубликат из snapshot)",
+    )
+    p_entity_unmerge.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+    )
+    p_entity_unmerge.add_argument(
+        "--canonical", dest="canonical_id", type=int, required=True, metavar="ID",
+    )
+    p_entity_unmerge.add_argument(
+        "--duplicate", dest="duplicate_id", type=int, required=True, metavar="ID",
+    )
+
+    # ── graph-audit ────────────────────────────────────────────────
+    p_graph_audit = sub.add_parser(
+        "graph-audit",
+        help="9 проверок целостности Knowledge Graph",
+    )
+    p_graph_audit.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+    )
+
+    # ── book-chapter ────────────────────────────────────────────────
+    p_book_chapter = sub.add_parser(
+        "book-chapter",
+        help="Структурированный граф-профиль сущности для главы биографии",
+    )
+    p_book_chapter.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+    )
+    p_book_chapter.add_argument(
+        "entity_id", type=int, metavar="ENTITY_ID",
+        help="ID сущности из Knowledge Graph",
+    )
+
+    # ── person-profile ─────────────────────────────────────────────
+    p_person_profile = sub.add_parser(
+        "person-profile",
+        help="Сгенерировать психологический профиль для одной сущности",
+    )
+    p_person_profile.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+    )
+    p_person_profile.add_argument(
+        "entity_id", type=int, metavar="ENTITY_ID",
+    )
+    p_person_profile.add_argument(
+        "--json", action="store_true", dest="json",
+        help="Выводить полный профиль в JSON",
+    )
+
+    # ── profile-all ────────────────────────────────────────────────
+    p_profile_all = sub.add_parser(
+        "profile-all",
+        help="Сгенерировать профили для всех сущностей пользователя",
+    )
+    p_profile_all.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+    )
+    p_profile_all.add_argument(
+        "--limit", type=int, default=0, metavar="N",
+        help="Максимум сущностей (0 = все)",
+    )
+
+    # ── graph-health ───────────────────────────────────────────────
+    p_graph_health = sub.add_parser(
+        "graph-health",
+        help="4 stability checks: replay rejection, audit, entity_metrics, bs_thresholds",
+    )
+    p_graph_health.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+
+    # ── graph-stats ────────────────────────────────────────────────
+    p_graph_stats = sub.add_parser(
+        "graph-stats",
+        help="Статистика Knowledge Graph: entities, relations, facts",
+    )
+    p_graph_stats.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+
     # ── biography-status ───────────────────────────────────────────
     p_bio_status = sub.add_parser(
         "biography-status",
@@ -1492,6 +2199,17 @@ def main() -> None:
         "biography-run": cmd_biography_run,
         "biography-status": cmd_biography_status,
         "biography-export": cmd_biography_export,
+        "graph-backfill": cmd_graph_backfill,
+        "reenrich-v2": cmd_reenrich_v2,
+        "graph-replay": cmd_graph_replay,
+        "graph-stats": cmd_graph_stats,
+        "entity-merge": cmd_entity_merge,
+        "entity-unmerge": cmd_entity_unmerge,
+        "graph-audit": cmd_graph_audit,
+        "graph-health": cmd_graph_health,
+        "book-chapter": cmd_book_chapter,
+        "person-profile": cmd_person_profile,
+        "profile-all": cmd_profile_all,
     }
 
     handler = dispatch.get(args.command)
