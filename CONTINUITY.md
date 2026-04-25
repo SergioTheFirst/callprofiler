@@ -18,23 +18,74 @@ DONE: Knowledge Graph Этапы 3-4 — EntityResolver fixes + Auditor + LLM Di
 DONE: Knowledge Graph Этап 1 — REPLAY (идемпотентная пересборка, 13 tests) (2026-04-25)
 DONE: Knowledge Graph Этап 2.1 — FACT VALIDATOR (citation validation, speaker detection, 13 tests) (2026-04-25)
 DONE: Knowledge Graph Этап 2.2 — DRIFT CHECK (validator_impact_drift auditor check, 6 tests) (2026-04-25)
-NOW: committed + ready to push to branch claude/clone-callprofiler-repo-hL5dQ
-NEXT: Этап 3 — BS Calibration (bs_thresholds table + BSCalibrator class)
+DONE: Knowledge Graph Этап 3 — BS CALIBRATION (percentile-based thresholds, 18 tests) (2026-04-25)
+NOW: committed (f8adc93, 93 tests pass) — ready to push
+NEXT: Этап 4 — THRESHOLD INTEGRATION (использование BSCalibrator в card_generator)
 BLOCKERS: None
 
 ---
 
-## Текущее состояние: 2026-04-25 (Knowledge Graph Этап 2.2 — DRIFT CHECK)
+## Текущее состояние: 2026-04-25 (Knowledge Graph Этап 3 — BS CALIBRATION)
 
 ### Ветка разработки
 `claude/clone-callprofiler-repo-hL5dQ`
 
 ### Последний коммит
 ```
-Step 2: DRIFT CHECK — Add validator_impact_drift check to GraphAuditor (3e5a828)
+Step 3: BS CALIBRATION — Add percentile-based threshold system for BS-index labels (f8adc93)
 ```
 
-### Что сделано в этой сессии (2026-04-25, часть 4 — DRIFT CHECK)
+### Что сделано в этой сессии (2026-04-25, часть 5 — BS CALIBRATION)
+
+**ШАГ 3 — BS CALIBRATION (вычисление пороговых значений на основе перцентилей):**
+- `src/callprofiler/graph/calibration.py` — BSCalibrator class (новый файл)
+- Метод analyze(user_id, min_calls=3, min_promises=1):
+  - Получить отфильтрованные BS-индексы (исключить archived + owner)
+  - Вычислить перцентили: p25, p50, p75, p90 (линейная интерполяция)
+  - Определить пороги: reliable_max=p25, noisy_max=p50, risky_max=p75, unreliable_max=p90
+  - Сохранить в bs_thresholds table с std_dev
+  - Вернуть ok=True если >= 3 entities, иначе ok=False
+- Метод get_label(bs_index, user_id):
+  - Получить пороги из bs_thresholds
+  - Присвоить label: reliable/noisy/risky/unreliable/critical/uncalibrated
+  - Вернуть (label, emoji) где emoji из LABEL_MAP
+- Статический метод _percentile(data, p):
+  - Линейная интерполяция: rank = (p/100) * (n-1)
+  - lower_idx, upper_idx, fraction
+  - Результат: lower_val + fraction * (upper_val - lower_val)
+
+**LABEL_MAP (5 категорий риска + uncalibrated):**
+- 🟢 reliable: bs_index <= p25
+- 🟡 noisy: p25 < bs_index <= p50
+- 🔴 risky: p50 < bs_index <= p75
+- 🔴 unreliable: p75 < bs_index <= p90
+- ⚫ critical: bs_index > p90
+- ⚪ uncalibrated: no thresholds available
+
+**Тесты:** 18 новых в `test_bs_calibration.py`:
+- test_calibrator_analyze_empty_user: no entities → ok=False
+- test_calibrator_analyze_few_entities: < 3 entities → ok=False
+- test_calibrator_analyze_sufficient_entities: >= 3 entities → ok=True with thresholds
+- test_calibrator_analyze_computes_percentiles: p25/p50/p75/p90 calculation
+- test_calibrator_analyze_saves_to_db: thresholds persisted
+- test_calibrator_get_label_*: reliable/noisy/risky/unreliable/critical labels
+- test_calibrator_percentile_*: edge cases (empty, single value)
+- test_calibrator_analyze_filters_by_*: min_calls, min_promises filtering
+- test_calibrator_analyze_excludes_*: owner, archived entity exclusion
+
+**Result:** 93 tests pass (62 graph + 13 replay_metrics + 18 bs_calibration).
+All percentile calculations verified. Label assignment comprehensive.
+Database persistence working. Step 3 完了.
+
+### Следующий шаг
+- **Этап 4 — THRESHOLD INTEGRATION**:
+  - Обновить card_generator.py: использовать BSCalibrator.get_label(bs_index, user_id)
+  - Обновить summary_builder.py: интегрировать BSCalibrator для label assignment
+  - Fallback: "⚪ (uncalibrated)" когда thresholds недоступны
+
+---
+
+## Текущее состояние: 2026-04-25 (Knowledge Graph Этап 2.2 — DRIFT CHECK)
 
 **ШАГ 2.2 — DRIFT CHECK (обнаружение смещения BS-индекса):**
 - `src/callprofiler/graph/auditor.py` — _check_validator_impact_drift() метод
