@@ -17,11 +17,14 @@ Integration:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import sqlite3
 from pathlib import Path
 from typing import Any
+
+from callprofiler.graph.repository import GraphRepository
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +53,7 @@ class PsychologyProfiler:
         self.conn = conn
         self.conn.row_factory = sqlite3.Row
         self.llm_url = llm_url
+        self._grepo = GraphRepository(conn)
 
     # ── Public ────────────────────────────────────────────────────────────
 
@@ -80,10 +84,31 @@ class PsychologyProfiler:
         social = self._analyze_social(entity_id, user_id)
         evolution = self._build_evolution(entity_id, user_id)
         top_facts = self._get_top_facts(entity_id, user_id)
+        signature = self._compute_source_signature(
+            entity=entity,
+            metrics=metrics,
+            patterns=patterns_data,
+            temporal=temporal,
+            social=social,
+            evolution=evolution,
+            top_facts=top_facts,
+        )
+        cached = self._load_cached_profile(entity_id, user_id, signature)
+        if cached:
+            cached["_cache_hit"] = True
+            return cached
 
-        interpretation = self._interpret(entity, metrics, patterns_data, temporal, top_facts)
+        interpretation = self._interpret(
+            entity,
+            metrics,
+            patterns_data,
+            temporal,
+            top_facts,
+            social=social,
+            evolution=evolution,
+        )
 
-        return {
+        profile = {
             "entity_id": entity_id,
             "canonical_name": entity["canonical_name"],
             "entity_type": entity["entity_type"],
@@ -96,6 +121,8 @@ class PsychologyProfiler:
             "top_facts": top_facts,
             "interpretation": interpretation,
         }
+        self._save_profile(entity_id, user_id, profile, signature)
+        return profile
 
     # ── Private aggregation ───────────────────────────────────────────────
 
@@ -314,6 +341,9 @@ class PsychologyProfiler:
         patterns: list[dict],
         temporal: dict,
         top_facts: list[dict],
+        *,
+        social: dict,
+        evolution: list[dict],
     ) -> str | None:
         """Call LLM once to synthesize a 3-paragraph psychology profile.
 
@@ -325,11 +355,6 @@ class PsychologyProfiler:
         except FileNotFoundError as e:
             log.warning("Prompt template not found: %s", e)
             return None
-
-        evolution = self._build_evolution(
-            int(entity.get("id") or entity.get("entity_id") or 0),
-            entity.get("user_id", ""),
-        )
 
         patterns_text = "\n".join(
             f"  - {p['name']} ({p['severity']}): {p['label']}" for p in patterns
@@ -364,18 +389,10 @@ class PsychologyProfiler:
             preferred_days=", ".join(temporal.get("preferred_days", [])) or "n/a",
             contact_span_days=temporal.get("contact_span_days", 0),
             frequency_trend=temporal.get("frequency_trend", "unknown"),
-            related_orgs=", ".join(o["name"] for o in self._analyze_social(
-                int(entity.get("id") or 0), entity.get("user_id", "")
-            ).get("related_orgs", [])) or "none",
-            open_promises=self._analyze_social(
-                int(entity.get("id") or 0), entity.get("user_id", "")
-            ).get("open_promises", 0),
-            conflict_count=self._analyze_social(
-                int(entity.get("id") or 0), entity.get("user_id", "")
-            ).get("conflict_count", 0),
-            centrality=self._analyze_social(
-                int(entity.get("id") or 0), entity.get("user_id", "")
-            ).get("centrality", 0),
+            related_orgs=", ".join(o["name"] for o in social.get("related_orgs", [])) or "none",
+            open_promises=social.get("open_promises", 0),
+            conflict_count=social.get("conflict_count", 0),
+            centrality=social.get("centrality", 0),
             evolution=evolution_text,
             top_facts=facts_text,
         )
@@ -398,3 +415,68 @@ class PsychologyProfiler:
         except Exception as e:
             log.warning("LLM call failed for entity_id=%s: %s", entity.get("id"), e)
             return None
+
+    def _compute_source_signature(
+        self,
+        *,
+        entity: dict,
+        metrics: dict,
+        patterns: list[dict],
+        temporal: dict,
+        social: dict,
+        evolution: list[dict],
+        top_facts: list[dict],
+    ) -> str:
+        payload = {
+            "canonical_name": entity.get("canonical_name"),
+            "entity_type": entity.get("entity_type"),
+            "aliases": json.loads(entity.get("aliases") or "[]"),
+            "metrics": metrics,
+            "patterns": patterns,
+            "temporal": temporal,
+            "social": social,
+            "evolution": evolution,
+            "top_facts": top_facts,
+        }
+        raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+    def _load_cached_profile(self, entity_id: int, user_id: str, signature: str) -> dict[str, Any] | None:
+        row = self._grepo.get_entity_profile(user_id, entity_id, profile_type="psychology")
+        if not row:
+            return None
+        if row.get("source_signature") != signature:
+            return None
+        if not row.get("interpretation"):
+            return None
+        try:
+            payload = json.loads(row.get("payload_json") or "{}")
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        payload["interpretation"] = row.get("interpretation")
+        return payload
+
+    def _save_profile(
+        self,
+        entity_id: int,
+        user_id: str,
+        profile: dict[str, Any],
+        signature: str,
+    ) -> None:
+        interpretation = profile.get("interpretation")
+        summary = ""
+        if isinstance(interpretation, str) and interpretation.strip():
+            summary = interpretation.strip().split("\n\n", 1)[0][:400]
+        self._grepo.upsert_entity_profile(
+            user_id=user_id,
+            entity_id=entity_id,
+            profile_type="psychology",
+            summary=summary,
+            interpretation=interpretation if isinstance(interpretation, str) else None,
+            payload=profile,
+            source_signature=signature,
+            model="local",
+            source="llm",
+        )

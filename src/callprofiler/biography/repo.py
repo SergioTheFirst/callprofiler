@@ -503,7 +503,7 @@ class BiographyRepo:
     def get_portraits_for_user(self, user_id: str) -> list[dict]:
         rows = self._conn.execute(
             """SELECT p.*, e.canonical_name, e.entity_type, e.role,
-                      e.mention_count, e.importance,
+                      e.mention_count, e.importance, e.contact_id, e.aliases,
                       bp.trust_score, bp.volatility, bp.dependency,
                       bp.role_type, bp.conflict_count, bp.call_count,
                       bp.initiator_out_ratio
@@ -520,6 +520,7 @@ class BiographyRepo:
             d = dict(r)
             d["traits"] = _uj(d.get("traits"))
             d["pivotal_scenes"] = _uj(d.get("pivotal_scenes"))
+            d["aliases"] = _uj(d.get("aliases"))
             out.append(d)
         return out
 

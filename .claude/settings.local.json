@@ -23,7 +23,14 @@
       "Bash(for f:*)",
       "Bash(do)",
       "Bash(touch \"$f\")",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(set PYTHONPATH=C:/pro/callprofiler/src)",
+      "Bash(set PYTHONPATH=C:\\\\pro\\\\callprofiler\\\\src)",
+      "Bash(set PYTHONPATH=src)",
+      "Bash(PYTHONPATH=src python -m pytest tests/ -v -x --timeout=30 -q)",
+      "Bash(PYTHONPATH=src python -m pytest tests/ -q)",
+      "Bash(PYTHONPATH=src python -m pytest tests/ -v --tb=short -q)",
+      "Bash(PYTHONPATH=src python *)"
     ]
   }
 }

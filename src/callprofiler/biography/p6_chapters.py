@@ -11,6 +11,7 @@ Theme inference: simple majority from scene_types/themes in the month.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from collections import Counter, defaultdict
@@ -227,23 +228,96 @@ def _extract_heading(md: str) -> str:
 def _enrich_portraits_with_graph(portraits: list[dict], graph_conn) -> list[dict]:
     """Attach graph_profile and behavioral_patterns to each portrait dict.
 
-    Portrait dicts come from BiographyRepo.get_portraits_for_user() and may have
-    a graph_entity_id field linking them to the Knowledge Graph. When present,
-    the portrait is enriched in-place (copy) with:
+    Portrait dicts come from BiographyRepo.get_portraits_for_user(). We resolve
+    them to graph entities primarily by contact_id-driven evidence, with a
+    canonical-name fallback for non-contact entities. When resolved, the
+    portrait is enriched in-place (copy) with:
       - graph_profile: from get_entity_profile_from_graph()
       - behavioral_patterns: from get_behavioral_patterns()
     """
     enriched = []
     for p in portraits:
-        geid = p.get("graph_entity_id") or p.get("entity_id")
+        geid = _resolve_graph_entity_id(p, graph_conn)
         if not geid:
             enriched.append(p)
             continue
         try:
             profile = get_entity_profile_from_graph(int(geid), graph_conn)
             patterns = get_behavioral_patterns(int(geid), graph_conn)
-            enriched.append({**p, "graph_profile": profile, "behavioral_patterns": patterns})
+            enriched.append(
+                {
+                    **p,
+                    "graph_entity_id": int(geid),
+                    "graph_profile": profile,
+                    "behavioral_patterns": patterns,
+                }
+            )
         except Exception as exc:
             log.debug("[p6_chapters] graph enrich failed for entity_id=%s: %s", geid, exc)
             enriched.append(p)
     return enriched
+
+
+def _resolve_graph_entity_id(portrait: dict, graph_conn) -> int | None:
+    """Resolve biography portrait to a graph entity.
+
+    Strategy:
+      1. If the biography entity is linked to a contact, find the most frequent
+         graph entity seen on events with the same contact_id.
+      2. Fall back to exact canonical-name / alias match within the same user.
+    """
+    user_id = portrait.get("user_id")
+    if not user_id:
+        return None
+
+    entity_type = str(portrait.get("entity_type") or "").upper()
+    contact_id = portrait.get("contact_id")
+    if contact_id:
+        row = graph_conn.execute(
+            """
+            SELECT e.id, COUNT(*) AS hits
+              FROM entities e
+              JOIN events ev ON ev.entity_id = e.id
+             WHERE e.user_id = ?
+               AND e.archived = 0
+               AND ev.contact_id = ?
+               AND (? = '' OR UPPER(e.entity_type) = ?)
+             GROUP BY e.id
+             ORDER BY hits DESC, e.updated_at DESC, e.id DESC
+             LIMIT 1
+            """,
+            (user_id, contact_id, entity_type, entity_type),
+        ).fetchone()
+        if row:
+            return int(row["id"])
+
+    target = _normalize_name(portrait.get("canonical_name") or "")
+    if not target:
+        return None
+    for filter_type in (entity_type, ""):
+        rows = graph_conn.execute(
+            """
+            SELECT id, canonical_name, aliases
+              FROM entities
+             WHERE user_id = ?
+               AND archived = 0
+               AND (? = '' OR UPPER(entity_type) = ?)
+             ORDER BY updated_at DESC, id DESC
+            """,
+            (user_id, filter_type, filter_type),
+        ).fetchall()
+        for row in rows:
+            if _normalize_name(row["canonical_name"]) == target:
+                return int(row["id"])
+            try:
+                aliases = json.loads(row["aliases"] or "[]")
+            except json.JSONDecodeError:
+                aliases = []
+            for alias in aliases:
+                if _normalize_name(alias) == target:
+                    return int(row["id"])
+    return None
+
+
+def _normalize_name(value: str) -> str:
+    return "".join(ch.lower() for ch in value if ch.isalnum())

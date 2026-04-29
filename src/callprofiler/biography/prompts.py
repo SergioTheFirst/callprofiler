@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 
-PROMPT_VERSION = "bio-v7"
+PROMPT_VERSION = "bio-v8"
 
 # ---------------------------------------------------------------------------
 # Shared style guide — included (in condensed form) in every prose-producing
@@ -482,6 +482,16 @@ def build_chapter_prompt(
         }
         for a in arcs
     ]
+    def _slim_fact(item: dict) -> dict:
+        return {
+            "date": item.get("date"),
+            "type": item.get("type"),
+            "quote": (item.get("quote") or "")[:180],
+            "value": (item.get("value") or "")[:120],
+            "status": item.get("status"),
+            "confidence": item.get("confidence"),
+        }
+
     portraits_slim = []
     for p in portraits:
         entry: dict = {
@@ -490,10 +500,53 @@ def build_chapter_prompt(
             "traits": p.get("traits"),
             "prose": (p.get("prose") or "")[:1200],
         }
+        behavior = {}
         if p.get("trust_score") is not None:
-            entry["trust"] = f"{p['trust_score']:.0f}/100"
+            behavior["trust"] = f"{p['trust_score']:.0f}/100"
         if p.get("role_type"):
-            entry["role"] = p["role_type"]
+            behavior["role"] = p["role_type"]
+        if p.get("call_count") is not None:
+            behavior["calls"] = int(p["call_count"])
+        if p.get("conflict_count") is not None:
+            behavior["conflicts"] = int(p["conflict_count"])
+        if p.get("volatility") is not None:
+            behavior["volatility"] = round(float(p["volatility"]), 2)
+        if p.get("dependency") is not None:
+            behavior["dependency"] = round(float(p["dependency"]), 2)
+        if p.get("initiator_out_ratio") is not None:
+            behavior["owner_initiated_ratio"] = round(float(p["initiator_out_ratio"]), 2)
+        if behavior:
+            entry["behavior"] = behavior
+
+        graph_profile = p.get("graph_profile") or {}
+        if graph_profile:
+            metrics = graph_profile.get("metrics") or {}
+            entry["graph"] = {
+                "entity_type": graph_profile.get("entity_type"),
+                "metrics": {
+                    "bs_index": metrics.get("bs_index"),
+                    "avg_risk": metrics.get("avg_risk"),
+                    "total_calls": metrics.get("total_calls"),
+                    "broken_promises": metrics.get("broken_promises"),
+                    "contradictions": metrics.get("contradictions"),
+                },
+                "temporal": graph_profile.get("temporal") or {},
+                "social": graph_profile.get("social") or {},
+                "patterns": (
+                    graph_profile.get("psychology_patterns")
+                    or (p.get("behavioral_patterns") or {}).get("patterns")
+                    or []
+                )[:6],
+                "facts": [_slim_fact(f) for f in (graph_profile.get("top_facts") or [])[:3]],
+                "conflicts": [_slim_fact(f) for f in (graph_profile.get("conflicts") or [])[:2]],
+                "promises": [_slim_fact(f) for f in (graph_profile.get("promise_chain") or [])[-3:]],
+                "relations": (graph_profile.get("top_relations") or [])[:4],
+                "psychology": (
+                    graph_profile.get("psychology_summary")
+                    or graph_profile.get("interpretation")
+                    or ""
+                )[:700],
+            }
         portraits_slim.append(entry)
     user = (
         f"Глава {chapter_num}. Рабочее название: «{title}»\n"

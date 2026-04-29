@@ -43,6 +43,25 @@ def get_entity_profile_from_graph(entity_id: int, conn: sqlite3.Connection) -> d
     ).fetchone()
     metrics = dict(metrics_row) if metrics_row else {}
 
+    stored_profile_row = conn.execute(
+        """SELECT summary, interpretation, payload_json, updated_at
+           FROM entity_profiles
+           WHERE user_id=? AND entity_id=? AND profile_type='psychology'
+           ORDER BY updated_at DESC LIMIT 1""",
+        (user_id, entity_id),
+    ).fetchone()
+    stored_profile: dict[str, Any] = {}
+    if stored_profile_row and stored_profile_row["payload_json"]:
+        try:
+            decoded = json.loads(stored_profile_row["payload_json"])
+            if isinstance(decoded, dict):
+                stored_profile = decoded
+        except json.JSONDecodeError:
+            log.debug(
+                "[data_extractor] invalid cached profile JSON for entity_id=%s",
+                entity_id,
+            )
+
     # Top facts (promises + contradictions), most recent first
     fact_rows = conn.execute(
         """SELECT ev.event_type, ev.quote, ev.payload, ev.confidence,
@@ -160,6 +179,12 @@ def get_entity_profile_from_graph(entity_id: int, conn: sqlite3.Connection) -> d
         "top_relations": top_relations,
         "timeline": timeline,
         "evolution": evolution,
+        "temporal": stored_profile.get("temporal") or {},
+        "social": stored_profile.get("social") or {},
+        "psychology_patterns": stored_profile.get("patterns") or [],
+        "psychology_summary": (stored_profile_row["summary"] if stored_profile_row else "") or "",
+        "interpretation": (stored_profile_row["interpretation"] if stored_profile_row else "") or "",
+        "profile_updated_at": (stored_profile_row["updated_at"] if stored_profile_row else None),
     }
 
 

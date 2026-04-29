@@ -35,6 +35,34 @@ BLOCKERS: None
 
 ### Последний коммит
 ```
+
+---
+
+## Session Update: 2026-04-29
+
+### What changed
+- Hardened the active `build-book-and-profiles` downstream path without touching the currently running Stage 1 wrapper:
+  - `graph-backfill` now feeds transcript text into fact validation
+  - `graph-backfill` now saves a `graph_replay_runs`-compatible snapshot and triggers BS calibration
+  - `profile-all` now persists cached `entity_profiles`
+  - `p6_chapters` now resolves biography portraits into graph entities and injects condensed graph dossiers into chapter prompts
+  - `PROMPT_VERSION` bumped to `bio-v8`
+- Added graph-derived dossier storage cleanup to `graph/replay.py`
+
+### Verification
+- `pytest tests/test_psychology_profiler.py tests/test_biography_graph_bridge.py tests/test_bs_calibration.py tests/test_replay_metrics.py -q` → `47 passed`
+- `pytest tests/test_graph.py -q` → `62 passed`
+
+### Next
+- Let the live batch reach Stages 2–5 and observe whether:
+  - `graph-health` now passes for real workflow reasons
+  - `entity_profiles` fill with useful dossiers
+  - `p6_chapters` enriched context improves cohesion without overflowing context
+- After this run, decide separately whether `build-book-and-profiles.bat` should become fail-fast on `graph-health`.
+
+### Known constraints
+- `build-book-and-profiles.bat` itself was not edited during this session because it is already executing; editing a live `.bat` mid-run is risky.
+- `p5_portraits` still does not consume saved graph dossiers directly; the current integration point is `p6_chapters`.
 feat: psychology profiler MVP
 ```
 

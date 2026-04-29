@@ -4,11 +4,11 @@
     "type": "split",
     "children": [
       {
-        "id": "fd0492c6f61fd9ec",
+        "id": "89634572a5abe957",
         "type": "tabs",
         "children": [
           {
-            "id": "730a40c52425518c",
+            "id": "3f3cc43e6b9310cb",
             "type": "leaf",
             "state": {
               "type": "graph",
@@ -176,14 +176,24 @@
       "bases:Создать новую базу": false
     }
   },
-  "active": "730a40c52425518c",
+  "active": "3f3cc43e6b9310cb",
   "lastOpenFiles": [
+    "src/callprofiler/analyze/profanity_detector.py",
+    "configs/features.yaml",
+    "biography-run.bat",
+    "DEVELOPMENT_PLAN.md",
+    "2026-04-16.md",
+    "CONSTITUTION.md",
+    "README.md",
+    "ARCHITECTURE_v3.md",
+    "ARCHITECTURE_v4.md",
+    "CHANGELOG.md",
     "CLAUDE.md",
+    "AGENTS.md",
+    "CONTINUITY.md",
     "memory/roadmap.md",
     "memory/decisions.md",
     "memory/bugs.md",
-    "ARCHITECTURE_v4.md",
-    "ARCHITECTURE_v3.md",
     "src/callprofiler/bulk/__pycache__/__init__.cpython-310.pyc",
     "src/callprofiler/bulk/__pycache__/loader.cpython-310.pyc",
     "src/callprofiler/bulk/__pycache__",
@@ -191,8 +201,6 @@
     "src/callprofiler/ingest/__pycache__/ingester.cpython-310.pyc",
     "tests/__pycache__/test_integration.cpython-310-pytest-8.4.2.pyc",
     "src/callprofiler/deliver/__pycache__/__init__.cpython-310.pyc",
-    "src/callprofiler/deliver/__pycache__/card_generator.cpython-310.pyc",
-    "src/callprofiler/deliver/__pycache__",
-    "tests/__pycache__/test_card_generator.cpython-310-pytest-8.4.2.pyc"
+    "src/callprofiler/deliver/__pycache__/card_generator.cpython-310.pyc"
   ]
 }

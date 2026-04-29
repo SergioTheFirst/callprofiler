@@ -69,6 +69,7 @@ class GraphReplayer:
 
         # Step 2: Clear derived tables (safe — derived from analyses only)
         log.info("[replay] clearing derived tables for user_id=%s", user_id)
+        conn.execute("DELETE FROM entity_profiles WHERE user_id=?", (user_id,))
         conn.execute("DELETE FROM entity_metrics WHERE user_id=?", (user_id,))
         conn.execute("DELETE FROM relations WHERE user_id=?", (user_id,))
         conn.execute("DELETE FROM entities WHERE user_id=? AND archived=0", (user_id,))

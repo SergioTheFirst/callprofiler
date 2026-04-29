@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import pytest
 from callprofiler.db.repository import Repository
+from callprofiler.biography.data_extractor import get_entity_profile_from_graph
 from callprofiler.graph.repository import GraphRepository, apply_graph_schema
 from callprofiler.biography.psychology_profiler import PsychologyProfiler
 
@@ -219,3 +220,73 @@ class TestWithCallsAndFacts:
 
         assert len(profile["top_facts"]) >= 1
         assert any(f["type"] == "promise" for f in profile["top_facts"])
+
+
+class TestProfilePersistence:
+    """Profiles are persisted and reused when source evidence is unchanged."""
+
+    def test_profile_saved_to_entity_profiles(self, monkeypatch):
+        conn = _make_conn()
+        eid = _seed_entity(conn)
+        profiler = PsychologyProfiler(conn)
+
+        calls = {"count": 0}
+
+        def fake_interpret(*args, **kwargs):
+            calls["count"] += 1
+            return "Strong summary paragraph.\n\nMore detail."
+
+        monkeypatch.setattr(profiler, "_interpret", fake_interpret)
+        profile = profiler.build_profile(eid, "u1")
+
+        assert calls["count"] == 1
+        row = conn.execute(
+            """SELECT interpretation, summary, payload_json, source_signature
+               FROM entity_profiles
+               WHERE user_id='u1' AND entity_id=? AND profile_type='psychology'""",
+            (eid,),
+        ).fetchone()
+        assert row is not None
+        assert row["interpretation"].startswith("Strong summary")
+        assert row["summary"] == "Strong summary paragraph."
+        payload = json.loads(row["payload_json"])
+        assert payload["entity_id"] == eid
+        assert payload["canonical_name"] == profile["canonical_name"]
+        assert row["source_signature"]
+
+    def test_profile_cache_reuses_saved_interpretation(self, monkeypatch):
+        conn = _make_conn()
+        eid = _seed_entity(conn)
+        profiler = PsychologyProfiler(conn)
+
+        calls = {"count": 0}
+
+        def fake_interpret(*args, **kwargs):
+            calls["count"] += 1
+            return "Reusable interpretation."
+
+        monkeypatch.setattr(profiler, "_interpret", fake_interpret)
+        first = profiler.build_profile(eid, "u1")
+        second = profiler.build_profile(eid, "u1")
+
+        assert first["interpretation"] == "Reusable interpretation."
+        assert second["interpretation"] == "Reusable interpretation."
+        assert second["_cache_hit"] is True
+        assert calls["count"] == 1
+
+    def test_data_extractor_reads_persisted_profile(self, monkeypatch):
+        conn = _make_conn()
+        eid = _seed_entity(conn)
+        profiler = PsychologyProfiler(conn)
+
+        def fake_interpret(*args, **kwargs):
+            return "Entity bridge summary.\n\nNarrative detail."
+
+        monkeypatch.setattr(profiler, "_interpret", fake_interpret)
+        profiler.build_profile(eid, "u1")
+
+        extracted = get_entity_profile_from_graph(eid, conn)
+
+        assert extracted["psychology_summary"] == "Entity bridge summary."
+        assert extracted["interpretation"].startswith("Entity bridge summary.")
+        assert isinstance(extracted["psychology_patterns"], list)

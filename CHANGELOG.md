@@ -8,6 +8,43 @@
 
 ## [Unreleased]
 
+### Changed — Stage 2–5 downstream hardening for graph-driven biographies (2026-04-29)
+
+- `src/callprofiler/cli/main.py`
+  - `graph-backfill` now passes full transcript text into `GraphBuilder.update_from_call()` for stronger fact validation.
+  - `graph-backfill` now writes a `graph_replay_runs`-compatible health snapshot and triggers BS calibration, so `graph-health` can evaluate the current batch workflow without requiring a separate replay.
+  - `profile-all` now prioritizes high-signal human and org entities first instead of raw `id` order and reports cache hits.
+- `src/callprofiler/graph/repository.py`
+  - Added `entity_profiles` table for persisted, user-scoped entity dossiers (`profile_type`, `summary`, `interpretation`, `payload_json`, `source_signature`).
+- `src/callprofiler/biography/psychology_profiler.py`
+  - Added persistence and signature-based reuse for psychology profiles.
+  - Repeated `social` lookups inside `_interpret()` were removed; one aggregated social snapshot now feeds the prompt.
+- `src/callprofiler/graph/replay.py`
+  - Replay now clears `entity_profiles` together with other derived graph layers, preventing stale dossier rows after a full graph rebuild.
+- `src/callprofiler/biography/orchestrator.py`
+  - `p6_chapters` now automatically receives graph access.
+- `src/callprofiler/biography/repo.py`
+  - Portrait fetch now includes `contact_id` and aliases for graph bridging.
+- `src/callprofiler/biography/p6_chapters.py`
+  - Biography portraits are now resolved to graph entities via `contact_id` evidence first, then canonical/alias name fallback.
+- `src/callprofiler/biography/data_extractor.py`
+  - Chapter generation can now read persisted psychology summaries/interpretations back from graph storage.
+- `src/callprofiler/biography/prompts.py`
+  - `build_chapter_prompt()` now carries condensed graph-derived metrics, conflicts, promises, relations, temporal patterns, and psychology summaries into chapter context.
+  - Bumped `PROMPT_VERSION` to `bio-v8` so memoization does not reuse pre-enrichment chapter prompts.
+
+### Added
+
+- `tests/test_biography_graph_bridge.py`
+  - Verifies `bio portrait -> graph entity` resolution by `contact_id` and alias fallback.
+- `tests/test_psychology_profiler.py`
+  - Added coverage for `entity_profiles` persistence, signature-based cache reuse, and graph→biography profile extraction.
+
+### Verification
+
+- `pytest tests/test_psychology_profiler.py tests/test_biography_graph_bridge.py tests/test_bs_calibration.py tests/test_replay_metrics.py -q` → `47 passed`
+- `pytest tests/test_graph.py -q` → `62 passed`
+
 ## [2026-04-25e] — Psychology Profiler MVP (biography/psychology_profiler.py)
 
 ### Added — biography/psychology_profiler.py, configs/prompts/psychology_profile.txt

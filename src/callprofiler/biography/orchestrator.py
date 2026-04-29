@@ -94,6 +94,8 @@ class Orchestrator:
             log.info("  PASS %s  user=%s", name, self.user_id)
             log.info("=" * 60)
             kw = pass_kwargs.get(name, {}) or {}
+            if name == "p6_chapters":
+                kw.setdefault("graph_conn", self.bio.conn)
             try:
                 results[name] = self.PASSES[name](
                     user_id=self.user_id, bio=self.bio, llm=self.llm, **kw,

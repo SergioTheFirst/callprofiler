@@ -189,6 +189,24 @@ CREATE TABLE IF NOT EXISTS bs_thresholds (
     created_at      TEXT    DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_bs_thresholds_user ON bs_thresholds(user_id, created_at);
+
+CREATE TABLE IF NOT EXISTS entity_profiles (
+    profile_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id          TEXT    NOT NULL REFERENCES users(user_id),
+    entity_id        INTEGER NOT NULL REFERENCES entities(id),
+    profile_type     TEXT    NOT NULL DEFAULT 'psychology',
+    summary          TEXT,
+    interpretation   TEXT,
+    payload_json     TEXT    NOT NULL DEFAULT '{}',
+    source_signature TEXT,
+    model            TEXT,
+    source           TEXT    NOT NULL DEFAULT 'llm',
+    created_at       TEXT    DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TEXT    DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, entity_id, profile_type)
+);
+CREATE INDEX IF NOT EXISTS idx_entity_profiles_user
+    ON entity_profiles(user_id, profile_type, updated_at);
 """
 
 
@@ -552,6 +570,73 @@ class GraphRepository:
             """SELECT * FROM bs_thresholds
                WHERE user_id=? ORDER BY created_at DESC LIMIT 1""",
             (user_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    # ── entity_profiles ──────────────────────────────────────────────
+
+    def upsert_entity_profile(
+        self,
+        user_id: str,
+        entity_id: int,
+        profile_type: str,
+        summary: str,
+        interpretation: str | None,
+        payload: dict[str, Any],
+        source_signature: str | None = None,
+        model: str | None = None,
+        source: str = "llm",
+    ) -> int:
+        now = _now()
+        payload_json = json.dumps(payload, ensure_ascii=False)
+        self._conn.execute(
+            """
+            INSERT INTO entity_profiles
+                (user_id, entity_id, profile_type, summary, interpretation,
+                 payload_json, source_signature, model, source, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, entity_id, profile_type) DO UPDATE SET
+                summary          = excluded.summary,
+                interpretation   = excluded.interpretation,
+                payload_json     = excluded.payload_json,
+                source_signature = excluded.source_signature,
+                model            = excluded.model,
+                source           = excluded.source,
+                updated_at       = excluded.updated_at
+            """,
+            (
+                user_id,
+                entity_id,
+                profile_type,
+                summary,
+                interpretation,
+                payload_json,
+                source_signature,
+                model,
+                source,
+                now,
+                now,
+            ),
+        )
+        self._conn.commit()
+        row = self._conn.execute(
+            """SELECT profile_id FROM entity_profiles
+               WHERE user_id=? AND entity_id=? AND profile_type=?""",
+            (user_id, entity_id, profile_type),
+        ).fetchone()
+        return int(row["profile_id"])
+
+    def get_entity_profile(
+        self,
+        user_id: str,
+        entity_id: int,
+        profile_type: str = "psychology",
+    ) -> dict | None:
+        row = self._conn.execute(
+            """SELECT * FROM entity_profiles
+               WHERE user_id=? AND entity_id=? AND profile_type=?
+               ORDER BY updated_at DESC LIMIT 1""",
+            (user_id, entity_id, profile_type),
         ).fetchone()
         return dict(row) if row else None
 

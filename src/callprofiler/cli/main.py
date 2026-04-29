@@ -1212,12 +1212,15 @@ def cmd_graph_backfill(args: argparse.Namespace) -> int:
     cfg, repo = _load_config_and_repo(args.config)
     log = logging.getLogger(__name__)
 
+    from callprofiler.graph.auditor import GraphAuditor
     from callprofiler.graph.builder import GraphBuilder
-    from callprofiler.graph.repository import apply_graph_schema
+    from callprofiler.graph.calibration import BSCalibrator
+    from callprofiler.graph.repository import GraphRepository, apply_graph_schema
 
     conn = repo._get_conn()
     apply_graph_schema(conn)
     builder = GraphBuilder(conn)
+    grepo = GraphRepository(conn)
 
     schema_filter = getattr(args, "schema", "v2")
     rows = conn.execute(
@@ -1234,7 +1237,15 @@ def cmd_graph_backfill(args: argparse.Namespace) -> int:
     for i, row in enumerate(rows, 1):
         call_id = row[0]
         try:
-            updated = builder.update_from_call(call_id)
+            transcript_text = None
+            try:
+                segments = repo.get_transcript(call_id)
+                if segments:
+                    transcript_text = " ".join(seg.text for seg in segments if seg.text)
+            except Exception as exc:
+                log.debug("[graph-backfill] call_id=%d transcript unavailable: %s", call_id, exc)
+
+            updated = builder.update_from_call(call_id, transcript_text=transcript_text)
             if updated:
                 ok += 1
             else:
@@ -1244,6 +1255,42 @@ def cmd_graph_backfill(args: argparse.Namespace) -> int:
             fail += 1
         if i % 100 == 0:
             log.info("[graph-backfill] %d/%d  ok=%d skip=%d fail=%d", i, total, ok, skip, fail)
+
+    bstats = builder.get_stats()
+    entities_count = conn.execute(
+        "SELECT COUNT(*) FROM entities WHERE user_id=? AND archived=0",
+        (args.user_id,),
+    ).fetchone()[0]
+    avg_bs_raw = conn.execute(
+        "SELECT AVG(bs_index) FROM entity_metrics WHERE user_id=?",
+        (args.user_id,),
+    ).fetchone()[0]
+    avg_bs_index = round(float(avg_bs_raw), 2) if avg_bs_raw is not None else None
+
+    auditor = GraphAuditor(conn)
+    audit_result = auditor.run_checks(args.user_id)
+    audit_critical = 1 if audit_result.get("has_critical") else 0
+    grepo.save_replay_run(
+        user_id=args.user_id,
+        calls_processed=ok + skip,
+        facts_total=bstats["facts_total"],
+        facts_inserted=bstats["facts_inserted"],
+        facts_rejected=bstats["facts_rejected"],
+        entities_count=entities_count,
+        avg_bs_index=avg_bs_index,
+        audit_critical=audit_critical,
+    )
+    calibration = BSCalibrator(grepo).analyze(args.user_id)
+    if calibration.get("ok"):
+        log.info(
+            "[graph-backfill] BS thresholds calibrated on %d entities",
+            calibration["entity_count"],
+        )
+    else:
+        log.warning(
+            "[graph-backfill] BS thresholds not calibrated: entity_count=%d",
+            calibration["entity_count"],
+        )
 
     log.info("[graph-backfill] done: ok=%d skip=%d fail=%d / total=%d", ok, skip, fail, total)
     return 0
@@ -1641,7 +1688,25 @@ def cmd_profile_all(args: argparse.Namespace) -> int:
 
     limit = getattr(args, "limit", 0) or 0
 
-    query = "SELECT id FROM entities WHERE user_id=? AND archived=0 ORDER BY id"
+    query = """
+        SELECT e.id
+          FROM entities e
+          LEFT JOIN entity_metrics em ON em.entity_id = e.id
+         WHERE e.user_id=? AND e.archived=0
+         ORDER BY
+           CASE
+             WHEN UPPER(e.entity_type) = 'PERSON' THEN 0
+             WHEN UPPER(e.entity_type) IN ('COMPANY', 'ORG', 'PROJECT') THEN 1
+             ELSE 2
+           END,
+           COALESCE(em.total_calls, 0) DESC,
+           (
+             COALESCE(em.total_promises, 0)
+             + COALESCE(em.contradictions, 0)
+             + COALESCE(em.emotional_spikes, 0)
+           ) DESC,
+           e.id
+    """
     params: list = [args.user_id]
     if limit > 0:
         query += " LIMIT ?"
@@ -1664,7 +1729,7 @@ def cmd_profile_all(args: argparse.Namespace) -> int:
             if profile:
                 name = profile.get("canonical_name", str(eid))
                 interp = profile.get("interpretation")
-                status = "ok" if interp else "no-llm"
+                status = "cached" if profile.get("_cache_hit") else ("ok" if interp else "no-llm")
                 print(f"  [{status}] {eid}: {name}")
                 success += 1
             else:
