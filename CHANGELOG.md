@@ -8,6 +8,72 @@
 
 ## [Unreleased]
 
+### Added — Duration weighting + full-transcript ASR cleaning + motivation wiring (2026-05-01)
+
+- `src/callprofiler/biography/prompts.py`:
+  - `_SCENE_SYS` rule: duration > 600s → +10 importance per 600s, max +30. Long calls = high signal.
+  - `build_scene_prompt()`: adds `dur_ctx` — duration emphasis line for calls >= 600s or >= 1800s.
+- `src/callprofiler/biography/p1_scene.py`:
+  - `_clean_transcript()`: cleans full transcript (not just quotes) — removes Russian filled pauses, 3+ repeated words, isolated vowel artifacts. Preserves speaker labels.
+  - Transcript passed through `_clean_transcript()` before LLM call.
+- `src/callprofiler/biography/p5_portraits.py`:
+  - `motivation_data` now loaded from graph profile and passed to `build_portrait_prompt()`.
+
+### Added — Psychological profiling layer + entity network (Weeks 2-4 complete, 2026-05-01)
+
+- `src/callprofiler/biography/psychology_profiler.py`:
+  - `_classify_temperament()`: Hippocrates-Galen temperament (choleric/sanguine/phlegmatic/melancholic) from call frequency × emotional tone variance.
+  - `_estimate_big_five()`: OCEAN traits (Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism) from entity_metrics, relations, and behavioral counters.
+  - `_detect_motivation()`: McClelland's needs (achievement/power/affiliation/security) from promise chains, conflict counts, and centrality.
+  - `_analyze_network()`: Social network position — centrality, density, bridge score, top connections.
+  - `build_profile()` now returns `temperament`, `big_five`, `motivation`, `network` alongside existing profile data.
+- `src/callprofiler/biography/prompts.py`:
+  - `build_portrait_prompt()` accepts `temperament`, `big_five`, `motivation` — injects deterministic psych profile as LLM context.
+  - `build_chapter_prompt()` accepts `entity_network` — shows co‑occurrence graph between chapter characters.
+  - `build_thread_prompt()` accepts `connections` — shows entity's social links.
+  - Bumped `p1_scene`→v3, `p3_threads`→v2, `p5_portraits`→v3, `p9_yearly`→v2.
+- `src/callprofiler/biography/p1_scene.py`:
+  - Added `_clean_quote()` — removes ASR artifacts (filled pauses «эээ», repeated words, isolated vowels) from `key_quote` before persisting.
+- `src/callprofiler/biography/p5_portraits.py`:
+  - Loads `temperament` and `big_five` from `PsychologyProfiler` graph profile, passes to portrait prompt.
+- `src/callprofiler/biography/p6_chapters.py`:
+  - `_build_network_section()` — computes entity co‑occurrence pairs from scene entities, injects into chapter prompt.
+
+### Added — Adaptive token budget + guaranteed resume (Week 1 complete, 2026-05-01)
+
+- `src/callprofiler/biography/prompts.py`:
+  - Added `TokenBudget` class — priority-weighted adaptive allocator. Sections compete for a global char budget; unused space is redistributed proportionally.
+  - Added `BUDGETS` dict with per-pass profiles (e.g. p6: portraits 50%, arcs 25%, scenes 25% of 17K chars).
+  - Replaced ALL `[:NNNN]` hard caps in 9 builder functions with `BUDGETS[name].allocate()` / `.trim_one()` calls.
+  - `build_chapter_prompt()` now accepts `prev_chapter_context` and `yearly_context` for cross-chapter narrative continuity.
+  - `build_yearly_summary_prompt()` now accepts `psychology_profiles` — injects entity psychology data into the annual retrospective.
+  - Added per-pass `PASS_VERSIONS` dict for granular cache invalidation; bumped global to `bio-v10`.
+- `src/callprofiler/biography/schema.py`:
+  - Added `bio_checkpoint_items` table — per-item completion tracking for fast resume.
+- `src/callprofiler/biography/repo.py`:
+  - Added `save_checkpoint_item()`, `get_completed_items()`, `clear_checkpoint_items()`.
+  - Fixed `start_checkpoint()`: when status is `running`/`paused`/`failed` → keeps counters and completed items (resume). When status is `done` → resets for fresh run.
+  - `tick_checkpoint()` now auto-saves completed items to `bio_checkpoint_items`.
+- `src/callprofiler/biography/p1_scene.py`:
+  - Loads `done_ids` from checkpoint items at loop start → skips already-processed calls without DB queries.
+- `src/callprofiler/biography/p5_portraits.py`:
+  - Same resume logic: skips entities with completed checkpoint items.
+- `src/callprofiler/biography/p6_chapters.py`:
+  - Same resume logic + passes `prev_chapter_context` and `yearly_context` to `build_chapter_prompt()`.
+
+### Fixed — Pipeline logging encoding crash + BAT progress visibility (2026-04-30)
+
+- `src/callprofiler/cli/main.py`:
+  - `_setup_logging()`: reconfigure `sys.stdout`/`sys.stderr` to UTF-8 with `errors='replace'` — prevents `UnicodeEncodeError` on Windows cp1251 locale when writing Unicode characters (checkmarks, emoji) to redirected log files.
+  - Added `--log-file` top-level argument to override `cfg.log_file` from the command line.
+  - `cmd_reenrich_v2`, `cmd_graph_backfill`, `cmd_graph_health`, `cmd_profile_all`, `cmd_biography_run`: now pass `cfg.log_file` (or `args.log_file`) to `_setup_logging()` so every pipeline stage has a proper UTF-8 FileHandler.
+- `src/callprofiler/bulk/enricher.py`:
+  - Replaced Unicode `✓` (U+2713) → `"OK"` and `✗` (U+2717) → `"ERR"` in log messages — these characters could not be encoded by the default Windows cp1251 stream encoding.
+- `build-book-and-profiles.bat`:
+  - All 5 stages now pass `--log-file "%LOG_FILE%"` for consistent dual logging (console + file).
+  - Added a second PowerShell progress-monitor window that tails the last 5 log lines, so file-level operations (call_id, speed, ETA) are visible during the batch run without opening the log file.
+  - Improved error display with `pause` before exit so the user can read failure messages.
+
 ### Changed — Stage 2–5 downstream hardening for graph-driven biographies (2026-04-29)
 
 - `src/callprofiler/cli/main.py`

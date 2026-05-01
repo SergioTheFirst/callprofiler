@@ -84,6 +84,10 @@ class PsychologyProfiler:
         social = self._analyze_social(entity_id, user_id)
         evolution = self._build_evolution(entity_id, user_id)
         top_facts = self._get_top_facts(entity_id, user_id)
+        temperament = self._classify_temperament(temporal, entity_id, user_id)
+        big_five = self._estimate_big_five(metrics, temporal, social, entity_id)
+        motivation = self._detect_motivation(entity_id, user_id, social)
+        network = self._analyze_network(entity_id, user_id)
         signature = self._compute_source_signature(
             entity=entity,
             metrics=metrics,
@@ -92,6 +96,8 @@ class PsychologyProfiler:
             social=social,
             evolution=evolution,
             top_facts=top_facts,
+            temperament=temperament,
+            big_five=big_five,
         )
         cached = self._load_cached_profile(entity_id, user_id, signature)
         if cached:
@@ -106,6 +112,9 @@ class PsychologyProfiler:
             top_facts,
             social=social,
             evolution=evolution,
+            temperament=temperament,
+            big_five=big_five,
+            motivation=motivation,
         )
 
         profile = {
@@ -119,6 +128,10 @@ class PsychologyProfiler:
             "social": social,
             "evolution": evolution,
             "top_facts": top_facts,
+            "temperament": temperament,
+            "big_five": big_five,
+            "motivation": motivation,
+            "network": network,
             "interpretation": interpretation,
         }
         self._save_profile(entity_id, user_id, profile, signature)
@@ -332,6 +345,194 @@ class PsychologyProfiler:
             for r in rows
         ]
 
+    # ── Psychological classifiers ─────────────────────────────────────────
+
+    def _classify_temperament(self, temporal: dict, entity_id: int, user_id: str) -> dict:
+        """Hippocrates-Galen temperament from call frequency and emotional tone variance."""
+        c_per_w = temporal.get("avg_calls_per_week", 0) or 0
+        trend = temporal.get("frequency_trend", "unknown")
+
+        # Energy: call frequency × trend
+        if c_per_w >= 3 or trend == "increasing":
+            energy = "high"
+        elif c_per_w >= 1:
+            energy = "medium"
+        else:
+            energy = "low"
+
+        # Reactivity: emotional tone variance from events
+        rows = self.conn.execute(
+            """SELECT ev.polarity FROM events ev
+               WHERE ev.entity_id=? AND ev.user_id=?
+                 AND ev.polarity IS NOT NULL""",
+            (entity_id, user_id),
+        ).fetchall()
+        vals = [r["polarity"] for r in rows if r["polarity"] is not None]
+        if len(vals) >= 3:
+            avg = sum(vals) / len(vals)
+            variance = sum((v - avg) ** 2 for v in vals) / len(vals)
+            reactivity = "high" if variance > 0.3 else ("moderate" if variance > 0.1 else "slow")
+        else:
+            reactivity = "moderate"
+
+        # Classical 4-type mapping
+        if energy == "high" and reactivity == "high":
+            ttype = "choleric"
+        elif energy == "high":
+            ttype = "sanguine"
+        elif reactivity == "high":
+            ttype = "melancholic"
+        else:
+            ttype = "phlegmatic"
+
+        return {
+            "energy": energy,
+            "reactivity": reactivity,
+            "type": ttype,
+            "calls_per_week": round(c_per_w, 2),
+        }
+
+    def _estimate_big_five(self, metrics: dict, temporal: dict, social: dict, entity_id: int) -> dict:
+        """Big Five (OCEAN) estimation from entity_metrics + relations."""
+        tc = max(int(metrics.get("total_calls", 0) or 0), 1)
+        tp = max(int(metrics.get("total_promises", 0) or 0), 1)
+        broken = int(metrics.get("broken_promises", 0) or 0)
+        contra = int(metrics.get("contradictions", 0) or 0)
+        blame = int(metrics.get("blame_shift_count", 0) or 0)
+        emotional = int(metrics.get("emotional_spikes", 0) or 0)
+        vagueness = int(metrics.get("vagueness_count", 0) or 0)
+        bs = float(metrics.get("bs_index", 0) or 0)
+        avg_risk = float(metrics.get("avg_risk", 0) or 0)
+
+        # Extraversion: high call volume + initiator ratio from social position
+        extraversion = min(1.0, 0.4 + (tc / 20) * 0.4 + (1 - float(metrics.get("dependency", 0.5) or 0.5)) * 0.2)
+
+        # Neuroticism: volatility signals
+        neuroticism = min(1.0, (emotional / tc) * 0.6 + (avg_risk / 100) * 0.4)
+
+        # Conscientiousness: promise reliability
+        promise_ratio = 1.0 - broken / tp if tp > 0 else 0.7
+        conscientiousness = min(1.0, promise_ratio * 0.8 + (1.0 - vagueness / tc) * 0.2)
+
+        # Agreeableness: inverse of blame-shift, adjusted by conflict count
+        agreeableness = min(1.0, (1.0 - blame / tc) * 0.7 + (1.0 - min(social.get("conflict_count", 0) / tc, 1.0)) * 0.3)
+
+        # Openness: diversity of themes/entities
+        open_rows = self.conn.execute(
+            "SELECT COUNT(DISTINCT dst_entity_id) FROM relations WHERE src_entity_id=?",
+            (entity_id,),
+        ).fetchone()
+        diversity = int(open_rows[0] or 0) if open_rows else 0
+        openness = min(1.0, 0.3 + (diversity / 10) * 0.7)
+
+        return {
+            "openness": round(openness, 2),
+            "conscientiousness": round(conscientiousness, 2),
+            "extraversion": round(extraversion, 2),
+            "agreeableness": round(agreeableness, 2),
+            "neuroticism": round(neuroticism, 2),
+        }
+
+    def _detect_motivation(self, entity_id: int, user_id: str, social: dict) -> dict:
+        """McClelland's three needs + security from behavioral signals."""
+        rows = self.conn.execute(
+            """SELECT COUNT(*) as cnt FROM events
+               WHERE entity_id=? AND user_id=? AND event_type='promise' AND status='open'""",
+            (entity_id, user_id),
+        ).fetchone()
+        open_promises = int(rows["cnt"] or 0)
+
+        # Achievement: many promises, high follow-through (promise chain depth)
+        promise_rows = self.conn.execute(
+            "SELECT COUNT(*) FROM events WHERE entity_id=? AND user_id=? AND event_type='promise'",
+            (entity_id, user_id),
+        ).fetchone()
+        total_promises = int(promise_rows[0] or 0)
+
+        achievement_weight = min(1.0, open_promises / 5) * 0.5 + min(1.0, total_promises / 10) * 0.5
+
+        # Power: high initiator ratio + blame shifting
+        power_weight = min(1.0, 0.3 + (social.get("conflict_count", 0) / 10) * 0.7)
+
+        # Affiliation: high centrality + contact span
+        affiliation_weight = min(1.0, social.get("centrality", 0) / 8)
+
+        # Security: high risk_score, legal_risk mentions
+        risk_rows = self.conn.execute(
+            "SELECT COUNT(*) FROM events WHERE entity_id=? AND user_id=? AND event_type='risk'",
+            (entity_id, user_id),
+        ).fetchone()
+        risk_count = int(risk_rows[0] or 0)
+        security_weight = min(1.0, risk_count / 5)
+
+        drivers = []
+        if achievement_weight > 0.3:
+            drivers.append({"driver": "achievement", "weight": round(achievement_weight, 2)})
+        if power_weight > 0.2:
+            drivers.append({"driver": "power", "weight": round(power_weight, 2)})
+        if affiliation_weight > 0.2:
+            drivers.append({"driver": "affiliation", "weight": round(affiliation_weight, 2)})
+        if security_weight > 0.1:
+            drivers.append({"driver": "security", "weight": round(security_weight, 2)})
+
+        drivers.sort(key=lambda d: -d["weight"])
+        primary = drivers[0]["driver"] if drivers else "unknown"
+
+        return {"drivers": drivers, "primary": primary}
+
+    def _analyze_network(self, entity_id: int, user_id: str) -> dict:
+        """Compute entity's position in the social network graph."""
+        # Centrality: number of distinct connected entities
+        centrality = self.conn.execute(
+            "SELECT COUNT(DISTINCT dst_entity_id) FROM relations WHERE src_entity_id=? AND user_id=?",
+            (entity_id, user_id),
+        ).fetchone()[0]
+
+        # Most connected entities (top relations)
+        rel_rows = self.conn.execute(
+            """SELECT e2.canonical_name as name, r.relation_type as rel, r.weight
+               FROM relations r
+               JOIN entities e2 ON e2.id = r.dst_entity_id
+               WHERE r.src_entity_id=? AND r.user_id=?
+               ORDER BY r.weight DESC LIMIT 8""",
+            (entity_id, user_id),
+        ).fetchall()
+        top_connections = [
+            {"name": r["name"], "relation": r["rel"], "weight": round(float(r["weight"]), 3)}
+            for r in rel_rows
+        ]
+
+        # Density: total connections / possible connections (approximation)
+        total_entities = self.conn.execute(
+            "SELECT COUNT(*) FROM entities WHERE user_id=? AND archived=0",
+            (user_id,),
+        ).fetchone()[0]
+        density = round(centrality / max(total_entities - 1, 1), 3)
+
+        # Is bridge? Connects entities that don't connect to each other
+        bridge_score = 0.0
+        if centrality >= 3 and len(top_connections) >= 2:
+            names = [c["name"] for c in top_connections[:5]]
+            placeholders = ",".join("?" * len(names))
+            cross_edges = self.conn.execute(
+                f"""SELECT COUNT(*) FROM relations r
+                    JOIN entities e1 ON e1.id = r.src_entity_id
+                    JOIN entities e2 ON e2.id = r.dst_entity_id
+                    WHERE e1.canonical_name IN ({placeholders})
+                      AND e2.canonical_name IN ({placeholders})
+                      AND r.user_id = ?""",
+                (*names, *names, user_id),
+            ).fetchone()[0]
+            max_edges = len(names) * (len(names) - 1) / 2
+            bridge_score = round(1.0 - min(cross_edges / max(max_edges, 1), 1.0), 2)
+
+        return {
+            "centrality": int(centrality or 0),
+            "density": density,
+            "bridge_score": bridge_score,
+            "top_connections": top_connections,
+        }
+
     # ── LLM interpretation ────────────────────────────────────────────────
 
     def _interpret(
@@ -344,6 +545,9 @@ class PsychologyProfiler:
         *,
         social: dict,
         evolution: list[dict],
+        temperament: dict | None = None,
+        big_five: dict | None = None,
+        motivation: dict | None = None,
     ) -> str | None:
         """Call LLM once to synthesize a 3-paragraph psychology profile.
 
@@ -374,6 +578,16 @@ class PsychologyProfiler:
             canonical_name=entity.get("canonical_name", "Unknown"),
             entity_type=entity.get("entity_type", "person"),
             aliases=", ".join(aliases) if aliases else "none",
+            temperament_energy=(temperament or {}).get("energy", "unknown"),
+            temperament_reactivity=(temperament or {}).get("reactivity", "unknown"),
+            temperament_type=(temperament or {}).get("type", "unknown"),
+            bigfive_o=(big_five or {}).get("openness", 0),
+            bigfive_c=(big_five or {}).get("conscientiousness", 0),
+            bigfive_e=(big_five or {}).get("extraversion", 0),
+            bigfive_a=(big_five or {}).get("agreeableness", 0),
+            bigfive_n=(big_five or {}).get("neuroticism", 0),
+            motivation_primary=(motivation or {}).get("primary", "unknown"),
+            motivation_drivers=", ".join(d["driver"] for d in (motivation or {}).get("drivers", [])) or "none",
             bs_index=round(float(metrics.get("bs_index", 0) or 0), 1),
             avg_risk=round(float(metrics.get("avg_risk", 0) or 0), 1),
             total_calls=int(metrics.get("total_calls", 0) or 0),
@@ -426,6 +640,8 @@ class PsychologyProfiler:
         social: dict,
         evolution: list[dict],
         top_facts: list[dict],
+        temperament: dict | None = None,
+        big_five: dict | None = None,
     ) -> str:
         payload = {
             "canonical_name": entity.get("canonical_name"),
@@ -437,6 +653,8 @@ class PsychologyProfiler:
             "social": social,
             "evolution": evolution,
             "top_facts": top_facts,
+            "temperament": temperament,
+            "big_five": big_five,
         }
         raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         return hashlib.sha1(raw.encode("utf-8")).hexdigest()

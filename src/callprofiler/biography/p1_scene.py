@@ -48,6 +48,9 @@ def run(
 
     bio.start_checkpoint(user_id, PASS_NAME, total)
 
+    # Load already-completed items for fast resume (avoids per-call DB queries).
+    done_ids = bio.get_completed_items(user_id, PASS_NAME)
+
     processed = 0
     skipped = 0
     failed = 0
@@ -56,6 +59,15 @@ def run(
     for idx, call in enumerate(calls, start=1):
         call_id = int(call["call_id"])
         item_key = f"call_id:{call_id}"
+
+        if item_key in done_ids:
+            skipped += 1
+            bio.tick_checkpoint(
+                user_id, PASS_NAME, item_key,
+                processed_delta=1, failed_delta=0,
+                notes=f"resumed:{skipped}",
+            )
+            continue
 
         if skip_existing and bio.scene_exists(call_id):
             skipped += 1
@@ -102,13 +114,15 @@ def run(
         analysis = bio.get_analysis_snapshot(call_id, user_id)
         contact_label = bio.get_contact_label(call.get("contact_id"))
 
+        cleaned_transcript = _clean_transcript(transcript)
+
         messages = build_scene_prompt(
             call_datetime=call.get("call_datetime"),
             contact_label=contact_label,
             direction=call.get("direction"),
             duration_sec=call.get("duration_sec"),
             prior_analysis=analysis,
-            transcript=transcript,
+            transcript=cleaned_transcript,
         )
         response = llm.call(
             user_id=user_id,
@@ -154,6 +168,9 @@ def run(
         data["model"] = llm.model_name
         data["prompt_version"] = PROMPT_VERSION
         data.setdefault("status", "ok")
+        # Clean ASR artifacts from key_quote
+        if data.get("key_quote"):
+            data["key_quote"] = _clean_quote(data["key_quote"])
         try:
             bio.upsert_scene(user_id=user_id, call_id=call_id, data=data)
             processed += 1
@@ -195,3 +212,47 @@ def _progress(idx, total, began, processed, skipped, failed, every):
         "%.1fc/s  ETA=%.0fmin",
         idx, total, processed, skipped, failed, rate, remaining / 60,
     )
+
+
+def _clean_quote(quote: str) -> str:
+    """Remove common ASR artifacts: filled pauses, repeated words, normalise spacing."""
+    import re
+    # Remove long vowel stretches (эээ, ммм, ааа — typical Russian filled pauses)
+    quote = re.sub(r'\b[эыаоеиуяю]{3,}\b', '', quote, flags=re.IGNORECASE)
+    # Remove isolated single-vowel fragments (Whisper hallucination)
+    quote = re.sub(r'\s+[эыаоеиуяю]{1,2}\s+', ' ', quote, flags=re.IGNORECASE)
+    # Remove repeated consecutive words (Whisper loop artifact)
+    quote = re.sub(r'\b(\w+)\s+\1\b', r'\1', quote)
+    # Collapse multiple spaces
+    quote = ' '.join(quote.split())
+    return quote[:240]
+
+
+def _clean_transcript(transcript: str) -> str:
+    """Light ASR cleanup of full transcript — removes filled pauses, repeated words.
+    
+    Preserves [me]: / [s2]: speaker labels. Does NOT remove words or meaning.
+    """
+    import re
+    lines = transcript.split('\n')
+    cleaned = []
+    for line in lines:
+        # Split speaker label from text
+        if line.startswith('[me]:') or line.startswith('[s2]:') or line.startswith('[?]:'):
+            label, text = line.split(':', 1)
+            text = text.strip()
+            # Remove filled pauses (3+ vowels in a row, standalone)
+            text = re.sub(r'\b[эыаоеиуяю]{3,}\b', '', text, flags=re.IGNORECASE)
+            # Remove single isolated vowel "words" (Whisper hallucination fragments)
+            text = re.sub(r'\s+[эыаоеиуяю]{1,2}\s+', ' ', text, flags=re.IGNORECASE)
+            # Remove 3+ consecutive repeated words (Whisper loop)
+            text = re.sub(r'\b(\w+)\s+\1\s+\1\b', r'\1', text)
+            # Remove 2-word repeats
+            text = re.sub(r'\b(\w+)\s+\1\b', r'\1', text)
+            text = ' '.join(text.split())
+            if text:
+                cleaned.append(f'{label}: {text}')
+        else:
+            if line.strip():
+                cleaned.append(line.strip())
+    return '\n'.join(cleaned)

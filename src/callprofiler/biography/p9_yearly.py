@@ -13,6 +13,7 @@ the cached response unless PROMPT_VERSION was bumped.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 
@@ -67,6 +68,41 @@ def run(
     top_arcs = bio.get_arcs_for_user(user_id)[:12]
     top_entities = bio.get_entities_for_user(user_id, min_mentions=2)[:15]
 
+    # Load psychology profiles for key persons of the year
+    psychology_profiles: list[str] | None = None
+    try:
+        conn = bio.conn
+        entity_ids_in_year: set[int] = set()
+        for c in chapters:
+            ids_json = conn.execute(
+                "SELECT entity_ids FROM bio_chapters WHERE chapter_id = ?",
+                (c["chapter_id"],),
+            ).fetchone()
+            if ids_json and ids_json[0]:
+                try:
+                    entity_ids_in_year.update(json.loads(ids_json[0]))
+                except json.JSONDecodeError:
+                    pass
+        person_portraits = [
+            e for e in top_entities
+            if e.get("entity_type") == "PERSON" and e["entity_id"] in entity_ids_in_year
+        ][:5]
+        if person_portraits:
+            rows = conn.execute(
+                """SELECT ep.interpretation, ep.summary
+                   FROM entity_profiles ep
+                   WHERE ep.user_id = ? AND ep.entity_id IN ({})
+                     AND ep.interpretation IS NOT NULL
+                   ORDER BY ep.updated_at DESC
+                   LIMIT 5""".format(",".join("?" * len(person_portraits))),
+                (user_id, *[p["entity_id"] for p in person_portraits]),
+            ).fetchall()
+            profiles = [r["interpretation"] for r in rows if r["interpretation"]]
+            if profiles:
+                psychology_profiles = profiles[:3]
+    except Exception:
+        pass
+
     bio.start_checkpoint(user_id, PASS_NAME, 1)
     began = time.monotonic()
 
@@ -75,6 +111,7 @@ def run(
         chapters=chapters,
         top_arcs=top_arcs,
         top_entities=top_entities,
+        psychology_profiles=psychology_profiles,
     )
     response = llm.call(
         user_id=user_id,

@@ -653,20 +653,45 @@ class BiographyRepo:
     def start_checkpoint(
         self, user_id: str, pass_name: str, total_items: int
     ) -> None:
-        self._conn.execute(
-            """INSERT INTO bio_checkpoints
-                (user_id, pass_name, total_items, processed_items,
-                 failed_items, status, started_at, updated_at)
-               VALUES (?, ?, ?, 0, 0, 'running', datetime('now'), datetime('now'))
-               ON CONFLICT(user_id, pass_name) DO UPDATE SET
-                    total_items=excluded.total_items,
-                    processed_items=0,
-                    failed_items=0,
-                    last_item_key=NULL,
-                    status='running',
-                    updated_at=datetime('now')""",
-            (user_id, pass_name, total_items),
-        )
+        existing = self._conn.execute(
+            "SELECT status, processed_items, failed_items FROM bio_checkpoints WHERE user_id=? AND pass_name=?",
+            (user_id, pass_name),
+        ).fetchone()
+
+        if existing and existing["status"] == "done":
+            # Pass was completed — reset everything for a fresh run.
+            self._conn.execute(
+                """UPDATE bio_checkpoints SET
+                     total_items=?, processed_items=0, failed_items=0,
+                     last_item_key=NULL, status='running',
+                     updated_at=datetime('now')
+                   WHERE user_id=? AND pass_name=?""",
+                (total_items, user_id, pass_name),
+            )
+            self.clear_checkpoint_items(user_id, pass_name)
+        elif existing and existing["status"] in ("running", "paused", "failed"):
+            # Resume from where we left off — keep counters and completed items.
+            self._conn.execute(
+                """UPDATE bio_checkpoints SET
+                     total_items=?, status='running',
+                     updated_at=datetime('now')
+                   WHERE user_id=? AND pass_name=?""",
+                (total_items, user_id, pass_name),
+            )
+        else:
+            # Fresh start
+            self._conn.execute(
+                """INSERT INTO bio_checkpoints
+                    (user_id, pass_name, total_items, processed_items,
+                     failed_items, status, started_at, updated_at)
+                   VALUES (?, ?, ?, 0, 0, 'running', datetime('now'), datetime('now'))
+                   ON CONFLICT(user_id, pass_name) DO UPDATE SET
+                        total_items=excluded.total_items,
+                        processed_items=0, failed_items=0,
+                        last_item_key=NULL, status='running',
+                        updated_at=datetime('now')""",
+                (user_id, pass_name, total_items),
+            )
         self._conn.commit()
 
     def tick_checkpoint(
@@ -689,6 +714,8 @@ class BiographyRepo:
             (last_item_key, processed_delta, failed_delta, notes,
              user_id, pass_name),
         )
+        if last_item_key and processed_delta > 0:
+            self.save_checkpoint_item(user_id, pass_name, last_item_key)
         self._conn.commit()
 
     def finish_checkpoint(self, user_id: str, pass_name: str, status: str) -> None:
@@ -697,6 +724,29 @@ class BiographyRepo:
                   SET status=?, updated_at=datetime('now')
                 WHERE user_id=? AND pass_name=?""",
             (status, user_id, pass_name),
+        )
+        self._conn.commit()
+
+    def save_checkpoint_item(self, user_id: str, pass_name: str, item_key: str) -> None:
+        self._conn.execute(
+            """INSERT OR IGNORE INTO bio_checkpoint_items
+               (user_id, pass_name, item_key) VALUES (?,?,?)""",
+            (user_id, pass_name, item_key),
+        )
+        self._conn.commit()
+
+    def get_completed_items(self, user_id: str, pass_name: str) -> set[str]:
+        rows = self._conn.execute(
+            """SELECT item_key FROM bio_checkpoint_items
+               WHERE user_id=? AND pass_name=?""",
+            (user_id, pass_name),
+        ).fetchall()
+        return {r[0] for r in rows}
+
+    def clear_checkpoint_items(self, user_id: str, pass_name: str) -> None:
+        self._conn.execute(
+            "DELETE FROM bio_checkpoint_items WHERE user_id=? AND pass_name=?",
+            (user_id, pass_name),
         )
         self._conn.commit()
 

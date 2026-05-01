@@ -241,7 +241,7 @@ def _flush_batch(repo: Repository, batch: list[dict]) -> int:
                 if item.get("events"):
                     repo.save_events(item["call_id"], item["events"])
             except Exception as ie:
-                log.error("[enricher] ✗ call_id=%d: ошибка записи: %s", item["call_id"], ie)
+                log.error("[enricher] ERR call_id=%d: ошибка записи: %s", item["call_id"], ie)
                 failed += 1
         return failed
 
@@ -394,7 +394,7 @@ def bulk_enrich(
 
                     # Если LLM вернул None — ошибка подключения/timeout
                     if llm_response is None:
-                        log.error("[enricher] ✗ call_id=%d: LLM вернул None (ошибка/timeout)", call_id)
+                        log.error("[enricher] ERR call_id=%d: LLM вернул None (ошибка/timeout)", call_id)
                         stats["failed"] += 1
                         continue
 
@@ -413,7 +413,7 @@ def bulk_enrich(
                     rate = completed / elapsed_total if elapsed_total > 0 and completed > 0 else 0
                     eta = (total - idx) / rate if rate > 0 else 0
 
-                    status = "[partial]" if is_partial else "✓"
+                    status = "[partial]" if is_partial else "OK"
                     log.info(
                         "[enricher] %d/%d call_id=%d | %s | parse_status=%s | %.1fс/файл | ~%.0f tok/с | ETA %.0fс",
                         idx, total, call_id, status, parse_status,
@@ -460,7 +460,7 @@ def bulk_enrich(
                     )
 
             except Exception as e:
-                log.error("[enricher] ✗ call_id=%d: ошибка обработки: %s", call_id, e)
+                log.error("[enricher] ERR call_id=%d: ошибка обработки: %s", call_id, e)
                 stats["failed"] += 1
                 # Продолжаем, несмотря на ошибку одного звонка
 

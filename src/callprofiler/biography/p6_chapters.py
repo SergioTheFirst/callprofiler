@@ -37,6 +37,7 @@ TOP_SCENES_PER_CHAPTER = 40
 TOP_PORTRAITS_PER_CHAPTER = 10
 MIN_SCENES_PER_CHAPTER = 3
 MIN_SCENE_IMPORTANCE = 15
+MAX_ARCS_PER_CHAPTER = 8
 
 
 def run(
@@ -88,11 +89,18 @@ def run(
     months = sorted(buckets.keys())
     valid_months = [m for m in months if len(buckets[m]) >= MIN_SCENES_PER_CHAPTER]
     bio.start_checkpoint(user_id, PASS_NAME, len(valid_months) or 1)
+    done_ids = bio.get_completed_items(user_id, PASS_NAME)
     began = time.monotonic()
     written = 0
     failed = 0
+    prev_chapter_context: str | None = None
+    current_year: str | None = None
 
     for idx, ym in enumerate(valid_months, start=1):
+        if f"chapter:{ym}" in done_ids:
+            bio.tick_checkpoint(user_id, PASS_NAME, f"chapter:{ym}", notes="resumed")
+            continue
+
         scenes = buckets[ym]
         # Keep top by importance.
         scenes = sorted(scenes, key=lambda s: int(s.get("importance") or 0),
@@ -124,7 +132,7 @@ def run(
         ]
         month_arcs = sorted(month_arcs,
                             key=lambda a: int(a.get("importance") or 0),
-                            reverse=True)[:8]
+                            reverse=True)[:MAX_ARCS_PER_CHAPTER]
 
         # Theme = most common scene_type + top themes.
         scene_types = Counter(s.get("scene_type") or "routine" for s in scenes)
@@ -139,6 +147,16 @@ def run(
 
         title = f"{_month_title(ym)}"
 
+        # Build entity network summary for this chapter's characters
+        entity_network = _build_network_section(top_portraits, scene_entities, scenes)
+
+        # Detect year transition for yearly framing context
+        chapter_year = ym[:4]
+        yearly_context: str | None = None
+        if chapter_year != current_year:
+            current_year = chapter_year
+            yearly_context = f"Начинается {chapter_year} год. Оглянись на предыдущий год — что изменилось?"
+
         messages = build_chapter_prompt(
             chapter_num=idx,
             title=title,
@@ -148,6 +166,9 @@ def run(
             scenes=scenes,
             arcs=month_arcs,
             portraits=top_portraits,
+            prev_chapter_context=prev_chapter_context,
+            yearly_context=yearly_context,
+            entity_network=entity_network,
         )
         response = llm.call(
             user_id=user_id,
@@ -182,6 +203,14 @@ def run(
         )
         written += 1
         bio.tick_checkpoint(user_id, PASS_NAME, f"chapter:{ym}")
+
+        # Save context for next chapter's narrative continuity
+        prev_words = response.strip().split()
+        prev_tail = " ".join(prev_words[-200:]) if len(prev_words) > 200 else response.strip()
+        prev_chapter_context = (
+            f"Предыдущая глава «{final_title}» ({period_start} – {period_end}). "
+            f"Тема: {theme_line}. Последние строки:\n{prev_tail}"
+        )
 
     bio.finish_checkpoint(user_id, PASS_NAME, "done")
     stats = {
@@ -321,3 +350,31 @@ def _resolve_graph_entity_id(portrait: dict, graph_conn) -> int | None:
 
 def _normalize_name(value: str) -> str:
     return "".join(ch.lower() for ch in value if ch.isalnum())
+
+
+def _build_network_section(portraits: list[dict], scene_entities: dict[int, list[int]], scenes: list[dict]) -> str | None:
+    """Build a concise entity connection summary for the chapter prompt."""
+    name_map: dict[int, str] = {}
+    for p in portraits:
+        eid = p.get("entity_id")
+        if eid is not None:
+            name_map[int(eid)] = p.get("canonical_name", "?")
+
+    # Count co-occurrences: which entities appear in same scenes
+    co_occur: dict[tuple[str, str], int] = {}
+    for s in scenes:
+        eids_in_scene = scene_entities.get(int(s["scene_id"]), [])
+        for i in range(len(eids_in_scene)):
+            for j in range(i + 1, len(eids_in_scene)):
+                n1 = name_map.get(eids_in_scene[i])
+                n2 = name_map.get(eids_in_scene[j])
+                if n1 and n2:
+                    key = tuple(sorted([n1, n2]))
+                    co_occur[key] = co_occur.get(key, 0) + 1
+
+    if not co_occur:
+        return None
+
+    top_pairs = sorted(co_occur.items(), key=lambda x: -x[1])[:6]
+    lines = [f"  {a} — {b}: {cnt} совместных сцен" for (a, b), cnt in top_pairs]
+    return "\n".join(lines)

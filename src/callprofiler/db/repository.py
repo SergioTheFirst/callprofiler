@@ -336,30 +336,39 @@ class Repository:
 
     def save_analysis(self, call_id: int, analysis: Analysis) -> None:
         conn = self._get_conn()
+        has_sv = any(
+            col[1] == "schema_version"
+            for col in conn.execute("PRAGMA table_info(analyses)").fetchall()
+        )
+        cols = (
+            "call_id, priority, risk_score, summary, action_items, "
+            "flags, key_topics, raw_response, model, prompt_version, "
+            "call_type, hook, parse_status, profanity_count, profanity_density"
+        )
+        vals = [
+            call_id,
+            analysis.priority,
+            analysis.risk_score,
+            analysis.summary,
+            json.dumps(analysis.action_items, ensure_ascii=False),
+            json.dumps(analysis.flags, ensure_ascii=False),
+            json.dumps(analysis.key_topics, ensure_ascii=False),
+            analysis.raw_response,
+            analysis.model,
+            analysis.prompt_version,
+            getattr(analysis, "call_type", "unknown"),
+            getattr(analysis, "hook", None),
+            getattr(analysis, "parse_status", "unknown"),
+            int(getattr(analysis, "profanity_count", 0) or 0),
+            float(getattr(analysis, "profanity_density", 0.0) or 0.0),
+        ]
+        if has_sv:
+            cols += ", schema_version"
+            vals.append(getattr(analysis, "schema_version", None) or "v2")
+        ph = ",".join("?" * len(vals))
         conn.execute(
-            """INSERT OR REPLACE INTO analyses
-               (call_id, priority, risk_score, summary, action_items,
-                flags, key_topics, raw_response, model, prompt_version,
-                call_type, hook, parse_status,
-                profanity_count, profanity_density)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (
-                call_id,
-                analysis.priority,
-                analysis.risk_score,
-                analysis.summary,
-                json.dumps(analysis.action_items, ensure_ascii=False),
-                json.dumps(analysis.flags, ensure_ascii=False),
-                json.dumps(analysis.key_topics, ensure_ascii=False),
-                analysis.raw_response,
-                analysis.model,
-                analysis.prompt_version,
-                getattr(analysis, "call_type", "unknown"),
-                getattr(analysis, "hook", None),
-                getattr(analysis, "parse_status", "unknown"),
-                int(getattr(analysis, "profanity_count", 0) or 0),
-                float(getattr(analysis, "profanity_density", 0.0) or 0.0),
-            ),
+            f"INSERT OR REPLACE INTO analyses ({cols}) VALUES ({ph})",
+            vals,
         )
         conn.commit()
 

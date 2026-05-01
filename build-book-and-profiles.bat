@@ -1,133 +1,128 @@
 @echo off
-REM -*- coding: utf-8 -*-
-REM build-book-and-profiles.bat — Full v2 pipeline with fault tolerance
-REM Usage: build-book-and-profiles.bat [serhio]
-
 setlocal enabledelayedexpansion
-chcp 65001 >nul 2>&1
 
-set PYTHONPATH=C:\pro\callprofiler\src
-set USER_ID=%1
-if "!USER_ID!"=="" set USER_ID=serhio
+set "PYTHONPATH=C:\pro\callprofiler\src"
+set "USER_ID=%1"
+if "!USER_ID!"=="" set "USER_ID=serhio"
+set "LOG_FILE=%CD%\pipeline.log"
 
-set LOG_FILE=%CD%\pipeline.log
-set TIMESTAMP_FORMAT=%%date:~10,4%%-%%date:~4,2%%-%%date:~7,2%% %%time:~0,2%%:%%time:~5,2%%:%%time:~8,2%%
+echo.
+echo ============================================================
+echo   CallProfiler - Build Book + Profiles (v2 Pipeline)
+echo ============================================================
+echo   User:     !USER_ID!
+echo   Log:      !LOG_FILE!
+echo   Console:  per-file progress visible here
+echo   LLM:      http://localhost:8080
+echo ============================================================
+echo.
 
-if exist "!LOG_FILE!" (
-    echo. >> "!LOG_FILE!"
-    echo [!TIMESTAMP_FORMAT!] ========== PIPELINE RESTART ========== >> "!LOG_FILE!"
+echo Checking LLM server...
+curl -s -o nul --connect-timeout 3 http://localhost:8080/health 2>nul
+if !errorlevel! neq 0 (
+    echo   [WARN] LLM server not responding
+    echo          Run C:\llama\start.bat first
+    echo.
 ) else (
-    (echo [!TIMESTAMP_FORMAT!] ========== PIPELINE START ==========> "!LOG_FILE!")
+    echo   [OK]  LLM server reachable
+    echo.
 )
 
+REM ---- Stage 1 -----------------------------------------------------------
+echo ------------------------------------------------------------
+echo [Stage 1/5] Reenrich v2 analyses
+echo ------------------------------------------------------------
 echo.
-echo 📚 CallProfiler — Build Book + Profiles (v2 Pipeline)
-echo User: !USER_ID!
-echo Log: !LOG_FILE!
-echo.
 
-REM ─────────────────────────────────────────────────────────────────────────
-REM STAGE 1: Reenrich v2 analyses (one-time LLM regeneration)
-REM ─────────────────────────────────────────────────────────────────────────
-
-echo [Stage 1/5] Reenrich v2 analyses...
-echo [!TIMESTAMP_FORMAT!] Stage 1: reenrich-v2 --user !USER_ID! >> "!LOG_FILE!"
-
-python -m callprofiler reenrich-v2 --user !USER_ID! >> "!LOG_FILE!" 2>&1
+python -m callprofiler --log-file "!LOG_FILE!" reenrich-v2 --user "!USER_ID!" 2>&1
 if !errorlevel! neq 0 (
-    echo ❌ FAILED: reenrich-v2
-    echo [!TIMESTAMP_FORMAT!] ❌ reenrich-v2 failed with code !errorlevel! >> "!LOG_FILE!"
+    echo.
+    echo *** FAILED: reenrich-v2 (code !errorlevel!)
+    echo *** Log: !LOG_FILE!
+    pause
     exit /b 1
 )
-echo ✅ Stage 1 complete
-echo [!TIMESTAMP_FORMAT!] ✅ reenrich-v2 complete >> "!LOG_FILE!"
+echo [OK] Stage 1 done
 timeout /t 2 /nobreak >nul
 
-REM ─────────────────────────────────────────────────────────────────────────
-REM STAGE 2: Graph backfill (build entities, relations, metrics)
-REM ─────────────────────────────────────────────────────────────────────────
-
+REM ---- Stage 2 -----------------------------------------------------------
 echo.
-echo [Stage 2/5] Graph backfill...
-echo [!TIMESTAMP_FORMAT!] Stage 2: graph-backfill --user !USER_ID! >> "!LOG_FILE!"
+echo ------------------------------------------------------------
+echo [Stage 2/5] Graph backfill
+echo ------------------------------------------------------------
+echo.
 
-python -m callprofiler graph-backfill --user !USER_ID! >> "!LOG_FILE!" 2>&1
+python -m callprofiler --log-file "!LOG_FILE!" graph-backfill --user "!USER_ID!" 2>&1
 if !errorlevel! neq 0 (
-    echo ❌ FAILED: graph-backfill
-    echo [!TIMESTAMP_FORMAT!] ❌ graph-backfill failed with code !errorlevel! >> "!LOG_FILE!"
+    echo.
+    echo *** FAILED: graph-backfill (code !errorlevel!)
+    echo *** Log: !LOG_FILE!
+    pause
     exit /b 2
 )
-echo ✅ Stage 2 complete
-echo [!TIMESTAMP_FORMAT!] ✅ graph-backfill complete >> "!LOG_FILE!"
+echo [OK] Stage 2 done
 timeout /t 2 /nobreak >nul
 
-REM ─────────────────────────────────────────────────────────────────────────
-REM STAGE 3: Graph health check (verify graph stability)
-REM ─────────────────────────────────────────────────────────────────────────
-
+REM ---- Stage 3 -----------------------------------------------------------
 echo.
-echo [Stage 3/5] Graph health check...
-echo [!TIMESTAMP_FORMAT!] Stage 3: graph-health --user !USER_ID! >> "!LOG_FILE!"
+echo ------------------------------------------------------------
+echo [Stage 3/5] Graph health check
+echo ------------------------------------------------------------
+echo.
 
-python -m callprofiler graph-health --user !USER_ID! >> "!LOG_FILE!" 2>&1
+python -m callprofiler --log-file "!LOG_FILE!" graph-health --user "!USER_ID!" 2>&1
 if !errorlevel! neq 0 (
-    echo ⚠️  WARNING: graph-health failed — graph may be unstable
-    echo [!TIMESTAMP_FORMAT!] ⚠️  graph-health issues detected >> "!LOG_FILE!"
-    echo Fix: run "python -m callprofiler graph-audit --user !USER_ID!" manually
-    echo Continuing anyway...
+    echo.
+    echo *** WARNING: graph-health issues detected
+    echo *** python -m callprofiler graph-audit --user "!USER_ID!"
+    echo *** Continuing...
     timeout /t 3 /nobreak >nul
 ) else (
-    echo ✅ Stage 3 complete — graph is healthy
-    echo [!TIMESTAMP_FORMAT!] ✅ graph-health passed >> "!LOG_FILE!"
+    echo [OK] Stage 3 - graph healthy
 )
 
-REM ─────────────────────────────────────────────────────────────────────────
-REM STAGE 4: Profile all (generate psychology profiles for all entities)
-REM ─────────────────────────────────────────────────────────────────────────
-
+REM ---- Stage 4 -----------------------------------------------------------
 echo.
-echo [Stage 4/5] Generate psychology profiles...
-echo [!TIMESTAMP_FORMAT!] Stage 4: profile-all --user !USER_ID! >> "!LOG_FILE!"
+echo ------------------------------------------------------------
+echo [Stage 4/5] Generate psychology profiles
+echo ------------------------------------------------------------
+echo.
 
-python -m callprofiler profile-all --user !USER_ID! >> "!LOG_FILE!" 2>&1
+python -m callprofiler --log-file "!LOG_FILE!" profile-all --user "!USER_ID!" 2>&1
 if !errorlevel! neq 0 (
-    echo ❌ FAILED: profile-all
-    echo [!TIMESTAMP_FORMAT!] ❌ profile-all failed with code !errorlevel! >> "!LOG_FILE!"
+    echo.
+    echo *** FAILED: profile-all (code !errorlevel!)
+    echo *** Log: !LOG_FILE!
+    pause
     exit /b 3
 )
-echo ✅ Stage 4 complete
-echo [!TIMESTAMP_FORMAT!] ✅ profile-all complete >> "!LOG_FILE!"
+echo [OK] Stage 4 done
 timeout /t 2 /nobreak >nul
 
-REM ─────────────────────────────────────────────────────────────────────────
-REM STAGE 5: Biography run (generate book chapters and annual summaries)
-REM ─────────────────────────────────────────────────────────────────────────
-
+REM ---- Stage 5 -----------------------------------------------------------
 echo.
-echo [Stage 5/5] Generate biography book...
-echo [!TIMESTAMP_FORMAT!] Stage 5: biography-run --user !USER_ID! >> "!LOG_FILE!"
+echo ------------------------------------------------------------
+echo [Stage 5/5] Generate biography book
+echo ------------------------------------------------------------
+echo.
 
-python -m callprofiler biography-run --user !USER_ID! >> "!LOG_FILE!" 2>&1
+python -m callprofiler --log-file "!LOG_FILE!" biography-run --user "!USER_ID!" 2>&1
 if !errorlevel! neq 0 (
-    echo ❌ FAILED: biography-run
-    echo [!TIMESTAMP_FORMAT!] ❌ biography-run failed with code !errorlevel! >> "!LOG_FILE!"
+    echo.
+    echo *** FAILED: biography-run (code !errorlevel!)
+    echo *** Log: !LOG_FILE!
+    pause
     exit /b 4
 )
-echo ✅ Stage 5 complete
-echo [!TIMESTAMP_FORMAT!] ✅ biography-run complete >> "!LOG_FILE!"
-
-REM ─────────────────────────────────────────────────────────────────────────
-REM SUCCESS
-REM ─────────────────────────────────────────────────────────────────────────
+echo [OK] Stage 5 done
 
 echo.
-echo ✅ PIPELINE COMPLETE
-echo [!TIMESTAMP_FORMAT!] ✅✅✅ PIPELINE COMPLETE ✅✅✅ >> "!LOG_FILE!"
-echo.
-echo 📖 Book generated: bio_chapters, bio_books tables
-echo 👤 Profiles generated: entities, entity_metrics tables
-echo 📋 Log: !LOG_FILE!
+echo ============================================================
+echo   PIPELINE COMPLETE - !DATE! !TIME!
+echo ============================================================
+echo   Log: !LOG_FILE!
+echo ============================================================
 echo.
 
-timeout /t 3 /nobreak >nul
+pause
 exit /b 0

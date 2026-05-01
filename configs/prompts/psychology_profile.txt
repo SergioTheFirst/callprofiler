@@ -5,6 +5,22 @@ Name: {canonical_name}
 Type: {entity_type}
 Aliases: {aliases}
 
+## Temperament (Hippocrates-Galen)
+Energy: {temperament_energy}
+Reactivity: {temperament_reactivity}
+Classical type: {temperament_type}
+
+## Big Five (OCEAN) — estimated from behavioral signals
+Openness: {bigfive_o}
+Conscientiousness: {bigfive_c}
+Extraversion: {bigfive_e}
+Agreeableness: {bigfive_a}
+Neuroticism: {bigfive_n}
+
+## Motivation Drivers (McClelland)
+Primary driver: {motivation_primary}
+All drivers: {motivation_drivers}
+
 ## Behavioral Metrics
 BS-index (0-100, higher = more deceptive signals): {bs_index}
 Average risk score: {avg_risk}
@@ -32,7 +48,7 @@ Open promises to track: {open_promises}
 Conflicts recorded: {conflict_count}
 Network centrality (# of connected entities): {centrality}
 
-## Risk Evolution (year → avg_risk)
+## Risk Evolution (year -> avg_risk)
 {evolution}
 
 ## Top Facts (recent verbatim quotes)
@@ -40,9 +56,9 @@ Network centrality (# of connected entities): {centrality}
 
 ---
 
-Write the profile in 3 short paragraphs (total ≤ 250 words):
-1. **Communication style** — how this person typically communicates (direct/evasive, reliable/volatile)
-2. **Trust signals** — key risk indicators or trust factors, citing specific patterns
-3. **Interaction recommendation** — one actionable suggestion for the next conversation
+Write the profile in 3 short paragraphs (total <= 250 words):
+1. **Communication style** — how this person typically communicates, incorporating temperament insights (direct/evasive, reliable/volatile)
+2. **Trust signals** — key risk indicators or trust factors, citing Big Five dimensions and specific patterns
+3. **Interaction recommendation** — one actionable suggestion for the next conversation, grounded in motivation drivers
 
-Respond in the same language as the contact's quotes. Be factual, no speculation beyond the data. Do not repeat the raw numbers verbatim — synthesize them into behavioral observations.
+Respond in the same language as the contact's quotes. Be factual, no speculation beyond the data. Do not repeat the raw numbers verbatim — synthesize them into behavioral observations. Use temperament type and Big Five dimensions as interpretive lenses, not as labels.

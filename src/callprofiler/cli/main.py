@@ -27,6 +27,13 @@ def _setup_logging(log_file: str | None = None, verbose: bool = False) -> None:
     """Настроить логирование: консоль + опционально файл."""
     level = logging.DEBUG if verbose else logging.INFO
     fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
     handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
 
     if log_file:
@@ -1088,7 +1095,8 @@ def cmd_biography_run(args: argparse.Namespace) -> int:
     """biography-run --user ID [--passes ...] — многодневный прогон 9-проходного
     конвейера построения биографии по БД и транскриптам."""
     cfg, repo = _load_config_and_repo(args.config)
-    _setup_logging(cfg.log_file, args.verbose)
+    log_file = args.log_file or cfg.log_file
+    _setup_logging(log_file, args.verbose)
 
     from callprofiler.analyze.llm_client import LLMClient
     from callprofiler.biography.llm_client import ResilientLLMClient
@@ -1208,8 +1216,9 @@ def cmd_biography_export(args: argparse.Namespace) -> int:
 
 def cmd_graph_backfill(args: argparse.Namespace) -> int:
     """graph-backfill — populate Knowledge Graph from v2 analyses."""
-    _setup_logging(verbose=getattr(args, "verbose", False))
     cfg, repo = _load_config_and_repo(args.config)
+    log_file = args.log_file or cfg.log_file
+    _setup_logging(log_file, getattr(args, "verbose", False))
     log = logging.getLogger(__name__)
 
     from callprofiler.graph.auditor import GraphAuditor
@@ -1298,7 +1307,9 @@ def cmd_graph_backfill(args: argparse.Namespace) -> int:
 
 def cmd_reenrich_v2(args: argparse.Namespace) -> int:
     """reenrich-v2 — re-run LLM analysis on v1 calls to produce v2 schema_version."""
-    _setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = _load_config_and_repo(args.config)
+    log_file = args.log_file or cfg.log_file
+    _setup_logging(log_file, getattr(args, "verbose", False))
     log = logging.getLogger(__name__)
     log.info(
         "[reenrich-v2] Re-enriching v1 analyses for user=%s limit=%s",
@@ -1307,7 +1318,6 @@ def cmd_reenrich_v2(args: argparse.Namespace) -> int:
     # Delegate to bulk_enrich — it always uses the current prompt (v2).
     # We filter for calls that have v1 analysis so they get re-processed.
     from callprofiler.bulk.enricher import bulk_enrich
-    cfg, repo = _load_config_and_repo(args.config)
 
     conn = repo._get_conn()
     # Mark v1 analyses as needing reenrichment by deleting them (idempotent via MD5 dedup).
@@ -1677,8 +1687,10 @@ def cmd_person_profile(args: argparse.Namespace) -> int:
 
 def cmd_profile_all(args: argparse.Namespace) -> int:
     """profile-all — generate psychology profiles for all entities of a user."""
-    _setup_logging(verbose=getattr(args, "verbose", False))
     cfg, repo = _load_config_and_repo(args.config)
+    log_file = args.log_file or cfg.log_file
+    _setup_logging(log_file, getattr(args, "verbose", False))
+    log = logging.getLogger(__name__)
 
     from callprofiler.biography.psychology_profiler import PsychologyProfiler
     from callprofiler.graph.repository import apply_graph_schema
@@ -1747,8 +1759,9 @@ def cmd_graph_health(args: argparse.Namespace) -> int:
 
     Exit 0 if all checks pass. Exit 1 if any check fails.
     """
-    _setup_logging(verbose=getattr(args, "verbose", False))
     cfg, repo = _load_config_and_repo(args.config)
+    log_file = args.log_file or cfg.log_file
+    _setup_logging(log_file, getattr(args, "verbose", False))
     user_id = args.user_id
 
     from callprofiler.graph.auditor import GraphAuditor
@@ -1835,6 +1848,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "-v", "--verbose",
         action="store_true",
         help="Подробное логирование (DEBUG)",
+    )
+    parser.add_argument(
+        "--log-file",
+        default=None,
+        metavar="PATH",
+        help="Путь к файлу лога (переопределяет cfg.log_file)",
     )
 
     sub = parser.add_subparsers(dest="command", metavar="КОМАНДА")

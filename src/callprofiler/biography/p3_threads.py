@@ -56,7 +56,9 @@ def run(
             bio.tick_checkpoint(user_id, PASS_NAME, f"entity:{entity_id}")
             continue
 
-        messages = build_thread_prompt(name, etype, scenes)
+        # Build connections list from co-occurring entities
+        connections = _build_entity_connections(entity_id, bio)
+        messages = build_thread_prompt(name, etype, scenes, connections=connections)
         response = llm.call(
             user_id=user_id,
             pass_name=PASS_NAME,
@@ -107,3 +109,24 @@ def run(
     }
     log.info("[p3_threads] done %s", stats)
     return stats
+
+
+def _build_entity_connections(entity_id: int, bio: BiographyRepo) -> list[str] | None:
+    """Build list of entity connections from co-occurring scenes."""
+    try:
+        conn = bio.conn
+        rows = conn.execute(
+            """SELECT e2.canonical_name, COUNT(*) as cnt
+               FROM bio_scene_entities se1
+               JOIN bio_scene_entities se2 ON se2.scene_id = se1.scene_id AND se2.entity_id != se1.entity_id
+               JOIN bio_entities e2 ON e2.entity_id = se2.entity_id
+               WHERE se1.entity_id = ?
+               GROUP BY e2.canonical_name
+               ORDER BY cnt DESC LIMIT 5""",
+            (entity_id,),
+        ).fetchall()
+        if not rows:
+            return None
+        return [f"{r['canonical_name']}: {r['cnt']} совместных сцен" for r in rows]
+    except Exception:
+        return None

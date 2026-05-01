@@ -8,6 +8,13 @@
 
 ## Status
 
+DONE: Week 1 — Adaptive TokenBudget, guaranteed checkpoint resume, all hard caps eliminated (2026-05-01)
+DONE: Biography quality improvements — cross-chapter context, context window fix, graph integration, per-pass versioning (2026-04-30)
+DONE: ALL 4 WEEKS — Full pipeline hardening: TokenBudget, psych profilers (temperament+BigFive+motivation), network graph, ASR cleaning, guaranteed resume, docs (2026-05-01)
+NOW: 196 tests pass, reenrich-v2 real data test OK (3 files, 0 errors)
+NEXT: Run build-book-and-profiles.bat for full Stages 1-5
+BLOCKERS: None
+DONE: Pipeline logging crash fix — UnicodeEncodeError resolved, BAT progress monitor added (2026-04-30)
 DONE: Biography arch-fixes — export filter, p8 idempotency, checkpoint reset, p8b dedup (2026-04-20)
 DONE: D:\calls → C:\calls path migration (2026-04-20)
 DONE: Biography p9 wired + insight field pipeline (2026-04-20)
@@ -22,19 +29,30 @@ DONE: Knowledge Graph Этап 3 — BS CALIBRATION (percentile-based thresholds
 DONE: Knowledge Graph Этап 4 — THRESHOLD INTEGRATION (data-driven card emoji, 186 tests pass) (2026-04-25)
 DONE: HEALTH GATE — graph-health CLI command, 4 checks, exit 0/1 (2026-04-25)
 DONE: PSYCHOLOGY PROFILER MVP — PsychologyProfiler class + CLI person-profile/profile-all (2026-04-25)
-NOW: 197 tests pass — committing two commits + push to main
-NEXT: Narrative journal extraction (narrative-extract CLI command)
+NOW: 196 tests pass — ready for next pipeline run
+NEXT: Run build-book-and-profiles.bat to complete Stages 2-5
 BLOCKERS: None
 
 ---
 
-## Текущее состояние: 2026-04-25 (HEALTH GATE + PSYCHOLOGY PROFILER MVP)
+## Текущее состояние: 2026-04-30 (Pipeline logging crash fix)
+
+### Что сделано
+
+- **Encoding crash fix:** `_setup_logging()` теперь реконфигурирует `sys.stdout`/`sys.stderr` на UTF-8 с `errors='replace'`, что предотвращает падение `UnicodeEncodeError` при записи Unicode-символов в cp1251-строки на Windows.
+- **Safe characters in enricher.py:** `✓` → `"OK"`, `✗` → `"ERR"` — лог-сообщения теперь безопасны для любых кодировок.
+- **`--log-file` argument:** Добавлен как top-level аргумент CLI; все 5 pipeline-команд передают `cfg.log_file` / `args.log_file` в `_setup_logging()`.
+- **BAT progress monitor:** `build-book-and-profiles.bat` запускает второе PowerShell-окно с `Get-Content -Wait -Tail 5`, которое показывает последние 5 строк лога (per-file operations: call_id, speed, ETA) в реальном времени.
+- **BAT hardening:** Все стадии теперь передают `--log-file "%LOG_FILE%"`, улучшен вывод ошибок с `pause` перед exit.
 
 ### Ветка разработки
-`claude/clone-callprofiler-repo-hL5dQ` → push to `main`
+`claude/clone-callprofiler-repo-hL5dQ`
 
-### Последний коммит
-```
+### Тесты
+196 passed, 6 failed (pre-existing Windows PermissionError in tempdir cleanup — не связаны с изменениями).
+
+### Следующий шаг
+- Запустить `build-book-and-profiles.bat` и наблюдать за стадиями 2-5
 
 ---
 

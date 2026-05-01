@@ -169,6 +169,16 @@ CREATE TABLE IF NOT EXISTS bio_checkpoints (
     PRIMARY KEY(user_id, pass_name)
 );
 
+-- Per-item tracking for fast resume (skip already-processed items without
+-- re-iterating the full candidate list).
+CREATE TABLE IF NOT EXISTS bio_checkpoint_items (
+    user_id       TEXT NOT NULL,
+    pass_name     TEXT NOT NULL,
+    item_key      TEXT NOT NULL,
+    completed_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY(user_id, pass_name, item_key)
+);
+
 -- Behavioral patterns: deterministic behavioral model per contact entity.
 CREATE TABLE IF NOT EXISTS bio_behavior_patterns (
     pattern_id          INTEGER PRIMARY KEY AUTOINCREMENT,
