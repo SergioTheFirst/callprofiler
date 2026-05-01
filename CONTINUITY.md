@@ -8,6 +8,10 @@
 
 ## Status
 
+DONE: Atomic agent backlog + unattended runner for opencode/DeepSeek work queue (2026-05-01)
+NOW: 30 todo tasks in agent_backlog.json; runner ready at tools/agent_runner.py
+NEXT: Run runner in dry-run first, then run with opencode command in direct or patch mode
+BLOCKERS: Local PowerShell in Codex session fails with Windows PowerShell error 8009001d; files were created via filesystem API
 DONE: Week 1 — Adaptive TokenBudget, guaranteed checkpoint resume, all hard caps eliminated (2026-05-01)
 DONE: Biography quality improvements — cross-chapter context, context window fix, graph integration, per-pass versioning (2026-04-30)
 DONE: ALL 4 WEEKS — Full pipeline hardening: TokenBudget, psych profilers (temperament+BigFive+motivation), network graph, ASR cleaning, guaranteed resume, docs (2026-05-01)
@@ -32,6 +36,48 @@ DONE: PSYCHOLOGY PROFILER MVP — PsychologyProfiler class + CLI person-profile/
 NOW: 196 tests pass — ready for next pipeline run
 NEXT: Run build-book-and-profiles.bat to complete Stages 2-5
 BLOCKERS: None
+
+---
+
+## Текущее состояние: 2026-05-01 (Atomic agent backlog + unattended runner)
+
+### Что сделано
+
+- Создан `agent_backlog.json` — machine-readable очередь из 30 атомарных задач для автономной работы агента:
+  - P0 runtime/docs alignment;
+  - LLMClient/Orchestrator API repair;
+  - prompt formatting fix;
+  - schema_version/canonical JSON persistence;
+  - SQLite idempotency;
+  - user_id isolation;
+  - graph fact_type/BS-index correctness;
+  - graph-health/resource runner/quality gold-set;
+  - final docs and stabilization tasks.
+- Создан `tools/agent_runner.py` — dependency-free runner:
+  - берет следующий `todo`;
+  - формирует prompt с project brief, guardrails, artifacts и контекстом файлов;
+  - вызывает внешний агент через `--agent-cmd`;
+  - поддерживает `--apply-mode patch` и `--apply-mode direct`;
+  - применяет file guard по `artifacts.touch`;
+  - запускает tests/lint;
+  - пишет logs/prompts/responses в `.agent_runs/`;
+  - обновляет статусы backlog;
+  - умеет checkpoint commits через `--commit-every`.
+
+### Ветка разработки
+`claude/clone-callprofiler-repo-hL5dQ`
+
+### Тесты
+- `python -m py_compile tools/agent_runner.py` — OK
+- `agent_backlog.json` parsed successfully — 30 tasks, all `todo`
+- Полный pytest не запускался в этой Codex-сессии: локальный PowerShell падает с ошибкой 8009001d до выполнения команд.
+
+### Следующий шаг
+- Выполнить dry-run:
+  `python tools/agent_runner.py --repo C:\pro\callprofiler --dry-run`
+- Затем подключить реальную команду opencode/DeepSeek и выбрать режим:
+  - `--apply-mode direct`, если opencode сам редактирует файлы;
+  - `--apply-mode patch`, если opencode печатает unified diff.
 
 ---
 

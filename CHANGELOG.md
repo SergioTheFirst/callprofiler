@@ -8,6 +8,17 @@
 
 ## [Unreleased]
 
+### Added — Atomic agent backlog + unattended runner (2026-05-01)
+
+- `agent_backlog.json`:
+  - Added 30 ultra-atomic backlog items derived from the architecture audit: LLM runtime contract, Orchestrator/LLM API mismatch, prompt formatting, schema_version persistence, canonical parsed JSON, SQLite idempotency, user_id isolation, graph fact_type semantics, graph-health, resource phase runner, quality gold-set, and documentation cleanup.
+  - Each item includes `id`, `type`, `status`, `priority`, `artifacts`, implementation notes, acceptance criteria, and verification commands.
+- `tools/agent_runner.py`:
+  - Added dependency-free unattended runner that picks the next `todo` task, renders a bounded prompt, calls an external agent command, applies either unified diff patches or direct edits, runs verification, updates backlog status, and writes per-task logs under `.agent_runs/`.
+  - Supports time/task/failure limits, file allowlist guard from `artifacts.touch`, clean-git preflight, optional checkpoint commits, and optional push.
+
+**Verification:** `python -m py_compile tools/agent_runner.py`; `agent_backlog.json` parsed successfully with 30 tasks.
+
 ### Added — Duration weighting + full-transcript ASR cleaning + motivation wiring (2026-05-01)
 
 - `src/callprofiler/biography/prompts.py`:

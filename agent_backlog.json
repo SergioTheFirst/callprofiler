@@ -1,0 +1,1173 @@
+{
+  "schema_version": "1.0",
+  "project": {
+    "name": "CallProfiler",
+    "root": "C:/pro/callprofiler",
+    "mission": "Локальная мультипользовательская система пост-обработки записей телефонных разговоров: audio -> normalize -> whisper -> pyannote -> llama.cpp/Qwen -> SQLite -> Telegram/caller cards.",
+    "runtime_constraints": [
+      "Windows 11, системный Python 3.10+, SQLite, без Docker/Redis/PostgreSQL/LangChain.",
+      "GPU-дисциплина: Whisper/pyannote и Qwen llama-server не должны конкурировать за VRAM.",
+      "LLM: локальный llama-server OpenAI-compatible endpoint, целевая модель Qwen3.5-9B.Q8_0.gguf, context 16384.",
+      "Все данные пользователей должны быть изолированы через user_id.",
+      "Оригиналы аудио не модифицировать."
+    ],
+    "global_guardrails": [
+      "Перед правкой читать CONTINUITY.md, CHANGELOG.md, CONSTITUTION.md и релевантные source-файлы.",
+      "Один backlog item = один вертикальный срез, без массового переписывания модулей.",
+      "Не добавлять новые зависимости без отдельной задачи и обоснования.",
+      "Не использовать except/pass и не скрывать ошибки.",
+      "Для каждого изменения добавлять или обновлять узкие тесты.",
+      "Если задача требует изменения схемы SQLite, миграция должна быть идемпотентной и проходить через существующий migration-паттерн Repository/_migrate или graph repository migration."
+    ]
+  },
+  "runner_defaults": {
+    "test_command": "python -m pytest -q",
+    "lint_command": "",
+    "max_context_bytes_per_file": 24000,
+    "max_response_bytes": 200000,
+    "commit_every": 0,
+    "branch_prefix": "agent/",
+    "require_clean_git": true,
+    "revert_on_fail": false
+  },
+  "backlog": [
+    {
+      "id": "P0-001",
+      "title": "Синхронизировать документационный источник истины по LLM/runtime",
+      "type": "documentation",
+      "status": "todo",
+      "priority": 0,
+      "description": "Убрать архитектурную неоднозначность: в документах одновременно описаны Ollama/Qwen2.5, llama-server/Qwen3.5 Q5, текущая Qwen3.5 Q8_0, разные host и разные data_dir. Нужно зафиксировать актуальный runtime-контракт, чтобы следующие агенты не делали несовместимые решения.",
+      "rationale": "Пока docs противоречат друг другу, любой агент может выбрать старый Ollama API или неправильный путь данных. Это источник повторяющихся регрессий.",
+      "artifacts": {
+        "touch": [
+          "AGENTS.md",
+          "CLAUDE.md",
+          "CONSTITUTION.md",
+          "README.md",
+          "ARCHITECTURE_v4.md",
+          "STRATEGIC_PLAN_v4.md",
+          ".claude/rules/llm.md",
+          ".claude/rules/decisions.md",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "configs/base.yaml",
+          "src/callprofiler/analyze/llm_client.py",
+          "src/callprofiler/pipeline/orchestrator.py"
+        ]
+      },
+      "implementation_notes": [
+        "Зафиксировать: llama-server.exe -m C:/models/Qwen3.5-9B.Q8_0.gguf -ngl 99 -c 16384 -fa auto --host 0.0.0.0 --port 8080.",
+        "Явно отметить, что Ollama упоминается только как legacy alias, не как runtime.",
+        "Объяснить риск host 0.0.0.0: доступ из LAN; если доступ с других машин не нужен, рекомендовать 127.0.0.1.",
+        "Не менять код в этой задаче."
+      ],
+      "acceptance": [
+        "В документах нет взаимоисключающих указаний Ollama vs llama-server для текущего runtime.",
+        "CONSTITUTION/AGENTS/llm rules одинаково описывают LLM endpoint и модель.",
+        "CHANGELOG.md и CONTINUITY.md обновлены."
+      ],
+      "verification": [
+        "Прочитать измененные markdown-файлы и проверить отсутствие старых активных инструкций Ollama/Qwen2.5.",
+        "Тесты не обязательны, так как меняется только документация."
+      ]
+    },
+    {
+      "id": "P0-002",
+      "title": "Зафиксировать воспроизводимые зависимости без смены стека",
+      "type": "refactoring",
+      "status": "todo",
+      "priority": 0,
+      "description": "Сделать зависимости проверяемыми: сейчас pyproject содержит broad dependencies без версий, при этом CONSTITUTION требует конкретные torch/pyannote/ASR constraints.",
+      "rationale": "Без pin/constraints следующий install может подтянуть несовместимую pyannote/torch и сломать GPU path.",
+      "artifacts": {
+        "touch": [
+          "pyproject.toml",
+          "README.md",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "CONSTITUTION.md",
+          "AGENTS.md",
+          "configs/base.yaml"
+        ]
+      },
+      "implementation_notes": [
+        "Не добавлять новый стек.",
+        "Проверить, используется ли requests напрямую; если да, добавить requests как явную зависимость.",
+        "Версии pin/constraints выбирать консервативно по уже задокументированным требованиям проекта; если точной версии нет, добавить отдельный constraints-файл и комментарий, что требуется валидация на целевой машине.",
+        "Не устанавливать пакеты в рамках задачи."
+      ],
+      "acceptance": [
+        "requests явно отражен как dependency, если llm_client его импортирует.",
+        "torch/pyannote/faster-whisper dependency policy больше не оставлена полностью плавающей.",
+        "Документация установки согласована с pyproject."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_config.py tests/test_llm_client.py, если такие тесты есть.",
+        "python -m pytest -q"
+      ]
+    },
+    {
+      "id": "P0-003",
+      "title": "Добавить regression tests для текущего LLMClient API",
+      "type": "tests",
+      "status": "todo",
+      "priority": 0,
+      "description": "Покрыть OpenAI-compatible контракт LLMClient: constructor, generate(messages), timeout/error handling, отсутствие старого Ollama model parameter.",
+      "rationale": "Основной pipeline сейчас вызывает LLMClient по старому интерфейсу. Сначала нужен тест, который зафиксирует правильный контракт и воспроизведет поломку.",
+      "artifacts": {
+        "touch": [
+          "tests/test_llm_client.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "src/callprofiler/analyze/llm_client.py",
+          "src/callprofiler/pipeline/orchestrator.py",
+          "src/callprofiler/bulk/enricher.py"
+        ]
+      },
+      "implementation_notes": [
+        "Не требовать реальный llama-server; использовать monkeypatch/mocks для requests.post.",
+        "Проверить payload: messages, temperature, max_tokens.",
+        "Проверить, что invalid response возвращает None и логируется.",
+        "Если LLMClient __init__ делает verify_connection, тест должен это учитывать через mock."
+      ],
+      "acceptance": [
+        "Есть тесты на успешный response OpenAI format.",
+        "Есть тест на timeout/request exception.",
+        "Есть тест, который защищает от возврата старого Ollama-style API."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_llm_client.py"
+      ]
+    },
+    {
+      "id": "P0-004",
+      "title": "Починить Orchestrator._analyze_call под LLMClient messages API",
+      "type": "bugfix",
+      "status": "todo",
+      "priority": 0,
+      "description": "Основной process/watch pipeline должен использовать тот же OpenAI-compatible LLMClient контракт, что bulk_enrich: base_url=cfg.models.llm_url, messages=[system,user], generate(messages=...).",
+      "rationale": "Сейчас Orchestrator передает model= и prompt string, что несовместимо с LLMClient и должно падать в runtime.",
+      "artifacts": {
+        "touch": [
+          "src/callprofiler/pipeline/orchestrator.py",
+          "tests/test_orchestrator_llm.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "src/callprofiler/analyze/llm_client.py",
+          "src/callprofiler/analyze/prompt_builder.py",
+          "src/callprofiler/analyze/response_parser.py",
+          "src/callprofiler/bulk/enricher.py",
+          "configs/prompts/analyze_v001.txt"
+        ]
+      },
+      "implementation_notes": [
+        "Убрать использование config.models.ollama_url и model= из Orchestrator.",
+        "Использовать LLMClient, не OllamaClient alias, если это не ломает imports.",
+        "Сформировать system/user messages так, чтобы prompt template не форматировался через Python .format поверх JSON.",
+        "При LLM None сохранять parse_failed/default analysis или error status согласно текущей политике pipeline.",
+        "Не трогать bulk_enrich в этой задаче."
+      ],
+      "acceptance": [
+        "process_call больше не использует устаревший ollama_url/model argument.",
+        "Unit test подтверждает, что LLMClient.generate вызывается с messages list.",
+        "Поведение при ConnectionError/None покрыто тестом."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_orchestrator_llm.py",
+        "python -m pytest -q"
+      ],
+      "depends_on": [
+        "P0-003"
+      ]
+    },
+    {
+      "id": "P0-005",
+      "title": "Устранить PromptBuilder.format конфликт с JSON braces",
+      "type": "bugfix",
+      "status": "todo",
+      "priority": 0,
+      "description": "PromptBuilder не должен вызывать str.format на prompt-файле, содержащем обычный JSON с фигурными скобками. Нужно перейти на безопасную подстановку ограниченного набора placeholder'ов.",
+      "rationale": "Текущий analyze_v001.txt содержит JSON example. str.format воспринимает все braces как placeholders и может падать или портить prompt.",
+      "artifacts": {
+        "touch": [
+          "src/callprofiler/analyze/prompt_builder.py",
+          "tests/test_prompt_builder.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "configs/prompts/analyze_v001.txt",
+          "src/callprofiler/bulk/enricher.py"
+        ]
+      },
+      "implementation_notes": [
+        "Использовать безопасный replace только для известных токенов: {transcript}, {contact_name}, {phone}, {call_datetime}, {direction}, {duration}, {context_block}.",
+        "Если prompt template не содержит placeholders, вернуть system prompt отдельно или append metadata block без изменения JSON examples.",
+        "Добавить тест с literal JSON braces в template."
+      ],
+      "acceptance": [
+        "PromptBuilder строит prompt без KeyError/ValueError на analyze_v001.txt.",
+        "JSON example в prompt остается валидным текстом.",
+        "Тест покрывает literal braces."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_prompt_builder.py"
+      ]
+    },
+    {
+      "id": "P0-006",
+      "title": "Согласовать speaker markers между prompt, bulk loader, validator и formatter",
+      "type": "bugfix",
+      "status": "todo",
+      "priority": 0,
+      "description": "В проекте используются [Me]/[S2], [me]/[s2], OWNER/OTHER, [Я]/[Собеседник]. Нужно зафиксировать один канонический формат для LLM и validator.",
+      "rationale": "FactValidator ищет одни маркеры, prompt описывает другие, bulk_enrich форматирует третьи. Это ломает speaker attribution и role extraction.",
+      "artifacts": {
+        "touch": [
+          "configs/prompts/analyze_v001.txt",
+          "src/callprofiler/pipeline/orchestrator.py",
+          "src/callprofiler/bulk/enricher.py",
+          "src/callprofiler/graph/validator.py",
+          "tests/test_graph.py",
+          "tests/test_bulk_enricher.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          ".claude/rules/llm.md",
+          ".claude/rules/graph.md"
+        ]
+      },
+      "implementation_notes": [
+        "Рекомендуемый canonical format для prompt/transcript: [me] и [s2], потому что loader и rules уже это используют.",
+        "Validator должен быть case-insensitive для legacy [Me]/[S2].",
+        "Не менять DB speaker values OWNER/OTHER; менять только текстовую проекцию для LLM/validator."
+      ],
+      "acceptance": [
+        "Один формат явно описан в llm rules/prompt.",
+        "Validator корректно определяет speaker для lowercase и legacy uppercase markers.",
+        "Bulk и orchestrator дают одинаковый transcript presentation."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_graph.py tests/test_bulk_enricher.py"
+      ]
+    },
+    {
+      "id": "P0-007",
+      "title": "Добавить schema_version в Analysis model и save_analysis",
+      "type": "bugfix",
+      "status": "todo",
+      "priority": 0,
+      "description": "Parsed LLM response должен сохранять schema_version, иначе GraphBuilder, который обрабатывает только v2, может пропускать все новые анализы.",
+      "rationale": "Prompt требует v2, graph требует v2, но модель Analysis и repository persistence этого не гарантируют.",
+      "artifacts": {
+        "touch": [
+          "src/callprofiler/models.py",
+          "src/callprofiler/analyze/response_parser.py",
+          "src/callprofiler/db/repository.py",
+          "src/callprofiler/db/schema.sql",
+          "tests/test_response_parser.py",
+          "tests/test_repository.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "src/callprofiler/graph/repository.py",
+          "src/callprofiler/graph/builder.py"
+        ]
+      },
+      "implementation_notes": [
+        "Добавить поле schema_version в Analysis с default v1 или v2 по contract; предпочтительно брать из parsed JSON и default v1 только при отсутствии.",
+        "Repository._migrate должен создавать analyses.schema_version, если отсутствует.",
+        "save_analysis/save_batch должны сохранять schema_version.",
+        "Не ломать старые тесты, где Analysis создается без schema_version."
+      ],
+      "acceptance": [
+        "Parsed JSON schema_version=v2 попадает в analyses.schema_version.",
+        "Legacy Analysis без schema_version сохраняется предсказуемо.",
+        "GraphBuilder получает v2 analyses после обычного LLM анализа."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_response_parser.py tests/test_repository.py"
+      ]
+    },
+    {
+      "id": "P0-008",
+      "title": "Сохранять canonical parsed JSON отдельно от raw_response",
+      "type": "refactoring",
+      "status": "todo",
+      "priority": 0,
+      "description": "Добавить механизм сохранения repaired/parsed JSON, чтобы downstream graph/summary/events не зависели от сырого ответа LLM.",
+      "rationale": "Parser может успешно восстановить markdown/truncated-ish JSON, но GraphBuilder затем делает json.loads(raw_response) и теряет результат ремонта.",
+      "artifacts": {
+        "touch": [
+          "src/callprofiler/analyze/response_parser.py",
+          "src/callprofiler/models.py",
+          "src/callprofiler/db/repository.py",
+          "src/callprofiler/db/schema.sql",
+          "src/callprofiler/graph/builder.py",
+          "tests/test_response_parser.py",
+          "tests/test_graph.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "configs/prompts/analyze_v001.txt",
+          "src/callprofiler/bulk/enricher.py",
+          "src/callprofiler/aggregate/summary_builder.py"
+        ]
+      },
+      "implementation_notes": [
+        "Имя поля выбрать консервативно: parsed_response_json TEXT или canonical_json TEXT.",
+        "raw_response оставить без изменений для аудита.",
+        "GraphBuilder сначала читает canonical JSON, fallback на raw_response.",
+        "Не хранить Python repr; только валидный JSON ensure_ascii=False."
+      ],
+      "acceptance": [
+        "Для markdown-wrapped JSON parser возвращает Analysis с canonical JSON.",
+        "Repository сохраняет canonical JSON.",
+        "GraphBuilder успешно строит граф из canonical JSON, даже если raw_response содержит markdown wrapper."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_response_parser.py tests/test_graph.py"
+      ],
+      "depends_on": [
+        "P0-007"
+      ]
+    },
+    {
+      "id": "P0-009",
+      "title": "Заменить INSERT OR REPLACE для analyses на safe upsert",
+      "type": "bugfix",
+      "status": "todo",
+      "priority": 0,
+      "description": "save_analysis/save_batch не должны удалять строку analyses и создавать новую, теряя feedback/created_at/schema metadata.",
+      "rationale": "INSERT OR REPLACE в SQLite физически удаляет старую строку. Для пользовательской обратной связи и audit trail это опасно.",
+      "artifacts": {
+        "touch": [
+          "src/callprofiler/db/repository.py",
+          "tests/test_repository.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "src/callprofiler/db/schema.sql",
+          "src/callprofiler/models.py"
+        ]
+      },
+      "implementation_notes": [
+        "Использовать INSERT ... ON CONFLICT(call_id) DO UPDATE, если есть unique constraint.",
+        "Если unique constraint отсутствует, добавить migration/unique index для analyses.call_id.",
+        "Сохранять feedback при update, если новый Analysis не задает feedback.",
+        "created_at не должен сбрасываться при повторном анализе; updated_at можно добавить отдельной задачей, если уже есть паттерн."
+      ],
+      "acceptance": [
+        "Повторный save_analysis не меняет analysis_id без необходимости.",
+        "Feedback не теряется.",
+        "Тест воспроизводит старую потерю feedback."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_repository.py"
+      ]
+    },
+    {
+      "id": "P0-010",
+      "title": "Добавить DB unique guard для дедупликации calls по user_id/source_md5",
+      "type": "bugfix",
+      "status": "todo",
+      "priority": 0,
+      "description": "Сделать дедупликацию calls атомарной на уровне SQLite, а не только через предварительный SELECT call_exists.",
+      "rationale": "Текущий check-then-insert race-prone и не защищен схемой. Повторный ingest/watch может создать дубли.",
+      "artifacts": {
+        "touch": [
+          "src/callprofiler/db/schema.sql",
+          "src/callprofiler/db/repository.py",
+          "tests/test_repository.py",
+          "tests/test_bulk_loader.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "src/callprofiler/ingest/ingester.py",
+          "src/callprofiler/bulk/loader.py"
+        ]
+      },
+      "implementation_notes": [
+        "Добавить unique index IF NOT EXISTS на calls(user_id, source_md5) с учетом nullable source_md5.",
+        "create_call должен корректно обрабатывать IntegrityError и возвращать существующий call_id или сигнал duplicate по текущему API.",
+        "Не ломать сценарий source_md5 NULL, если он реально используется."
+      ],
+      "acceptance": [
+        "Два create_call с одинаковым user_id/source_md5 не создают две строки.",
+        "Одинаковый source_md5 у разных user_id допустим.",
+        "Ingester/bulk loader корректно продолжают работать."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_repository.py tests/test_bulk_loader.py"
+      ]
+    },
+    {
+      "id": "P0-011",
+      "title": "Сделать save_transcripts идемпотентным",
+      "type": "bugfix",
+      "status": "todo",
+      "priority": 1,
+      "description": "Повторная обработка call_id не должна удваивать transcript segments и FTS rows.",
+      "rationale": "Reprocess/retry сейчас может повторно вставлять сегменты и ломать поиск, summaries, prompt context.",
+      "artifacts": {
+        "touch": [
+          "src/callprofiler/db/repository.py",
+          "src/callprofiler/db/schema.sql",
+          "tests/test_repository.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "src/callprofiler/pipeline/orchestrator.py",
+          "src/callprofiler/bulk/loader.py"
+        ]
+      },
+      "implementation_notes": [
+        "Перед вставкой новых transcript segments для call_id удалять старые segments в одной транзакции или использовать deterministic segment index + upsert.",
+        "FTS triggers должны корректно удалять/update rows; если есть только insert trigger, добавить delete/update triggers.",
+        "Не удалять аудио и calls."
+      ],
+      "acceptance": [
+        "Двойной save_transcripts(call_id, same_segments) оставляет ровно N segments.",
+        "FTS rows не дублируются.",
+        "Тест покрывает reprocess case."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_repository.py"
+      ]
+    },
+    {
+      "id": "P0-012",
+      "title": "Сделать save_events идемпотентным",
+      "type": "bugfix",
+      "status": "todo",
+      "priority": 1,
+      "description": "Повторный enrich/replay не должен плодить одинаковые events для одного call_id.",
+      "rationale": ".claude/rules/db.md требует duplicate guard по call_id+event_type+payload, но repository вставляет все events без проверки.",
+      "artifacts": {
+        "touch": [
+          "src/callprofiler/db/repository.py",
+          "src/callprofiler/db/schema.sql",
+          "tests/test_repository.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "src/callprofiler/bulk/enricher.py",
+          "src/callprofiler/graph/repository.py",
+          ".claude/rules/db.md"
+        ]
+      },
+      "implementation_notes": [
+        "Добавить unique index, учитывающий user_id/call_id/event_type/payload/source_quote/fact_id по возможности.",
+        "Если payload JSON, нормализовать до canonical string до сравнения.",
+        "Для graph facts с fact_id использовать fact_id как главный idempotency key."
+      ],
+      "acceptance": [
+        "Двойной save_events не удваивает одинаковые events.",
+        "Разные events одного типа с разным payload сохраняются.",
+        "Graph fact events не ломаются."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_repository.py tests/test_graph.py"
+      ]
+    },
+    {
+      "id": "P0-013",
+      "title": "Сделать save_promises идемпотентным",
+      "type": "bugfix",
+      "status": "todo",
+      "priority": 1,
+      "description": "Повторный анализ одного call_id не должен плодить promises-дубли.",
+      "rationale": "Promises являются рабочими обязательствами. Дубли ведут к ложным карточкам и неверным follow-up.",
+      "artifacts": {
+        "touch": [
+          "src/callprofiler/db/repository.py",
+          "src/callprofiler/db/schema.sql",
+          "tests/test_repository.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "src/callprofiler/analyze/response_parser.py",
+          "src/callprofiler/bulk/enricher.py"
+        ]
+      },
+      "implementation_notes": [
+        "Добавить duplicate guard по user_id/contact_id/call_id/who/what/due.",
+        "Нормализовать who values OWNER/OTHER/UNKNOWN.",
+        "Не удалять вручную закрытые promises при reanalysis."
+      ],
+      "acceptance": [
+        "Двойной save_promises не создает дубли.",
+        "Закрытый promise не переоткрывается без явной логики.",
+        "Тест покрывает same call reanalysis."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_repository.py"
+      ]
+    },
+    {
+      "id": "P0-014",
+      "title": "Закрыть user_id isolation для contact read/update methods",
+      "type": "bugfix",
+      "status": "todo",
+      "priority": 0,
+      "description": "Методы работы с contacts должны принимать user_id или проверять ownership до возврата/изменения.",
+      "rationale": "contact_id глобален в SQLite, но бизнес-правило проекта запрещает доступ к user data без user_id filter.",
+      "artifacts": {
+        "touch": [
+          "src/callprofiler/db/repository.py",
+          "src/callprofiler/bulk/name_extractor.py",
+          "src/callprofiler/deliver/card_generator.py",
+          "src/callprofiler/aggregate/summary_builder.py",
+          "tests/test_repository.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "CONSTITUTION.md",
+          ".claude/rules/db.md"
+        ]
+      },
+      "implementation_notes": [
+        "Добавить get_contact(user_id, contact_id) или новый get_contact_for_user, затем мигрировать call sites.",
+        "update_contact_guessed_name должен фильтровать user_id.",
+        "Сохранить compatibility wrapper только если он явно private и не используется в user-facing paths."
+      ],
+      "acceptance": [
+        "Нельзя получить contact другого user_id через public repository method.",
+        "NameExtractor не обновляет чужой contact_id.",
+        "Card generation проверяет user_id."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_repository.py tests/test_card_generator.py"
+      ]
+    },
+    {
+      "id": "P0-015",
+      "title": "Закрыть user_id isolation для call/transcript/analysis methods",
+      "type": "bugfix",
+      "status": "todo",
+      "priority": 0,
+      "description": "Методы get_transcript/get_analysis/update_call_status/update_call_paths/get_pending_calls/get_error_calls должны иметь явный user scope или документированный service scope.",
+      "rationale": "Без user_id filter batch/reprocess/status могут смешивать пользователей и нарушать CONSTITUTION.",
+      "artifacts": {
+        "touch": [
+          "src/callprofiler/db/repository.py",
+          "src/callprofiler/pipeline/orchestrator.py",
+          "src/callprofiler/pipeline/watcher.py",
+          "src/callprofiler/bulk/enricher.py",
+          "src/callprofiler/cli/main.py",
+          "tests/test_repository.py",
+          "tests/test_orchestrator.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "CONSTITUTION.md",
+          ".claude/rules/db.md"
+        ]
+      },
+      "implementation_notes": [
+        "Для global queue methods явно назвать service methods и убедиться, что downstream берет user_id из row и дальше не смешивает данные.",
+        "Для user-facing CLI commands добавить user_id filters.",
+        "get_transcript(call_id) заменить на get_transcript(user_id, call_id) в user-facing paths."
+      ],
+      "acceptance": [
+        "Тест: user A не может прочитать transcript/analysis user B.",
+        "process_batch продолжает работать с service-scope rows без утечки в prompts.",
+        "CLI user commands фильтруются по user_id."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_repository.py tests/test_orchestrator.py"
+      ],
+      "depends_on": [
+        "P0-014"
+      ]
+    },
+    {
+      "id": "P0-016",
+      "title": "Исправить fact_type semantics в events/entity_metrics",
+      "type": "bugfix",
+      "status": "todo",
+      "priority": 0,
+      "description": "Сохранить исходный structured_facts.fact_type так, чтобы EntityMetricsAggregator мог считать vagueness/blame_shift/emotion_spike/broken_promise.",
+      "rationale": "Сейчас разные fact_type превращаются в event_type='fact', а агрегатор считает несуществующие event_type. BS-index и профили недостоверны.",
+      "artifacts": {
+        "touch": [
+          "src/callprofiler/db/schema.sql",
+          "src/callprofiler/graph/repository.py",
+          "src/callprofiler/graph/aggregator.py",
+          "src/callprofiler/graph/builder.py",
+          "tests/test_graph.py",
+          "tests/test_bs_calibration.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "configs/prompts/analyze_v001.txt",
+          ".claude/rules/graph.md"
+        ]
+      },
+      "implementation_notes": [
+        "Предпочтительно добавить events.fact_type TEXT nullable и миграцию.",
+        "GraphRepository.upsert_fact сохраняет original fact_type.",
+        "Aggregator считает по fact_type, fallback на event_type для legacy.",
+        "Не расширять CHECK event_type без необходимости, если event_type остается coarse."
+      ],
+      "acceptance": [
+        "vagueness/blame_shift/emotion_spike влияют на bs_index.",
+        "Legacy events без fact_type не ломают aggregator.",
+        "Тест доказывает, что BS-index меняется при наличии таких facts."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_graph.py tests/test_bs_calibration.py"
+      ]
+    },
+    {
+      "id": "P0-017",
+      "title": "Сделать graph replay metrics честными",
+      "type": "bugfix",
+      "status": "todo",
+      "priority": 1,
+      "description": "Builder/replay stats должны отличать total seen, rejected low-confidence, rejected validator, inserted, ignored duplicate.",
+      "rationale": "Сейчас low-confidence может не считаться rejected, а INSERT OR IGNORE может считаться inserted. Health gate получает неверные метрики.",
+      "artifacts": {
+        "touch": [
+          "src/callprofiler/graph/builder.py",
+          "src/callprofiler/graph/repository.py",
+          "src/callprofiler/graph/replay.py",
+          "tests/test_replay_metrics.py",
+          "tests/test_graph.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "src/callprofiler/graph/auditor.py"
+        ]
+      },
+      "implementation_notes": [
+        "GraphRepository.upsert_fact должен возвращать inserted/ignored status.",
+        "Builder stats: facts_seen, facts_inserted, facts_rejected_confidence, facts_rejected_validator, facts_ignored_duplicate.",
+        "Replay rejection_rate считать по seen, не по already-filtered total."
+      ],
+      "acceptance": [
+        "Повторный replay не сообщает ложный рост inserted.",
+        "Low-confidence facts попадают в rejected stats.",
+        "Health gate использует обновленные поля или совместимый fallback."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_replay_metrics.py tests/test_graph.py"
+      ],
+      "depends_on": [
+        "P0-016"
+      ]
+    },
+    {
+      "id": "P0-018",
+      "title": "Сделать GraphAuditor read-only",
+      "type": "bugfix",
+      "status": "todo",
+      "priority": 1,
+      "description": "Аудит graph-health не должен менять entity_metrics или другие production tables.",
+      "rationale": "Health check должен быть проверкой, а не скрытым repair step. Иначе запуск диагностики меняет состояние и маскирует drift.",
+      "artifacts": {
+        "touch": [
+          "src/callprofiler/graph/auditor.py",
+          "tests/test_graph_auditor.py",
+          "tests/test_graph.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "src/callprofiler/graph/aggregator.py",
+          "src/callprofiler/graph/replay.py",
+          "src/callprofiler/cli/main.py"
+        ]
+      },
+      "implementation_notes": [
+        "Если drift check требует recalculation, считать в памяти или через temporary table/rollback transaction.",
+        "Не вызывать full_recalc_from_events с commit внутри auditor.",
+        "Если нужен repair, сделать отдельную CLI команду graph-repair или explicit flag, не в этой задаче."
+      ],
+      "acceptance": [
+        "Тест подтверждает, что run_checks не меняет entity_metrics.updated_at/bs_index.",
+        "graph-health остается диагностикой с exit code."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_graph_auditor.py tests/test_graph.py"
+      ]
+    },
+    {
+      "id": "P0-019",
+      "title": "Развести config validation по режимам",
+      "type": "refactoring",
+      "status": "todo",
+      "priority": 1,
+      "description": "load_config сейчас всегда требует существующий data_dir и ffmpeg. Для команд status/inspect/docs/test это слишком жестко.",
+      "rationale": "CLI/admin commands не должны падать из-за ffmpeg, если не трогают audio pipeline. Это повышает надежность unattended runner.",
+      "artifacts": {
+        "touch": [
+          "src/callprofiler/config.py",
+          "src/callprofiler/cli/main.py",
+          "tests/test_config.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "configs/base.yaml",
+          "README.md"
+        ]
+      },
+      "implementation_notes": [
+        "Добавить validation mode: strict/audio vs basic.",
+        "Audio commands process/watch требуют ffmpeg.",
+        "Non-audio commands могут грузить config без ffmpeg.",
+        "Не снижать проверки для production audio path."
+      ],
+      "acceptance": [
+        "status/inspect-schema не требуют ffmpeg.",
+        "process/watch продолжают fail-fast без ffmpeg.",
+        "Тесты покрывают оба режима."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_config.py"
+      ]
+    },
+    {
+      "id": "P0-020",
+      "title": "Обновить configs/base.yaml под актуальный C:/calls и Qwen3.5 Q8_0 contract",
+      "type": "configuration",
+      "status": "todo",
+      "priority": 1,
+      "description": "base.yaml должен соответствовать текущей машине и документации: C:/calls data path, llm_url, отсутствие реального HF token в YAML.",
+      "rationale": "CONTINUITY говорит о D->C migration, но config может оставаться на D:. Плюс хранение token в YAML противоречит безопасной практике.",
+      "artifacts": {
+        "touch": [
+          "configs/base.yaml",
+          "README.md",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "src/callprofiler/config.py",
+          "CONSTITUTION.md"
+        ]
+      },
+      "implementation_notes": [
+        "Не вставлять реальные секреты.",
+        "HF token брать из env или явно placeholder.",
+        "llm_url должен указывать endpoint /v1/chat/completions.",
+        "Model file path можно документировать, но не обязательно хранить в app config, если app общается только HTTP."
+      ],
+      "acceptance": [
+        "base.yaml не содержит реальный token.",
+        "data_dir/log_file не указывают устаревший D: если проект уже мигрировал на C:.",
+        "README согласован."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_config.py"
+      ],
+      "depends_on": [
+        "P0-001"
+      ]
+    },
+    {
+      "id": "P0-021",
+      "title": "Сделать LLM prompt budgeter для 16k context",
+      "type": "feature",
+      "status": "todo",
+      "priority": 2,
+      "description": "Перед отправкой в Qwen нужно детерминированно ограничивать transcript/context, чтобы не тратить контекст и не провоцировать обрезанный JSON.",
+      "rationale": "Qwen3.5-9B Q8_0 с -c 16384 не означает, что можно посылать весь длинный разговор плюс всю историю. Нужен бюджет.",
+      "artifacts": {
+        "touch": [
+          "src/callprofiler/analyze/prompt_budget.py",
+          "src/callprofiler/bulk/enricher.py",
+          "src/callprofiler/pipeline/orchestrator.py",
+          "tests/test_prompt_budget.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          ".claude/rules/llm.md",
+          "configs/prompts/analyze_v001.txt"
+        ]
+      },
+      "implementation_notes": [
+        "Без tokenizer dependency; использовать conservative char budget как первый шаг.",
+        "Стратегия: keep beginning + high-signal middle excerpts + ending; короткие segments убрать по существующим правилам.",
+        "Логировать estimated chars/tokens и truncation flag.",
+        "Не менять prompt schema в этой задаче."
+      ],
+      "acceptance": [
+        "Длинный transcript режется предсказуемо.",
+        "Короткий transcript не меняется.",
+        "Bulk и orchestrator используют один budgeter."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_prompt_budget.py"
+      ]
+    },
+    {
+      "id": "P0-022",
+      "title": "Сделать единый AnalysisService для bulk и orchestrator",
+      "type": "refactoring",
+      "status": "todo",
+      "priority": 2,
+      "description": "Убрать расхождение между bulk_enrich и Orchestrator: один сервис строит prompt/messages, вызывает LLM, парсит, сохраняет analysis/events/promises.",
+      "rationale": "Две реализации LLM-пути уже разошлись и создали runtime bug. Единый сервис снижает вероятность повторения.",
+      "artifacts": {
+        "touch": [
+          "src/callprofiler/analyze/service.py",
+          "src/callprofiler/bulk/enricher.py",
+          "src/callprofiler/pipeline/orchestrator.py",
+          "tests/test_analysis_service.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "src/callprofiler/analyze/llm_client.py",
+          "src/callprofiler/analyze/response_parser.py",
+          "src/callprofiler/analyze/prompt_builder.py"
+        ]
+      },
+      "implementation_notes": [
+        "Сначала вынести минимальный общий happy path.",
+        "Не рефакторить весь bulk pipeline; заменить только участок analyze one call.",
+        "Сервис должен принимать repo/config/user_id/call row/segments и возвращать typed result/stats."
+      ],
+      "acceptance": [
+        "Bulk и Orchestrator используют один AnalysisService для LLM анализа.",
+        "Существующие CLI semantics сохранены.",
+        "Тесты покрывают service без реального llama-server."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_analysis_service.py tests/test_bulk_enricher.py tests/test_orchestrator_llm.py"
+      ],
+      "depends_on": [
+        "P0-004",
+        "P0-005",
+        "P0-021"
+      ]
+    },
+    {
+      "id": "P0-023",
+      "title": "Ввести deterministic entity key normalizer",
+      "type": "feature",
+      "status": "todo",
+      "priority": 2,
+      "description": "Перестать доверять LLM transliteration для normalized_key; нормализовать ключи детерминированно в Python.",
+      "rationale": "LLM-generated normalized_key будет нестабилен: Иван Петров может стать ivan_petrov/ivanp/petrov_ivan. Это плодит сущности.",
+      "artifacts": {
+        "touch": [
+          "src/callprofiler/graph/entity_normalizer.py",
+          "src/callprofiler/graph/builder.py",
+          "tests/test_entity_normalizer.py",
+          "tests/test_graph.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "configs/prompts/analyze_v001.txt",
+          "src/callprofiler/graph/repository.py",
+          "src/callprofiler/graph/entity_resolver.py"
+        ]
+      },
+      "implementation_notes": [
+        "Стандартная библиотека only; сделать ru transliteration table.",
+        "Canonical key = entity_type + normalized canonical_name или phone/email if available.",
+        "LLM normalized_key можно сохранить как alias/source_key, но не как primary canonical key.",
+        "Добавить tests на кириллицу, пробелы, punctuation, case, aliases."
+      ],
+      "acceptance": [
+        "Одинаковое имя всегда дает одинаковый key.",
+        "Разные варианты регистра/пунктуации схлопываются.",
+        "GraphBuilder использует Python key normalizer."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_entity_normalizer.py tests/test_graph.py"
+      ]
+    },
+    {
+      "id": "P0-024",
+      "title": "Добавить dry-run отчет для entity merge candidates",
+      "type": "feature",
+      "status": "todo",
+      "priority": 2,
+      "description": "Сделать безопасный отчет кандидатов на merge сущностей без автоматического слияния.",
+      "rationale": "Корректное определение сущностей требует осторожного merge. Автоматическое слияние без review может необратимо портить граф.",
+      "artifacts": {
+        "touch": [
+          "src/callprofiler/graph/entity_resolver.py",
+          "src/callprofiler/cli/main.py",
+          "tests/test_entity_resolver.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "src/callprofiler/graph/repository.py",
+          ".claude/rules/graph.md"
+        ]
+      },
+      "implementation_notes": [
+        "CLI команда или расширение существующей entity-merge: --suggest --dry-run.",
+        "Вывод: canonical candidate, duplicate candidate, score, matching reasons, conflicting signals.",
+        "Никаких writes в dry-run."
+      ],
+      "acceptance": [
+        "Команда/метод возвращает candidates без изменения DB.",
+        "Тест подтверждает read-only behavior.",
+        "Score explanations есть в structured output."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_entity_resolver.py"
+      ],
+      "depends_on": [
+        "P0-023"
+      ]
+    },
+    {
+      "id": "P0-025",
+      "title": "Сделать graph-health полноценным quality gate",
+      "type": "feature",
+      "status": "todo",
+      "priority": 2,
+      "description": "Усилить graph-health: проверять schema_version coverage, canonical JSON coverage, replay metrics, bs_thresholds freshness, auditor read-only status.",
+      "rationale": "Сейчас health может проходить на неполных или искаженных данных. Он должен блокировать biography/profile генерацию при плохом графе.",
+      "artifacts": {
+        "touch": [
+          "src/callprofiler/cli/main.py",
+          "src/callprofiler/graph/health.py",
+          "tests/test_graph_health.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "src/callprofiler/graph/replay.py",
+          "src/callprofiler/graph/auditor.py",
+          ".claude/rules/graph.md"
+        ]
+      },
+      "implementation_notes": [
+        "Если graph/health.py отсутствует, создать небольшой service module; не раздувать cli/main.py.",
+        "Coverage checks: сколько analyses v2, сколько имеют canonical JSON, сколько graph facts.",
+        "Exit code 1 при critical; warning details печатать в JSON/text."
+      ],
+      "acceptance": [
+        "graph-health ловит отсутствие v2/canonical JSON.",
+        "graph-health не меняет DB.",
+        "Тесты покрывают pass/fail cases."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_graph_health.py"
+      ],
+      "depends_on": [
+        "P0-008",
+        "P0-018"
+      ]
+    },
+    {
+      "id": "P0-026",
+      "title": "Добавить resource phase runner для ASR/diarize/LLM batch",
+      "type": "feature",
+      "status": "todo",
+      "priority": 3,
+      "description": "Сделать проектный batch runner, который явно разделяет фазы GPU ASR/diarize и LLM enrich под внешний llama-server.",
+      "rationale": "При Qwen3.5-9B Q8_0 на RTX 3060 нельзя полагаться на неявную выгрузку моделей. Нужна дисциплина фаз и понятный операторский workflow.",
+      "artifacts": {
+        "touch": [
+          "src/callprofiler/pipeline/batch_runner.py",
+          "src/callprofiler/cli/main.py",
+          "tests/test_batch_runner.py",
+          "README.md",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "src/callprofiler/pipeline/orchestrator.py",
+          "src/callprofiler/bulk/enricher.py",
+          "CONSTITUTION.md"
+        ]
+      },
+      "implementation_notes": [
+        "Не запускать llama-server автоматически в первом срезе; только проверять endpoint и документировать operator step.",
+        "Фазы: prepare_audio, transcribe_diarize, unload, llm_enrich, graph_replay, summaries/cards.",
+        "Checkpoint statuses в DB/logs после каждой фазы.",
+        "Сделать тесты без реального GPU через mocks."
+      ],
+      "acceptance": [
+        "Есть CLI entry для фазового запуска или dry-run плана.",
+        "Runner не загружает Whisper во время LLM phase.",
+        "Логи показывают фазу и counts."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_batch_runner.py"
+      ],
+      "depends_on": [
+        "P0-022"
+      ]
+    },
+    {
+      "id": "P0-027",
+      "title": "Создать quality gold-set framework для entity/role/relation extraction",
+      "type": "tests",
+      "status": "todo",
+      "priority": 3,
+      "description": "Добавить минимальный offline eval набор для проверки entities/relations/roles без реального LLM.",
+      "rationale": "Цель проекта — максимально корректное определение сущностей/связей/ролей. Это невозможно улучшать без измерения.",
+      "artifacts": {
+        "touch": [
+          "tests/fixtures/extraction_goldset.json",
+          "tests/test_extraction_quality.py",
+          "src/callprofiler/quality/extraction_eval.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "configs/prompts/analyze_v001.txt",
+          "src/callprofiler/graph/builder.py",
+          "src/callprofiler/graph/validator.py"
+        ]
+      },
+      "implementation_notes": [
+        "Goldset должен быть маленьким: 5-10 synthetic transcripts, без личных реальных данных.",
+        "Проверять deterministic downstream: parser -> graph builder -> metrics.",
+        "Метрики: entity precision/recall, relation exact match, speaker/role accuracy.",
+        "Не вызывать реальный LLM в тестах."
+      ],
+      "acceptance": [
+        "Есть fixture с expected entities/relations/facts.",
+        "Есть eval function, возвращающая structured metrics.",
+        "CI tests не требуют модели."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_extraction_quality.py"
+      ]
+    },
+    {
+      "id": "P0-028",
+      "title": "Сократить cli/main.py через service modules без изменения поведения",
+      "type": "refactoring",
+      "status": "todo",
+      "priority": 4,
+      "description": "cli/main.py стал очень большим и содержит много команд. Нужно выделять новые сервисы, но только после фикса P0 блокеров.",
+      "rationale": "Большой CLI файл повышает конфликтность и снижает надежность изменений. Но рефакторинг не должен идти раньше критических багов.",
+      "artifacts": {
+        "touch": [
+          "src/callprofiler/cli/main.py",
+          "src/callprofiler/cli/graph_commands.py",
+          "tests/test_cli.py",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "src/callprofiler/cli/main.py"
+        ]
+      },
+      "implementation_notes": [
+        "Перенести только graph-related command handlers в отдельный модуль.",
+        "Не менять argparse public interface.",
+        "Не смешивать с bugfix задачами."
+      ],
+      "acceptance": [
+        "CLI команды регистрируются как раньше.",
+        "main.py стал меньше.",
+        "Тесты CLI/help проходят."
+      ],
+      "verification": [
+        "python -m pytest -q tests/test_cli.py"
+      ],
+      "depends_on": [
+        "P0-025"
+      ]
+    },
+    {
+      "id": "P0-029",
+      "title": "Обновить README после стабилизации pipeline",
+      "type": "documentation",
+      "status": "todo",
+      "priority": 5,
+      "description": "README сейчас содержит устаревшую структуру и старые runtime сведения. После P0/P1 фиксов привести его к рабочему состоянию.",
+      "rationale": "README для человека должен описывать реальный запуск, а не исторический прототип.",
+      "artifacts": {
+        "touch": [
+          "README.md",
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "AGENTS.md",
+          "CLAUDE.md",
+          "configs/base.yaml",
+          "src/callprofiler/cli/main.py"
+        ]
+      },
+      "implementation_notes": [
+        "Описать минимальный setup, запуск llama-server, запуск tests, запуск process/watch/bulk-enrich.",
+        "Удалить старые module names, которых нет в src/callprofiler.",
+        "Указать known limitations и safety notes по 0.0.0.0."
+      ],
+      "acceptance": [
+        "README соответствует текущей структуре src/callprofiler.",
+        "Нет активных инструкций Ollama/Qwen2.5.",
+        "Команды запуска актуальны."
+      ],
+      "verification": [
+        "Документационная задача; тесты опциональны."
+      ],
+      "depends_on": [
+        "P0-001",
+        "P0-004",
+        "P0-022"
+      ]
+    },
+    {
+      "id": "P0-030",
+      "title": "Финальный стабилизационный прогон и журналирование",
+      "type": "tests",
+      "status": "todo",
+      "priority": 9,
+      "description": "После выполнения серии задач прогнать полный test suite, собрать список оставшихся failed backlog items, обновить журналы и подготовить commit summary.",
+      "rationale": "Unattended runner должен завершаться управляемым checkpoint, а не оставлять непонятное состояние.",
+      "artifacts": {
+        "touch": [
+          "CHANGELOG.md",
+          "CONTINUITY.md"
+        ],
+        "read": [
+          "agent_backlog.json",
+          ".agent_runs"
+        ]
+      },
+      "implementation_notes": [
+        "Не вносить feature changes.",
+        "Собрать краткую таблицу done/failed/skipped.",
+        "Если runner делал checkpoint commits, указать hashes в CONTINUITY."
+      ],
+      "acceptance": [
+        "Полный pytest результат записан.",
+        "CHANGELOG/CONTINUITY отражают batch итог.",
+        "Backlog statuses актуальны."
+      ],
+      "verification": [
+        "python -m pytest -q"
+      ]
+    }
+  ]
+}
