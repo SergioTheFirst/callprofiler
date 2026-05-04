@@ -19,6 +19,7 @@ from callprofiler.analyze.profanity_detector import count_profanity
 from callprofiler.analyze.response_parser import parse_llm_response
 from callprofiler.config import load_config
 from callprofiler.db.repository import Repository
+from callprofiler.events import emit_event_sync
 from callprofiler.models import Analysis
 
 log = logging.getLogger(__name__)
@@ -469,6 +470,20 @@ def bulk_enrich(
                 stats["failed"] += _flush_batch(repo, pending_batch)
                 if cfg.features.enable_graph_update:
                     _update_graph(repo, [it["call_id"] for it in pending_batch])
+
+                # Emit real-time events to dashboard
+                for item in pending_batch:
+                    try:
+                        emit_event_sync("analysis_complete", {
+                            "call_id": item["call_id"],
+                            "contact_label": call.get("display_name") or call.get("source_filename", "Unknown"),
+                            "risk_score": item["analysis"].risk_score,
+                            "call_type": item["analysis"].call_type,
+                            "summary": item["analysis"].summary,
+                        })
+                    except Exception as e:
+                        log.warning("[enricher] Failed to emit event for call_id=%d: %s", item["call_id"], e)
+
                 pending_batch.clear()
 
     except KeyboardInterrupt:
@@ -482,6 +497,22 @@ def bulk_enrich(
         stats["failed"] += _flush_batch(repo, pending_batch)
         if cfg.features.enable_graph_update:
             _update_graph(repo, [it["call_id"] for it in pending_batch])
+
+        # Emit real-time events to dashboard
+        for item in pending_batch:
+            call = repo.get_call_by_id(item["call_id"])
+            if not call:
+                continue
+            try:
+                emit_event_sync("analysis_complete", {
+                    "call_id": item["call_id"],
+                    "contact_label": call.get("display_name") or call.get("source_filename", "Unknown"),
+                    "risk_score": item["analysis"].risk_score,
+                    "call_type": item["analysis"].call_type,
+                    "summary": item["analysis"].summary,
+                })
+            except Exception as e:
+                log.warning("[enricher] Failed to emit event for call_id=%d: %s", item["call_id"], e)
 
     elapsed_total = time.time() - global_start
     avg_tps = tokens_total / sum(llm_times) if llm_times else 0

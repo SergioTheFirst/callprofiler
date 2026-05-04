@@ -16,11 +16,10 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from callprofiler.dashboard.config import POLL_INTERVAL_SEC, SSE_KEEPALIVE_SEC
+from callprofiler.dashboard.config import SSE_KEEPALIVE_SEC
 from callprofiler.dashboard.db_reader import DashboardDBReader
 from callprofiler.dashboard.models import (
     CallHistoryItem,
-    DashboardEvent,
     DashboardStats,
     EntityProfile,
 )
@@ -32,7 +31,6 @@ app = FastAPI(title="CallProfiler Dashboard", version="1.0.0")
 # Global state
 _USER_ID: str | None = None
 _DB_READER: DashboardDBReader | None = None
-_LAST_TIMESTAMP: str | None = None
 
 # Templates and static files
 DASHBOARD_DIR = Path(__file__).parent
@@ -64,87 +62,38 @@ async def index(request: Request):
 @app.get("/events/stream")
 async def event_stream(request: Request):
     """SSE endpoint for real-time events."""
-    global _LAST_TIMESTAMP
+    from callprofiler.events import subscribe, unsubscribe
 
     async def generate():
-        global _LAST_TIMESTAMP
+        queue = await subscribe()
         last_keepalive = datetime.now()
 
-        while True:
-            if await request.is_disconnected():
-                log.info("Client disconnected from SSE stream")
-                break
+        try:
+            while True:
+                if await request.is_disconnected():
+                    log.info("Client disconnected from SSE stream")
+                    break
 
-            try:
-                # Poll database
-                current_ts = _DB_READER.get_latest_timestamp(_USER_ID)
+                try:
+                    # Wait for event with timeout for keepalive
+                    event = await asyncio.wait_for(queue.get(), timeout=SSE_KEEPALIVE_SEC)
+                    yield f"data: {json.dumps({'event_type': event.event_type, 'timestamp': event.timestamp, 'data': event.data})}\n\n"
+                    last_keepalive = datetime.now()
 
-                if current_ts and current_ts != _LAST_TIMESTAMP:
-                    # Detect what changed
-                    events = _detect_changes(_LAST_TIMESTAMP, current_ts)
-                    for event in events:
-                        yield f"data: {event.model_dump_json()}\n\n"
-                    _LAST_TIMESTAMP = current_ts
-
-                # Send keepalive comment
-                now = datetime.now()
-                if (now - last_keepalive).total_seconds() > SSE_KEEPALIVE_SEC:
+                except asyncio.TimeoutError:
+                    # Send keepalive comment
+                    now = datetime.now()
                     yield f": keepalive {now.isoformat()}\n\n"
                     last_keepalive = now
 
-            except Exception as e:
-                log.error("Error in SSE stream: %s", e, exc_info=True)
-                yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+                except Exception as e:
+                    log.error("Error in SSE stream: %s", e, exc_info=True)
+                    yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
 
-            await asyncio.sleep(POLL_INTERVAL_SEC)
+        finally:
+            await unsubscribe(queue)
 
     return StreamingResponse(generate(), media_type="text/event-stream")
-
-
-def _detect_changes(old_ts: str | None, new_ts: str) -> list[DashboardEvent]:
-    """Detect what changed between timestamps."""
-    events = []
-
-    # Get recent calls (last 20 to catch rapid updates)
-    recent_calls = _DB_READER.get_recent_calls(_USER_ID, limit=20)
-
-    for call in recent_calls:
-        call_updated = call.get("updated_at") or call.get("created_at")
-        if not old_ts or (call_updated and call_updated > old_ts):
-            # New call or updated call - emit event based on current status
-            if call["status"] == "pending":
-                events.append(DashboardEvent(
-                    event_type="call_created",
-                    timestamp=call_updated or datetime.now().isoformat(),
-                    data={
-                        "call_id": call["call_id"],
-                        "contact_label": call["contact_label"],
-                        "direction": call["direction"],
-                    },
-                ))
-            elif call["status"] == "transcribed":
-                events.append(DashboardEvent(
-                    event_type="transcription_complete",
-                    timestamp=call_updated or datetime.now().isoformat(),
-                    data={
-                        "call_id": call["call_id"],
-                        "contact_label": call["contact_label"],
-                    },
-                ))
-            elif call["status"] == "analyzed":
-                events.append(DashboardEvent(
-                    event_type="analysis_complete",
-                    timestamp=call_updated or datetime.now().isoformat(),
-                    data={
-                        "call_id": call["call_id"],
-                        "contact_label": call["contact_label"],
-                        "risk_score": call.get("risk_score"),
-                        "call_type": call.get("call_type"),
-                        "summary": call.get("summary"),
-                    },
-                ))
-
-    return events
 
 
 @app.get("/api/history")
