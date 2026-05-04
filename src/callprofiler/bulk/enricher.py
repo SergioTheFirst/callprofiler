@@ -473,13 +473,23 @@ def bulk_enrich(
 
                 # Emit real-time events to dashboard
                 for item in pending_batch:
-                    call = repo.get_call_by_id(item["call_id"])
-                    if not call:
-                        continue
                     try:
+                        # Get call metadata for event
+                        conn = repo._get_conn()
+                        call_row = conn.execute(
+                            """SELECT c.call_id, c.source_filename, cnt.display_name
+                               FROM calls c
+                               LEFT JOIN contacts cnt ON c.contact_id = cnt.contact_id
+                               WHERE c.call_id = ?""",
+                            (item["call_id"],)
+                        ).fetchone()
+                        if not call_row:
+                            continue
+
+                        contact_label = call_row["display_name"] or call_row["source_filename"] or "Unknown"
                         emit_event_sync("analysis_complete", {
                             "call_id": item["call_id"],
-                            "contact_label": call.get("display_name") or call.get("source_filename", "Unknown"),
+                            "contact_label": contact_label,
                             "risk_score": item["analysis"].risk_score,
                             "call_type": item["analysis"].call_type,
                             "summary": item["analysis"].summary,
@@ -503,13 +513,23 @@ def bulk_enrich(
 
         # Emit real-time events to dashboard
         for item in pending_batch:
-            call = repo.get_call_by_id(item["call_id"])
-            if not call:
-                continue
             try:
+                # Get call metadata for event
+                conn = repo._get_conn()
+                call_row = conn.execute(
+                    """SELECT c.call_id, c.source_filename, cnt.display_name
+                       FROM calls c
+                       LEFT JOIN contacts cnt ON c.contact_id = cnt.contact_id
+                       WHERE c.call_id = ?""",
+                    (item["call_id"],)
+                ).fetchone()
+                if not call_row:
+                    continue
+
+                contact_label = call_row["display_name"] or call_row["source_filename"] or "Unknown"
                 emit_event_sync("analysis_complete", {
                     "call_id": item["call_id"],
-                    "contact_label": call.get("display_name") or call.get("source_filename", "Unknown"),
+                    "contact_label": contact_label,
                     "risk_score": item["analysis"].risk_score,
                     "call_type": item["analysis"].call_type,
                     "summary": item["analysis"].summary,
