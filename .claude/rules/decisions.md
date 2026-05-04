@@ -84,6 +84,16 @@
 - Trains LLM for next session (could improve prompts)
 - Respects user's time
 
+### Why FastAPI + SSE for dashboard (not WebSockets/polling)?
+- **SSE (Server-Sent Events):** One-way real-time push from server to browser
+- Simpler than WebSockets (no bidirectional complexity)
+- Automatic reconnection built into EventSource API
+- Graceful degradation: fallback to 5-second polling after 5 reconnect failures
+- Read-only DB access via `file:path?mode=ro` URI = no locks, no interference with pipeline
+- FastAPI = async, automatic OpenAPI docs, Pydantic validation
+- Polling-based change detection: check MAX(updated_at) every 2 seconds
+- No Redis/message queue needed (SQLite timestamp is the event source)
+
 ## Process Decisions
 
 ### Why Memory Protocol (CONTINUITY.md + CHANGELOG.md)?

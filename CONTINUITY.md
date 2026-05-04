@@ -8,6 +8,10 @@
 
 ## Status
 
+DONE: Real-time Web Dashboard with SSE, psychology profiles, dark theme UI (2026-05-04)
+NOW: Dashboard module complete (8 files), CLI command integrated, committed (d2b04b0)
+NEXT: Test dashboard with real data: python -m callprofiler dashboard --user USER_ID
+BLOCKERS: None
 DONE: Atomic agent backlog + unattended runner for opencode/DeepSeek work queue (2026-05-01)
 NOW: 30 todo tasks in agent_backlog.json; runner ready at tools/agent_runner.py
 NEXT: Run runner in dry-run first, then run with opencode command in direct or patch mode
@@ -36,6 +40,111 @@ DONE: PSYCHOLOGY PROFILER MVP — PsychologyProfiler class + CLI person-profile/
 NOW: 196 tests pass — ready for next pipeline run
 NEXT: Run build-book-and-profiles.bat to complete Stages 2-5
 BLOCKERS: None
+
+---
+
+## Текущее состояние: 2026-05-04 (Real-time Web Dashboard)
+
+### Что сделано
+
+**Dashboard module** — 8 новых файлов в `src/callprofiler/dashboard/`:
+
+1. **`__init__.py`** — module entry point
+   - `run_dashboard(user_id, port=8765, host="127.0.0.1")` — запускает uvicorn server
+   
+2. **`config.py`** — centralized constants
+   - `POLL_INTERVAL_SEC = 2` — частота проверки БД на изменения
+   - `SSE_KEEPALIVE_SEC = 30` — интервал keepalive комментариев
+   - `HISTORY_PAGE_SIZE = 50` — количество звонков в истории
+   - `DB_QUERY_TIMEOUT_SEC = 5` — таймаут SQLite запросов
+
+3. **`models.py`** — Pydantic models для API contracts
+   - `DashboardEvent` — SSE event (event_type, timestamp, data)
+   - `CallHistoryItem` — история звонков (call_id, contact_label, status, risk_score, summary)
+   - `EntityProfile` — полный профиль персонажа (metrics, temperament, big_five, motivation, prose, traits)
+   - `DashboardStats` — статистика системы (total_calls, total_entities, total_portraits, avg_risk)
+
+4. **`db_reader.py`** — read-only SQLite access
+   - `DashboardDBReader` — класс для чтения из `callprofiler.db` через `file:path?mode=ro` URI
+   - `get_latest_timestamp()` — MAX(updated_at) для change detection
+   - `get_recent_calls()` — последние N звонков с JOIN на analyses
+   - `get_entity_profile()` — полный профиль через `PsychologyProfiler.build_profile()`
+   - `get_stats()` — агрегаты (COUNT, AVG) по calls/entities/portraits
+
+5. **`server.py`** — FastAPI application
+   - `GET /` — serve index.html (Jinja2 template)
+   - `GET /events/stream` — SSE endpoint (async generator, polling-based change detection)
+   - `GET /api/history?limit=50` — список звонков (JSON)
+   - `GET /api/entity/{entity_id}` — профиль персонажа (JSON)
+   - `GET /api/stats` — статистика системы (JSON)
+   - Global state: `_USER_ID`, `_DB_READER`, `_LAST_TIMESTAMP`
+
+6. **`templates/index.html`** — single-page app
+   - Header: logo, stats (звонков/персонажей/портретов/средний риск)
+   - Sidebar: live events stream (last 20 events)
+   - Main: история звонков (last 50 calls, click → entity profile modal)
+   - Modal: entity profile (metrics, temperament, Big Five, motivation, prose, traits)
+
+7. **`static/style.css`** — dark theme styling
+   - Color scheme: `--bg-primary: #0a0e1a`, `--accent-primary: #3b82f6`
+   - Animations: slideIn (events), pulse (connection status)
+   - Risk badges: 🟢 <30, 🟡 30-70, 🔴 >70
+   - Big Five bars: gradient fill (#3b82f6 → #8b5cf6)
+
+8. **`static/app.js`** — frontend logic
+   - SSE connection via `EventSource('/events/stream')`
+   - Graceful degradation: fallback to 5-second polling after 5 reconnect failures
+   - Event handlers: `addLiveEvent()`, `loadHistory()`, `loadStats()`, `openEntityProfile()`
+   - Modal rendering: `renderEntityProfile()` — temperament, Big Five, motivation, prose, traits
+
+**CLI integration:**
+
+Добавлен `cmd_dashboard()` в `cli/main.py`:
+```python
+def cmd_dashboard(args: argparse.Namespace) -> int:
+    """Start real-time dashboard web server."""
+    from callprofiler.dashboard import run_dashboard
+    run_dashboard(args.user_id, port=args.port, host=args.host)
+    return 0
+```
+
+Subparser:
+```bash
+python -m callprofiler dashboard --user USER_ID [--port 8765] [--host 127.0.0.1]
+```
+
+**Key features:**
+
+- **Real-time SSE stream** — server pushes events (call_created, transcription_complete, analysis_complete) to browser
+- **Read-only DB access** — `file:path?mode=ro` URI, no writes, no locks, no interference with pipeline
+- **Psychology profiles** — temperament (choleric/sanguine/phlegmatic/melancholic), Big Five OCEAN, McClelland motivation
+- **Graceful degradation** — if SSE fails after 5 reconnects, fallback to 5-second polling
+- **Dark theme UI** — premium high-tech styling (#0a0e1a background, #3b82f6 accent, gradient fills, animations)
+- **Live + History** — sidebar shows last 20 events, main area shows last 50 calls
+- **Entity profiles** — click on call → modal with full psychology profile (metrics, temperament, Big Five, motivation, prose, traits)
+
+### Ветка разработки
+
+`main` (direct push)
+
+### Тесты
+
+- CLI help output verified: `python -m callprofiler dashboard --help` — OK
+- All required arguments present (--user, --port, --host)
+- No import errors, no syntax errors
+- 196 tests pass (pre-existing, dashboard не добавляет новых тестов)
+
+### Git commit
+
+`d2b04b0` — "feat: real-time web dashboard with SSE, psychology profiles, dark theme UI"
+
+### Следующий шаг
+
+- Запустить dashboard с реальными данными: `python -m callprofiler dashboard --user USER_ID`
+- Открыть в браузере: `http://127.0.0.1:8765`
+- Проверить SSE connection (зелёный индикатор в sidebar)
+- Кликнуть на звонок в истории → проверить modal с psychology profile
+- Мониторить runtime errors в uvicorn logs
 
 ---
 

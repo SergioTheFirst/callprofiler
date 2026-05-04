@@ -45,6 +45,7 @@ THINK (what files affected, what depends on them) → PLAN (3-5 steps) → IMPLE
 ```bash
 set PYTHONPATH=C:\pro\callprofiler\src
 python -m callprofiler <command>          # CLI entry point
+python -m callprofiler dashboard --user USER_ID [--port 8765] [--host 127.0.0.1]  # Real-time web dashboard
 python -m pytest tests/ -v               # Tests
 git add . && git commit -m "msg" && git push origin main
 ```

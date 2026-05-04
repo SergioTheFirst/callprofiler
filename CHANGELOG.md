@@ -8,6 +8,36 @@
 
 ## [Unreleased]
 
+### Added — Real-time Web Dashboard (2026-05-04)
+
+- `src/callprofiler/dashboard/` module (8 files):
+  - `__init__.py`: `run_dashboard(user_id, port, host)` — uvicorn server entry point
+  - `config.py`: centralized constants (POLL_INTERVAL_SEC=2, SSE_KEEPALIVE_SEC=30, HISTORY_PAGE_SIZE=50, DB_QUERY_TIMEOUT_SEC=5)
+  - `models.py`: Pydantic models (DashboardEvent, CallHistoryItem, EntityProfile, DashboardStats)
+  - `db_reader.py`: `DashboardDBReader` — read-only SQLite access via `file:path?mode=ro` URI, integrates `PsychologyProfiler` for entity profiles
+  - `server.py`: FastAPI app with 5 endpoints:
+    - `GET /` — serve index.html (Jinja2 template)
+    - `GET /events/stream` — SSE endpoint (async generator, polling-based change detection)
+    - `GET /api/history?limit=50` — call history (JSON)
+    - `GET /api/entity/{entity_id}` — full psychology profile (JSON)
+    - `GET /api/stats` — system statistics (JSON)
+  - `templates/index.html`: single-page app (header with stats, sidebar with live events, main area with call history, modal for entity profiles)
+  - `static/style.css`: dark theme (#0a0e1a bg, #3b82f6 accent, animations, gradient fills)
+  - `static/app.js`: SSE connection via EventSource, graceful degradation to 5-second polling after 5 reconnect failures
+- `src/callprofiler/cli/main.py`:
+  - Added `cmd_dashboard()` — starts uvicorn server with user_id, port, host
+  - Added `dashboard` subparser: `python -m callprofiler dashboard --user USER_ID [--port 8765] [--host 127.0.0.1]`
+
+**Key features:**
+- Real-time SSE stream pushes events (call_created, transcription_complete, analysis_complete) to browser
+- Read-only DB access (no writes, no locks, no interference with pipeline)
+- Psychology profiles in modal (temperament, Big Five OCEAN, McClelland motivation, prose, traits)
+- Dark theme premium UI with animations and gradient fills
+- Live events sidebar (last 20) + call history (last 50)
+- Graceful degradation: SSE → polling fallback
+
+**Verification:** CLI help output verified, no import errors, 196 tests pass (pre-existing).
+
 ### Added — Atomic agent backlog + unattended runner (2026-05-01)
 
 - `agent_backlog.json`:
