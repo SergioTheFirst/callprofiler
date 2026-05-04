@@ -53,12 +53,6 @@ document.addEventListener('DOMContentLoaded', () => {
     loadHistory();
     connectSSE();
 
-    // Refresh button
-    document.getElementById('refresh-btn').addEventListener('click', () => {
-        loadHistory();
-        loadStats();
-    });
-
     // Modal close
     document.getElementById('modal-close').addEventListener('click', closeModal);
     document.getElementById('entity-modal').addEventListener('click', (e) => {
@@ -126,7 +120,7 @@ function updateConnectionStatus(status) {
     }
 }
 
-// Add live event to stream
+// Add live event to stream (newest at top)
 function addLiveEvent(event) {
     const container = document.getElementById('live-events');
 
@@ -136,44 +130,82 @@ function addLiveEvent(event) {
     }
 
     const eventCard = document.createElement('div');
-    eventCard.className = 'event-card';
+    eventCard.className = 'event-card-compact';
 
-    const timestamp = new Date(event.timestamp).toLocaleTimeString('ru-RU');
+    const timestamp = new Date(event.timestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const label = EVENT_LABELS[event.event_type] || event.event_type;
 
     let content = `
-        <div class="flex items-center justify-between mb-2">
-            <span class="text-sm font-semibold text-primary">${label}</span>
-            <span class="text-xs text-muted">${timestamp}</span>
-        </div>
+        <div class="flex items-start gap-2">
+            <div class="event-icon">${getEventIcon(event.event_type)}</div>
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between gap-2 mb-1">
+                    <span class="text-xs font-semibold text-primary truncate">${getEventLabel(event.event_type)}</span>
+                    <span class="text-xs text-muted whitespace-nowrap">${timestamp}</span>
+                </div>
     `;
 
     if (event.data.contact_label) {
-        content += `<div class="text-sm text-secondary">${event.data.contact_label}</div>`;
+        content += `<div class="text-xs text-secondary truncate mb-1">${event.data.contact_label}</div>`;
     }
 
+    // Add more informative details
+    const details = [];
+    if (event.data.direction) {
+        details.push(event.data.direction === 'incoming' ? '📥' : '📤');
+    }
+    if (event.data.call_type) {
+        details.push(event.data.call_type);
+    }
     if (event.data.risk_score !== undefined) {
-        const riskClass = event.data.risk_score < 30 ? 'risk-low' :
-                         event.data.risk_score < 70 ? 'risk-medium' : 'risk-high';
-        content += `<div class="mt-2"><span class="risk-badge ${riskClass}">Риск: ${event.data.risk_score}</span></div>`;
+        const riskEmoji = event.data.risk_score < 30 ? '🟢' : event.data.risk_score < 70 ? '🟡' : '🔴';
+        details.push(`${riskEmoji} ${event.data.risk_score}`);
+    }
+    if (details.length > 0) {
+        content += `<div class="text-xs text-muted">${details.join(' · ')}</div>`;
     }
 
     if (event.data.summary) {
-        content += `<div class="text-xs text-muted mt-2">${truncate(event.data.summary, 80)}</div>`;
+        content += `<div class="text-xs text-secondary mt-1 line-clamp-2">${truncate(event.data.summary, 100)}</div>`;
     }
 
+    content += `</div></div>`;
     eventCard.innerHTML = content;
+
+    // Insert at top (newest first)
     container.insertBefore(eventCard, container.firstChild);
 
-    // Keep only last 20 events
-    while (container.children.length > 20) {
+    // Keep only last 30 events
+    while (container.children.length > 30) {
         container.removeChild(container.lastChild);
     }
 
-    // Refresh history if analysis complete
+    // Auto-refresh history if analysis complete
     if (event.event_type === 'analysis_complete') {
-        setTimeout(loadHistory, 1000);
+        setTimeout(loadHistory, 800);
     }
+}
+
+// Get event icon
+function getEventIcon(eventType) {
+    const icons = {
+        'call_created': '📞',
+        'transcription_complete': '📝',
+        'analysis_complete': '🧠',
+        'entity_updated': '👤'
+    };
+    return icons[eventType] || '📋';
+}
+
+// Get event label (short)
+function getEventLabel(eventType) {
+    const labels = {
+        'call_created': 'Новый звонок',
+        'transcription_complete': 'Транскрипция',
+        'analysis_complete': 'Анализ готов',
+        'entity_updated': 'Профиль обновлён'
+    };
+    return labels[eventType] || eventType;
 }
 
 // Load statistics
@@ -224,16 +256,21 @@ async function loadHistory() {
     }
 }
 
-// Create call card element
+// Create call card element (compact premium design)
 function createCallCard(call) {
     const card = document.createElement('div');
     card.className = 'call-card';
 
     const datetime = call.call_datetime ?
-        new Date(call.call_datetime).toLocaleString('ru-RU') :
+        new Date(call.call_datetime).toLocaleString('ru-RU', {
+            day: '2-digit',
+            month: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+        }) :
         'Дата неизвестна';
 
-    const direction = call.direction === 'incoming' ? '📥 Входящий' : '📤 Исходящий';
+    const directionIcon = call.direction === 'incoming' ? '📥' : '📤';
     const duration = call.duration_sec ? formatDuration(call.duration_sec) : '—';
 
     const statusClass = `status-${call.status}`;
@@ -246,33 +283,48 @@ function createCallCard(call) {
 
     let riskBadge = '';
     if (call.risk_score !== null && call.risk_score !== undefined) {
+        const riskEmoji = call.risk_score < 30 ? '🟢' : call.risk_score < 70 ? '🟡' : '🔴';
         const riskClass = call.risk_score < 30 ? 'risk-low' :
                          call.risk_score < 70 ? 'risk-medium' : 'risk-high';
-        riskBadge = `<span class="risk-badge ${riskClass}">Риск: ${call.risk_score}</span>`;
+        riskBadge = `<span class="risk-badge ${riskClass}">${riskEmoji} ${call.risk_score}</span>`;
+    }
+
+    // Build metadata line with more info
+    const metadata = [];
+    metadata.push(`${directionIcon} ${call.direction === 'incoming' ? 'Входящий' : 'Исходящий'}`);
+    metadata.push(`⏱️ ${duration}`);
+    if (call.call_type) {
+        const typeIcons = {
+            'business': '💼',
+            'personal': '👤',
+            'support': '🛠️',
+            'sales': '💰'
+        };
+        const typeIcon = typeIcons[call.call_type] || '📋';
+        metadata.push(`${typeIcon} ${call.call_type}`);
     }
 
     card.innerHTML = `
-        <div class="flex items-start justify-between mb-3">
-            <div>
-                <div class="text-lg font-semibold text-primary mb-1">${call.contact_label}</div>
-                <div class="text-sm text-muted">${datetime}</div>
+        <div class="flex items-start justify-between mb-2">
+            <div class="flex-1 min-w-0">
+                <div class="text-base font-semibold text-primary mb-1 truncate">${call.contact_label}</div>
+                <div class="text-xs text-muted">${datetime}</div>
             </div>
-            <span class="status-badge ${statusClass}">${statusLabel}</span>
+            <div class="flex items-center gap-2 ml-3">
+                ${riskBadge}
+                <span class="status-badge ${statusClass}">${statusLabel}</span>
+            </div>
         </div>
-        <div class="flex items-center gap-4 text-sm text-secondary mb-2">
-            <span>${direction}</span>
-            <span>⏱️ ${duration}</span>
-            ${call.call_type ? `<span>📋 ${call.call_type}</span>` : ''}
+        <div class="flex items-center gap-3 text-xs text-secondary mb-2">
+            ${metadata.join(' · ')}
         </div>
-        ${riskBadge}
-        ${call.summary ? `<div class="text-sm text-secondary mt-3">${truncate(call.summary, 150)}</div>` : ''}
+        ${call.summary ? `<div class="text-xs text-secondary leading-relaxed line-clamp-2">${truncate(call.summary, 180)}</div>` : ''}
     `;
 
     // Click to open entity profile (if entity exists)
     if (call.contact_label && call.status === 'analyzed') {
         card.style.cursor = 'pointer';
         card.addEventListener('click', () => {
-            // Try to find entity by contact_label
             searchAndOpenEntity(call.contact_label);
         });
     }
