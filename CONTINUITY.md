@@ -8,12 +8,13 @@
 
 ## Status
 
-DONE: Biography pipeline resume fix — p2_entities now skips completed types (2026-05-04)
-NOW: p2_entities застрял на 2/5 (PERSON, PLACE done; COMPANY, PROJECT, EVENT remain)
-     Fixed: added get_completed_items() check to skip already-processed types
-     Fixed: build-book-and-profiles.bat now uses correct PYTHONPATH + python -m callprofiler
-     Testing: p2_entities resume in progress (background task b03k9613i)
-NEXT: Wait for p2_entities completion, then run full build-book-and-profiles.bat
+DONE: Biography pipeline resume fix — p2_entities completed successfully (2026-05-04)
+DONE: p2_entities test completed — all 5 types processed (PERSON, PLACE, COMPANY, PROJECT, EVENT)
+DONE: Resource optimization guide created — OPTIMIZATION.md with multi-day run recommendations
+NOW: All biography passes in 'done' status (p1-p9, 11 passes total)
+     llama-server running (~10.8 GB RAM, health OK)
+     Resume mechanism verified working (checkpoint + memoization)
+NEXT: User will run build-book-and-profiles.bat manually in separate window (multi-day run expected)
 BLOCKERS: None
 DONE: Dynamic Resource Allocation — adaptive budgets, long call priority, chunked processing, psychology depth (2026-05-04)
 DONE: Real-time Web Dashboard with SSE, psychology profiles, dark theme UI (2026-05-04)
