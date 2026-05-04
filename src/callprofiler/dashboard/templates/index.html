@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CallProfiler Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-primary text-primary font-sans">
+    <!-- Header -->
+    <header class="bg-secondary border-b border-border px-6 py-4">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-2xl font-bold text-accent-primary">CallProfiler</h1>
+                <p class="text-secondary text-sm">Real-time Pipeline Monitor</p>
+            </div>
+            <div id="stats" class="flex gap-6 text-sm">
+                <div class="text-center">
+                    <div class="text-muted">Звонков</div>
+                    <div id="stat-calls" class="text-xl font-bold text-primary">—</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-muted">Персонажей</div>
+                    <div id="stat-entities" class="text-xl font-bold text-primary">—</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-muted">Портретов</div>
+                    <div id="stat-portraits" class="text-xl font-bold text-primary">—</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-muted">Средний риск</div>
+                    <div id="stat-risk" class="text-xl font-bold text-primary">—</div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="flex h-[calc(100vh-80px)]">
+        <!-- Live Events Stream -->
+        <aside class="w-96 bg-secondary border-r border-border overflow-y-auto">
+            <div class="p-4 border-b border-border">
+                <h2 class="text-lg font-semibold text-primary">🔴 Live Events</h2>
+                <p class="text-xs text-muted mt-1">Real-time pipeline activity</p>
+            </div>
+            <div id="live-events" class="p-4 space-y-3">
+                <div class="text-center text-muted py-8">
+                    <div class="animate-pulse">Подключение к серверу...</div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- History Browser -->
+        <main class="flex-1 overflow-y-auto">
+            <div class="p-6">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-xl font-semibold text-primary">История звонков</h2>
+                    <button id="refresh-btn" class="px-4 py-2 bg-accent-primary text-white rounded hover:bg-blue-600 transition">
+                        Обновить
+                    </button>
+                </div>
+
+                <div id="history-list" class="space-y-3">
+                    <div class="text-center text-muted py-12">
+                        <div class="animate-pulse">Загрузка истории...</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Entity Profile Modal -->
+    <div id="entity-modal" class="hidden fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+        <div class="bg-secondary rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto m-4">
+            <div class="sticky top-0 bg-secondary border-b border-border p-6 flex items-center justify-between">
+                <h2 id="modal-title" class="text-2xl font-bold text-primary">Профиль персонажа</h2>
+                <button id="modal-close" class="text-muted hover:text-primary text-3xl leading-none">&times;</button>
+            </div>
+            <div id="modal-content" class="p-6">
+                <div class="text-center text-muted py-12">
+                    <div class="animate-pulse">Загрузка профиля...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

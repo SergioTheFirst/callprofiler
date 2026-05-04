@@ -1599,6 +1599,13 @@ def cmd_graph_audit(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_dashboard(args: argparse.Namespace) -> int:
+    """Start real-time dashboard web server."""
+    from callprofiler.dashboard import run_dashboard
+    run_dashboard(args.user_id, port=args.port, host=args.host)
+    return 0
+
+
 def cmd_book_chapter(args: argparse.Namespace) -> int:
     """book-chapter — show structured graph profile for one entity."""
     _setup_logging(verbose=getattr(args, "verbose", False))
@@ -2219,6 +2226,24 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Идентификатор пользователя",
     )
 
+    # ── dashboard ──────────────────────────────────────────────────
+    p_dashboard = sub.add_parser(
+        "dashboard",
+        help="Запустить real-time web dashboard для мониторинга pipeline",
+    )
+    p_dashboard.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_dashboard.add_argument(
+        "--port", type=int, default=8765, metavar="PORT",
+        help="Порт веб-сервера (по умолчанию: 8765)",
+    )
+    p_dashboard.add_argument(
+        "--host", default="127.0.0.1", metavar="HOST",
+        help="Хост веб-сервера (по умолчанию: 127.0.0.1)",
+    )
+
     # ── graph-stats ────────────────────────────────────────────────
     p_graph_stats = sub.add_parser(
         "graph-stats",
@@ -2291,6 +2316,7 @@ def main() -> None:
         "entity-unmerge": cmd_entity_unmerge,
         "graph-audit": cmd_graph_audit,
         "graph-health": cmd_graph_health,
+        "dashboard": cmd_dashboard,
         "book-chapter": cmd_book_chapter,
         "person-profile": cmd_person_profile,
         "profile-all": cmd_profile_all,
