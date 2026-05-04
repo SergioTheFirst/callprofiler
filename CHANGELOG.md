@@ -8,6 +8,17 @@
 
 ## [Unreleased]
 
+### Fixed — Enricher Event Emission (2026-05-04)
+
+- `src/callprofiler/bulk/enricher.py`:
+  - Replaced removed `Repository.get_call_by_id()` method with direct SQL query
+  - Method was deleted during dashboard refactoring but still used in 2 places for event emission
+  - Now uses `conn.execute()` to fetch call metadata (display_name, source_filename) for contact_label
+  - Maintains same functionality: emit analysis_complete events to dashboard with proper contact labels
+  - Non-breaking: gracefully skips events if call_id not found
+
+**Impact:** Enricher no longer crashes with AttributeError during batch processing. Real-time dashboard events work correctly.
+
 ### Fixed — Dashboard Auto-Refresh (2026-05-04)
 
 - `src/callprofiler/dashboard/static/app.js`:
