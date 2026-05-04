@@ -35,12 +35,12 @@ class LLMClient:
         print(response)  # JSON строка или текст ответа
     """
 
-    def __init__(self, base_url: str, timeout: int = 180) -> None:
+    def __init__(self, base_url: str, timeout: int = 300) -> None:
         """Инициализировать LLM клиент.
 
         Параметры:
             base_url  — URL endpoint (обычно http://127.0.0.1:8080/v1/chat/completions)
-            timeout   — timeout для запроса в секундах (по умолчанию 180 для длинных звонков)
+            timeout   — timeout для запроса в секундах (по умолчанию 300 для длинных звонков)
         """
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout

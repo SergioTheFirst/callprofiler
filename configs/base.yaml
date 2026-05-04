@@ -11,8 +11,8 @@ models:
   llm_url: "http://127.0.0.1:8080/v1/chat/completions"
 
 pipeline:
-  watch_interval_sec: 30
-  file_settle_sec: 5
+  watch_interval_sec: 60
+  file_settle_sec: 10
   max_retries: 3
   retry_interval_sec: 3600
 
