@@ -23,12 +23,97 @@ from typing import Any
 
 from callprofiler.biography.json_utils import extract_json
 from callprofiler.biography.llm_client import ResilientLLMClient
-from callprofiler.biography.prompts import PROMPT_VERSION, build_scene_prompt
+from callprofiler.biography.prompts import (
+    PROMPT_VERSION,
+    build_scene_prompt,
+    calculate_dynamic_budget,
+)
 from callprofiler.biography.repo import BiographyRepo
 
 log = logging.getLogger(__name__)
 
 PASS_NAME = "p1_scene"
+
+
+def is_long_call(duration_sec: int, transcript_length: int) -> bool:
+    """Detect long calls that require priority handling (never truncate).
+
+    Long calls contain deepest psychological insights and must be processed
+    with quality priority over speed.
+
+    Args:
+        duration_sec: Call duration in seconds
+        transcript_length: Length of transcript text in characters
+
+    Returns:
+        True if call is long (>10 min OR >5K chars)
+    """
+    return duration_sec > 600 or transcript_length > 5000
+
+
+def smart_clip_transcript(transcript: str, max_chars: int) -> str:
+    """Extract key fragments from transcript, not just head+tail.
+
+    For long transcripts, extracts:
+    - Opening (context setup)
+    - Middle sections with high information density
+    - Closing (conclusions, decisions)
+
+    Args:
+        transcript: Full transcript text
+        max_chars: Maximum characters to return
+
+    Returns:
+        Clipped transcript with key fragments preserved
+    """
+    if len(transcript) <= max_chars:
+        return transcript
+
+    lines = transcript.split('\n')
+    if len(lines) <= 10:
+        # Short transcript, use head+tail
+        head_chars = max_chars // 2
+        tail_chars = max_chars - head_chars
+        return transcript[:head_chars] + "\n[...]\n" + transcript[-tail_chars:]
+
+    # Extract key sections
+    chunk_size = len(lines) // 5  # Divide into 5 sections
+    opening = lines[:chunk_size]
+    middle1 = lines[chunk_size:chunk_size*2]
+    middle2 = lines[chunk_size*2:chunk_size*3]
+    middle3 = lines[chunk_size*3:chunk_size*4]
+    closing = lines[chunk_size*4:]
+
+    # Score sections by information density (speaker changes, question marks, key phrases)
+    def score_section(section_lines):
+        score = 0
+        for line in section_lines:
+            if line.startswith('[me]:') or line.startswith('[s2]:'):
+                score += 1  # Speaker change
+            if '?' in line:
+                score += 2  # Question (high info)
+            if any(kw in line.lower() for kw in ['когда', 'почему', 'как', 'сколько', 'договор', 'проблема', 'решение']):
+                score += 3  # Key business phrases
+        return score
+
+    middle_sections = [
+        (score_section(middle1), middle1),
+        (score_section(middle2), middle2),
+        (score_section(middle3), middle3),
+    ]
+    middle_sections.sort(reverse=True, key=lambda x: x[0])
+
+    # Take opening + best middle section + closing
+    selected_lines = opening + ['[...]'] + middle_sections[0][1] + ['[...]'] + closing
+    result = '\n'.join(selected_lines)
+
+    # Final trim if still over budget
+    if len(result) > max_chars:
+        head_chars = max_chars // 2
+        tail_chars = max_chars - head_chars
+        return result[:head_chars] + "\n[...]\n" + result[-tail_chars:]
+
+    return result
 
 
 def run(
@@ -116,13 +201,46 @@ def run(
 
         cleaned_transcript = _clean_transcript(transcript)
 
+        # Detect long calls and apply priority handling
+        duration_sec = call.get("duration_sec", 0)
+        is_long = is_long_call(duration_sec, len(cleaned_transcript))
+
+        # Calculate dynamic budget based on content richness
+        # For p1_scene, we use is_long_call flag to apply 2× multiplier
+        # CRS will be calculated in later passes when we have scene data
+        crs = 0.5  # Default CRS for p1 (will be refined in p6)
+        dynamic_budget = calculate_dynamic_budget(
+            pass_name=PASS_NAME,
+            crs=crs,
+            is_long_call=is_long,
+        )
+
+        # Apply smart clipping for long calls (preserve key fragments)
+        if is_long:
+            log.info(
+                "[p1_scene] Long call detected: call_id=%s duration=%ds len=%d chars, "
+                "budget=%.0f chars (2× multiplier)",
+                call_id, duration_sec, len(cleaned_transcript), dynamic_budget
+            )
+            clipped_transcript = smart_clip_transcript(cleaned_transcript, dynamic_budget)
+        else:
+            # Normal calls: use head+tail clipping (existing behavior)
+            if len(cleaned_transcript) > dynamic_budget:
+                head = dynamic_budget // 2
+                tail = dynamic_budget - head
+                clipped_transcript = (
+                    cleaned_transcript[:head] + "\n[...]\n" + cleaned_transcript[-tail:]
+                )
+            else:
+                clipped_transcript = cleaned_transcript
+
         messages = build_scene_prompt(
             call_datetime=call.get("call_datetime"),
             contact_label=contact_label,
             direction=call.get("direction"),
-            duration_sec=call.get("duration_sec"),
+            duration_sec=duration_sec,
             prior_analysis=analysis,
-            transcript=cleaned_transcript,
+            transcript=clipped_transcript,
         )
         response = llm.call(
             user_id=user_id,

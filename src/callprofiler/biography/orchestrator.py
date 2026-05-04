@@ -37,6 +37,7 @@ from callprofiler.biography import (
     p9_yearly,
 )
 from callprofiler.biography.llm_client import ResilientLLMClient
+from callprofiler.biography.prompts import assess_output_quality
 from callprofiler.biography.repo import BiographyRepo
 
 log = logging.getLogger(__name__)
@@ -100,6 +101,32 @@ class Orchestrator:
                 results[name] = self.PASSES[name](
                     user_id=self.user_id, bio=self.bio, llm=self.llm, **kw,
                 )
+
+                # Adaptive feedback: assess output quality and store metrics
+                try:
+                    crs = kw.get("crs", 0.5)
+                    output_text = self._extract_output_for_quality_check(name, results[name])
+                    if output_text:
+                        quality = assess_output_quality(name, output_text, crs)
+                        log.info(
+                            "[%s] quality: len=%d, crs_util=%.2f, adj=%.2f",
+                            name,
+                            quality["metrics"]["output_length"],
+                            quality["metrics"].get("crs_utilization", 0.0),
+                            quality["adjustment"],
+                        )
+                        # Store metrics in checkpoint metadata
+                        cp = self.bio.get_checkpoint(self.user_id, name)
+                        if cp:
+                            metadata = cp.get("metadata") or {}
+                            metadata["quality_metrics"] = quality["metrics"]
+                            metadata["quality_adjustment"] = quality["adjustment"]
+                            self.bio.update_checkpoint_metadata(
+                                self.user_id, name, metadata
+                            )
+                except Exception as qe:  # noqa: BLE001
+                    log.warning("[%s] quality assessment failed: %s", name, qe)
+
             except Exception as exc:  # noqa: BLE001 — multi-day resilience
                 log.exception("pass %s crashed: %s", name, exc)
                 results[name] = {"error": str(exc)}
@@ -113,6 +140,32 @@ class Orchestrator:
         log.info("  BIOGRAPHY PIPELINE DONE in %.1f sec", results["_total_sec"])
         log.info("=" * 60)
         return results
+
+    def _extract_output_for_quality_check(self, pass_name: str, result: dict) -> str:
+        """Extract representative output text from pass result for quality assessment.
+
+        Different passes return different structures:
+        - Prose passes (p6, p8, p9): return prose directly or in result dict
+        - JSON passes (p1-p5, p7): return stats dict, need to fetch from DB
+        """
+        if "error" in result:
+            return ""
+
+        # Prose passes: p6_chapters, p8_editorial, p9_yearly
+        if pass_name in ("p6_chapters", "p8_editorial", "p9_yearly"):
+            # These passes write to DB, result is stats dict
+            # For quality check, we'd need to fetch latest prose from DB
+            # For now, skip quality check for these (they already have internal validation)
+            return ""
+
+        # p7_book returns full book prose
+        if pass_name == "p7_book":
+            return result.get("prose", "")
+
+        # JSON passes return stats, not output text
+        # Quality assessment for these would need different metrics
+        # For now, return empty (quality check designed for prose passes)
+        return ""
 
     def status(self) -> list[dict]:
         """Return per-pass checkpoint status for monitoring."""

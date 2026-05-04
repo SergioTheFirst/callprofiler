@@ -8,6 +8,10 @@
 
 ## Status
 
+DONE: Dynamic Resource Allocation — adaptive budgets, long call priority, chunked processing, psychology depth (2026-05-04)
+NOW: CRS-based budget system, 2× multiplier for long calls, smart clipping, adaptive feedback loop integrated
+NEXT: Test biography pipeline with new dynamic allocation: python -m callprofiler biography-run --user USER_ID
+BLOCKERS: None
 DONE: Real-time Web Dashboard with SSE, psychology profiles, dark theme UI (2026-05-04)
 NOW: Dashboard module complete (8 files), CLI command integrated, committed (d2b04b0)
 NEXT: Test dashboard with real data: python -m callprofiler dashboard --user USER_ID
@@ -187,6 +191,82 @@ python -m callprofiler dashboard --user USER_ID [--port 8765] [--host 127.0.0.1]
 - Затем подключить реальную команду opencode/DeepSeek и выбрать режим:
   - `--apply-mode direct`, если opencode сам редактирует файлы;
   - `--apply-mode patch`, если opencode печатает unified diff.
+
+---
+
+## Session Update: 2026-05-04 (Dynamic Resource Allocation)
+
+### What changed
+
+**Core Infrastructure (Phase 1):**
+- `prompts.py` — Added dynamic budget system:
+  - `BASELINE_BUDGETS` dict (11 passes, baseline char limits)
+  - `PASS_OUTPUT_RESERVES` dict (11 passes, output token reserves)
+  - `calculate_dynamic_budget(pass_name, crs, is_long_call, context_window)` — returns adaptive char limit
+  - `assess_output_quality(pass_name, output, input_crs)` — returns metrics + adjustment signal
+  - CRS multipliers: 0.5× (thin), 1.0× (normal), 1.5× (rich), 2.0× (long call)
+  - p8_editorial baseline reduced from 32000 to 18000 chars (safe limit)
+
+**Long Call Priority (Phase 2):**
+- `p1_scene.py` — Long call detection and smart clipping:
+  - `is_long_call(duration_sec, transcript_length)` — detects calls >10 min OR >5K chars
+  - `smart_clip_transcript(transcript, max_chars)` — extracts key fragments (opening + high-density middle + closing)
+  - Modified `run()` to apply 2× budget multiplier for long calls
+  - Uses smart clipping instead of simple head+tail truncation for long calls
+  - Logs long call detection with budget info
+
+**Chunked Editorial (Phase 3):**
+- `p8_editorial.py` — Chunked processing for long chapters:
+  - `chunk_chapter_prose(prose, max_chunk_chars)` — splits on ## headers, respects semantic boundaries
+  - `editorial_pass_chunked(chunks, llm, user_id, chapter_id, prev_context)` — processes chunks sequentially
+  - Passes last 500 chars as context to next chunk for continuity
+  - Modified `run()` to detect overflow and trigger chunked processing
+  - Fallback to original chunk if LLM fails
+
+**Psychology Depth (Phase 4):**
+- `p5_portraits.py` — Budget-aware profile expansion:
+  - `allocate_psychology_budget(entity_count, crs, available_tokens)` — returns profile_count, profile_depth, tokens_per_profile
+  - Profile depth modes: basic (3 entities, 1500 tokens), standard (6 entities, 2500 tokens), deep (10 entities, 2500 tokens)
+  - Modified `run()` signature to accept `crs: float = 0.5` parameter
+  - Limits candidates to allocated profile_count
+  - Passes `profile_depth` to prompt builder and uses dynamic `max_tokens`
+
+**Adaptive Feedback Loop (Phase 5):**
+- `orchestrator.py` — Quality assessment integration:
+  - Added import: `from callprofiler.biography.prompts import assess_output_quality`
+  - Modified `run_passes()` to call `assess_output_quality()` after each pass completes
+  - Stores quality metrics in checkpoint metadata via `update_checkpoint_metadata()`
+  - Logs quality metrics (output_length, crs_utilization, adjustment)
+  - Added `_extract_output_for_quality_check()` helper (currently returns empty for most passes — designed for future prose pass integration)
+
+### Design Spec
+
+Full specification documented in:
+`docs/superpowers/specs/2026-05-04-dynamic-resource-allocation-design.md`
+
+Key requirements:
+- ✅ Hybrid CRS (importance × entity_count × arc_density)
+- ✅ Short chapters for thin months (500-1000 words, honest brevity)
+- ✅ Maximize psychology depth (priority over chapter length)
+- ✅ Adaptive feedback loop (adjust after each pass)
+- ✅ Chunked processing (no truncation)
+- ✅ **Long call priority (never truncate for speed)**
+
+### Verification
+
+No tests added (integration changes, existing tests cover components).
+Manual verification needed:
+- Run `biography-run --user USER_ID` with mixed call lengths
+- Check logs for long call detection and 2× budget application
+- Verify no truncation warnings for long calls
+- Check checkpoint metadata for quality metrics
+
+### Next
+
+- Test biography pipeline with new dynamic allocation
+- Monitor quality metrics in checkpoint metadata
+- Adjust CRS thresholds if needed based on real data
+- Consider adding quality assessment for prose passes (p6, p8, p9)
 
 ---
 

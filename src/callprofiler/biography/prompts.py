@@ -79,10 +79,133 @@ class TokenBudget:
         return self.allocate({key: text})[key]
 
 
-# Budget profiles per pass (max JSON chars; chars_per_token ≈ 2.1 for RU+JSON).
-# For 16K context: system prompt takes ~1900-2500 tokens, output reserve varies.
-# Remaining token budget × 2.1 = char budget for JSON data.
+# ---------------------------------------------------------------------------
+# Dynamic budget system — replaces fixed BUDGETS with adaptive allocation
+# ---------------------------------------------------------------------------
 
+# Baseline budgets (used as starting point for CRS multiplier)
+BASELINE_BUDGETS = {
+    "p1_scene": 12000,
+    "p2_entities": 10000,
+    "p3_threads": 12000,
+    "p4_arcs": 14000,
+    "p5_portraits": 12000,
+    "p6_chapters": 17000,
+    "p7_book": 9000,
+    "p8_editorial": 18000,  # REDUCED from 32000 (was overflowing context)
+    "p9_yearly": 9500,
+}
+
+# Output token reserves per pass (for context window calculation)
+PASS_OUTPUT_RESERVES = {
+    "p1_scene": 1800,
+    "p2_entities": 3800,
+    "p3_threads": 2500,
+    "p4_arcs": 4200,
+    "p5_portraits": 2500,
+    "p6_chapters": 5500,
+    "p7_book": 3500,
+    "p8_editorial": 5500,
+    "p9_yearly": 4000,
+}
+
+# Expected output lengths (for quality assessment)
+EXPECTED_LENGTHS = {
+    "p1_scene": 800,      # JSON ~800 chars
+    "p2_entities": 2000,  # JSON array
+    "p3_threads": 1500,   # JSON
+    "p4_arcs": 3000,      # JSON array
+    "p5_portraits": 1800, # JSON
+    "p6_chapters": 12000, # Markdown prose 2500-4500 words
+    "p7_book": 2500,      # JSON frame
+    "p8_editorial": 12000,# Markdown prose
+    "p9_yearly": 2000,    # Markdown prose
+}
+
+# JSON passes (for validation in quality assessment)
+JSON_PASSES = {"p1_scene", "p2_entities", "p3_threads", "p4_arcs", "p5_portraits", "p7_book"}
+
+
+def calculate_dynamic_budget(
+    pass_name: str,
+    crs: float,
+    is_long_call: bool = False,
+    context_window: int = 16384
+) -> int:
+    """
+    Calculate adaptive budget based on Content Richness Score.
+
+    Args:
+        pass_name: Pass identifier (e.g., "p1_scene")
+        crs: Content Richness Score (0.0-1.0)
+        is_long_call: True if call duration >600s or transcript >5000 chars
+        context_window: Model context window in tokens (default 16384)
+
+    Returns:
+        Dynamic budget in characters (safe for context window)
+    """
+    # Safe reserves
+    system_tokens = 2200
+    output_tokens = PASS_OUTPUT_RESERVES.get(pass_name, 3000)
+    available_tokens = context_window - system_tokens - output_tokens
+
+    # Baseline (current values)
+    baseline_chars = BASELINE_BUDGETS.get(pass_name, 10000)
+
+    # CRS multiplier
+    if is_long_call:
+        multiplier = 2.0  # Long call priority: never truncate
+    elif crs < 0.3:
+        multiplier = 0.5  # Thin material: reduce budget
+    elif crs > 0.7:
+        multiplier = 1.5  # Rich material: expand budget
+    else:
+        multiplier = 1.0  # Normal: baseline
+
+    dynamic_chars = int(baseline_chars * multiplier)
+
+    # Safety cap: never exceed available tokens
+    # chars_per_token ≈ 2.1 for Russian + JSON
+    max_safe_chars = int(available_tokens * 2.1)
+    return min(dynamic_chars, max_safe_chars)
+
+
+def assess_output_quality(pass_name: str, output: str, input_crs: float) -> dict:
+    """
+    Assess LLM output quality for adaptive feedback loop.
+
+    Returns dict with metrics and adjustment signal for next run.
+    """
+    expected = EXPECTED_LENGTHS.get(pass_name, 1000)
+
+    metrics = {
+        "output_length": len(output),
+        "expected_length": expected,
+        "truncation_detected": "..." in output[-100:] or output.endswith("…"),
+        "crs_utilization": len(output) / max(input_crs * expected, 1),
+    }
+
+    # JSON validation for JSON passes
+    if pass_name in JSON_PASSES:
+        try:
+            json.loads(output.strip())
+            metrics["json_valid"] = True
+        except json.JSONDecodeError:
+            metrics["json_valid"] = False
+
+    # Adjustment signal for next run
+    if metrics["truncation_detected"]:
+        adjustment = -0.1  # Budget was too high, reduce next time
+    elif metrics["crs_utilization"] < 0.6:
+        adjustment = +0.1  # Material thinner than predicted, expand budget
+    else:
+        adjustment = 0.0  # Budget was appropriate
+
+    return {"metrics": metrics, "adjustment": adjustment}
+
+
+# Legacy BUDGETS dict (for backward compatibility during migration)
+# TODO: Remove after all passes migrated to calculate_dynamic_budget()
 BUDGETS = {
     "p1_scene": TokenBudget(12000, {"transcript": 1.0}),
     "p2_entities": TokenBudget(10000, {"mentions": 1.0}),
@@ -91,7 +214,7 @@ BUDGETS = {
     "p5_portraits": TokenBudget(12000, {"scenes": 1.0}),
     "p6_chapters": TokenBudget(17000, {"portraits": 0.50, "arcs": 0.25, "scenes": 0.25}),
     "p7_book": TokenBudget(9000, {"chapters": 0.45, "arcs": 0.35, "entities": 0.20}),
-    "p8_editorial": TokenBudget(32000, {"prose": 1.0}),
+    "p8_editorial": TokenBudget(18000, {"prose": 1.0}),  # REDUCED from 32000
     "p9_yearly": TokenBudget(9500, {"chapters": 0.50, "arcs": 0.30, "entities": 0.20}),
 }
 # ---------------------------------------------------------------------------

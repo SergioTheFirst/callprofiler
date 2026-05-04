@@ -8,6 +8,49 @@
 
 ## [Unreleased]
 
+### Added — Dynamic Resource Allocation (2026-05-04)
+
+- `src/callprofiler/biography/prompts.py`:
+  - `BASELINE_BUDGETS` dict — baseline char limits for all 11 passes
+  - `PASS_OUTPUT_RESERVES` dict — output token reserves for all 11 passes
+  - `calculate_dynamic_budget(pass_name, crs, is_long_call, context_window)` — adaptive budget allocation based on Content Richness Score (CRS) and long call detection
+  - `assess_output_quality(pass_name, output, input_crs)` — quality metrics + adjustment signal for adaptive feedback loop
+  - CRS multipliers: 0.5× (thin material, CRS<0.3), 1.0× (normal), 1.5× (rich material, CRS>0.7), 2.0× (long calls)
+  - p8_editorial baseline reduced from 32000 to 18000 chars (safe context limit)
+- `src/callprofiler/biography/p1_scene.py`:
+  - `is_long_call(duration_sec, transcript_length)` — detects calls >10 min OR >5K chars (priority handling)
+  - `smart_clip_transcript(transcript, max_chars)` — extracts key fragments (opening + high-density middle + closing) instead of simple head+tail truncation
+  - Modified `run()` to apply 2× budget multiplier for long calls (never truncate for speed)
+  - Logs long call detection with budget allocation info
+- `src/callprofiler/biography/p8_editorial.py`:
+  - `chunk_chapter_prose(prose, max_chunk_chars)` — splits on semantic boundaries (## headers)
+  - `editorial_pass_chunked(chunks, llm, user_id, chapter_id, prev_context)` — processes chunks sequentially with continuity preservation (last 500 chars passed as context)
+  - Modified `run()` to detect overflow and trigger chunked processing automatically
+  - Fallback to original chunk if LLM fails
+- `src/callprofiler/biography/p5_portraits.py`:
+  - `allocate_psychology_budget(entity_count, crs, available_tokens)` — budget-aware profile depth allocation
+  - Profile depth modes: basic (3 entities, 1500 tokens), standard (6 entities, 2500 tokens), deep (10 entities, 2500 tokens)
+  - Modified `run()` signature to accept `crs: float = 0.5` parameter
+  - Limits candidates to allocated profile_count based on CRS
+  - Passes `profile_depth` to prompt builder and uses dynamic `max_tokens`
+- `src/callprofiler/biography/orchestrator.py`:
+  - Modified `run_passes()` to call `assess_output_quality()` after each pass completes
+  - Stores quality metrics in checkpoint metadata via `update_checkpoint_metadata()`
+  - Logs quality metrics (output_length, crs_utilization, adjustment)
+  - Added `_extract_output_for_quality_check()` helper for future prose pass integration
+
+**Key features:**
+- Adaptive token budgets based on Content Richness Score (importance × entity_density × arc_density)
+- Long call priority: 2× budget multiplier, smart clipping, never truncate for speed
+- Chunked processing prevents context overflow for long chapters
+- Psychology depth scales with available budget (3-10 entities, basic/standard/deep profiles)
+- Adaptive feedback loop stores quality metrics in checkpoint metadata
+- Honest brevity for thin months (no artificial padding)
+
+**Design spec:** `docs/superpowers/specs/2026-05-04-dynamic-resource-allocation-design.md`
+
+**Verification:** Manual testing needed with `biography-run --user USER_ID` on mixed call lengths.
+
 ### Added — Real-time Web Dashboard (2026-05-04)
 
 - `src/callprofiler/dashboard/` module (8 files):

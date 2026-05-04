@@ -15,7 +15,10 @@ import time
 
 from callprofiler.biography.json_utils import extract_json
 from callprofiler.biography.llm_client import ResilientLLMClient
-from callprofiler.biography.prompts import build_portrait_prompt
+from callprofiler.biography.prompts import (
+    build_portrait_prompt,
+    calculate_dynamic_budget,
+)
 from callprofiler.biography.repo import BiographyRepo
 
 try:
@@ -32,12 +35,66 @@ MAX_PORTRAITS = 80
 TOP_SCENES = 15
 
 
+def allocate_psychology_budget(
+    entity_count: int,
+    crs: float,
+    available_tokens: int = 12000,
+) -> dict:
+    """Allocate psychology profile depth based on content richness.
+
+    Args:
+        entity_count: Number of entities to profile
+        crs: Content Richness Score (0.0-1.0)
+        available_tokens: Available context tokens for profiles
+
+    Returns:
+        Dict with profile_count, profile_depth, tokens_per_profile
+    """
+    if crs > 0.7:
+        # Rich material: top-10 entities, deep profiles
+        profile_count = min(10, entity_count)
+        profile_depth = "deep"  # All OCEAN + motivation + network + evolution
+        max_tokens = 2500
+    elif crs < 0.3:
+        # Thin material: top-3 entities, basic profiles
+        profile_count = min(3, entity_count)
+        profile_depth = "basic"  # Temperament + top 2 OCEAN traits
+        max_tokens = 1500
+    else:
+        # Normal: top-6 entities, standard profiles
+        profile_count = min(6, entity_count)
+        profile_depth = "standard"  # Current behavior
+        max_tokens = 2500
+
+    tokens_per_profile = min(max_tokens, available_tokens // max(profile_count, 1))
+
+    return {
+        "profile_count": profile_count,
+        "profile_depth": profile_depth,
+        "tokens_per_profile": tokens_per_profile,
+        "max_tokens": max_tokens,
+    }
+
+
 def run(
     user_id: str,
     bio: BiographyRepo,
     llm: ResilientLLMClient,
     graph_conn=None,
+    crs: float = 0.5,
 ) -> dict:
+    """Run Pass 5 with dynamic psychology depth allocation.
+
+    Args:
+        user_id: User identifier
+        bio: Biography repository
+        llm: LLM client
+        graph_conn: Optional graph database connection
+        crs: Content Richness Score (0.0-1.0) for dynamic budget allocation
+
+    Returns:
+        Stats dict with candidates, portraits_written, failed, elapsed_sec
+    """
     # Index threads by entity.
     threads_by_entity: dict[int, dict] = {}
     for t in bio.get_threads_for_user(user_id):
@@ -49,8 +106,32 @@ def run(
     candidates = bio.get_entities_for_user(user_id, min_mentions=MIN_MENTIONS)
     candidates = [e for e in candidates
                   if e.get("entity_type") in ("PERSON", "COMPANY", "PLACE")]
-    candidates = candidates[:MAX_PORTRAITS]
-    log.info("[p5_portraits] candidates=%d", len(candidates))
+
+    # Calculate dynamic budget allocation based on CRS
+    dynamic_budget = calculate_dynamic_budget(
+        pass_name=PASS_NAME,
+        crs=crs,
+        is_long_call=False,
+    )
+    available_tokens = int(dynamic_budget * 0.476)  # chars to tokens
+
+    budget_allocation = allocate_psychology_budget(
+        entity_count=len(candidates),
+        crs=crs,
+        available_tokens=available_tokens,
+    )
+
+    profile_count = budget_allocation["profile_count"]
+    profile_depth = budget_allocation["profile_depth"]
+    max_tokens = budget_allocation["max_tokens"]
+
+    # Limit candidates to allocated profile count
+    candidates = candidates[:profile_count]
+
+    log.info(
+        "[p5_portraits] candidates=%d, crs=%.2f, depth=%s, max_tokens=%d",
+        len(candidates), crs, profile_depth, max_tokens
+    )
 
     bio.start_checkpoint(user_id, PASS_NAME, len(candidates) or 1)
     done_ids = bio.get_completed_items(user_id, PASS_NAME)
@@ -125,6 +206,7 @@ def run(
             temperament=temperament_data,
             big_five=big_five_data,
             motivation=motivation_data,
+            profile_depth=profile_depth,
         )
         response = llm.call(
             user_id=user_id,
@@ -132,7 +214,7 @@ def run(
             context_key=f"portrait:entity:{entity_id}",
             messages=messages,
             temperature=0.5,
-            max_tokens=2500,
+            max_tokens=max_tokens,
         )
         data = extract_json(response) if response else None
         if not isinstance(data, dict):
