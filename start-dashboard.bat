@@ -11,8 +11,11 @@ echo.
 echo Press Ctrl+C to stop the server
 echo.
 
-REM Start dashboard server (direct file path, no PYTHONPATH needed)
-python src\callprofiler\cli\main.py dashboard --user serhio --port 8765 --host 127.0.0.1
+REM Set PYTHONPATH so imports work
+set PYTHONPATH=%~dp0src
+
+REM Start dashboard server
+python "%~dp0src\callprofiler\cli\main.py" dashboard --user serhio --port 8765 --host 127.0.0.1
 
 REM If server exits, pause to show error
 pause
