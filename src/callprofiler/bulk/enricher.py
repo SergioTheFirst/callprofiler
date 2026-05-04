@@ -473,6 +473,9 @@ def bulk_enrich(
 
                 # Emit real-time events to dashboard
                 for item in pending_batch:
+                    call = repo.get_call_by_id(item["call_id"])
+                    if not call:
+                        continue
                     try:
                         emit_event_sync("analysis_complete", {
                             "call_id": item["call_id"],
