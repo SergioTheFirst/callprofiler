@@ -64,6 +64,8 @@ class DashboardDBReader:
             c.direction,
             c.duration_sec,
             c.status,
+            c.created_at,
+            c.updated_at,
             COALESCE(ct.display_name, c.source_filename) AS contact_label,
             a.call_type,
             a.risk_score,

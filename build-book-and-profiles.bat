@@ -30,14 +30,15 @@ if !errorlevel! neq 0 (
 
 REM ---- Stage 1 -----------------------------------------------------------
 echo ------------------------------------------------------------
-echo [Stage 1/5] Reenrich v2 analyses
+echo [Stage 1/6] Enrich unprocessed calls
 echo ------------------------------------------------------------
 echo.
 
-set PYTHONPATH=C:\pro\callprofiler\src&& python -m callprofiler --log-file "!LOG_FILE!" reenrich-v2 --user "!USER_ID!" 2>&1
-if !errorlevel! neq 0 (
+set PYTHONPATH=C:\pro\callprofiler\src&& python -m callprofiler --log-file "!LOG_FILE!" bulk-enrich --user "!USER_ID!" --limit 0 2>&1
+set "ENRICH_CODE=!errorlevel!"
+if !ENRICH_CODE! neq 0 (
     echo.
-    echo *** FAILED: reenrich-v2 (code !errorlevel!)
+    echo *** FAILED: bulk-enrich (code !ENRICH_CODE!)
     echo *** Log: !LOG_FILE!
     pause
     exit /b 1
@@ -48,7 +49,27 @@ timeout /t 2 /nobreak >nul
 REM ---- Stage 2 -----------------------------------------------------------
 echo.
 echo ------------------------------------------------------------
-echo [Stage 2/5] Graph backfill
+echo [Stage 2/6] Reenrich v2 analyses
+echo ------------------------------------------------------------
+echo.
+
+set PYTHONPATH=C:\pro\callprofiler\src&& python -m callprofiler --log-file "!LOG_FILE!" reenrich-v2 --user "!USER_ID!" 2>&1
+set "REENRICH_CODE=!errorlevel!"
+if !REENRICH_CODE! neq 0 (
+    echo.
+    echo *** Note: reenrich-v2 returned code !REENRICH_CODE!
+    echo *** This is OK if all analyses are already v2
+    echo *** Continuing...
+    timeout /t 2 /nobreak >nul
+) else (
+    echo [OK] Stage 2 done
+    timeout /t 2 /nobreak >nul
+)
+
+REM ---- Stage 3 -----------------------------------------------------------
+echo.
+echo ------------------------------------------------------------
+echo [Stage 3/6] Graph backfill
 echo ------------------------------------------------------------
 echo.
 
@@ -58,15 +79,15 @@ if !errorlevel! neq 0 (
     echo *** FAILED: graph-backfill (code !errorlevel!)
     echo *** Log: !LOG_FILE!
     pause
-    exit /b 2
+    exit /b 3
 )
-echo [OK] Stage 2 done
+echo [OK] Stage 3 done
 timeout /t 2 /nobreak >nul
 
-REM ---- Stage 3 -----------------------------------------------------------
+REM ---- Stage 4 -----------------------------------------------------------
 echo.
 echo ------------------------------------------------------------
-echo [Stage 3/5] Graph health check
+echo [Stage 4/6] Graph health check
 echo ------------------------------------------------------------
 echo.
 
@@ -78,13 +99,13 @@ if !errorlevel! neq 0 (
     echo *** Continuing...
     timeout /t 3 /nobreak >nul
 ) else (
-    echo [OK] Stage 3 - graph healthy
+    echo [OK] Stage 4 - graph healthy
 )
 
-REM ---- Stage 4 -----------------------------------------------------------
+REM ---- Stage 5 -----------------------------------------------------------
 echo.
 echo ------------------------------------------------------------
-echo [Stage 4/5] Generate psychology profiles
+echo [Stage 5/6] Generate psychology profiles
 echo ------------------------------------------------------------
 echo.
 
@@ -94,15 +115,15 @@ if !errorlevel! neq 0 (
     echo *** FAILED: profile-all (code !errorlevel!)
     echo *** Log: !LOG_FILE!
     pause
-    exit /b 3
+    exit /b 5
 )
-echo [OK] Stage 4 done
+echo [OK] Stage 5 done
 timeout /t 2 /nobreak >nul
 
-REM ---- Stage 5 -----------------------------------------------------------
+REM ---- Stage 6 -----------------------------------------------------------
 echo.
 echo ------------------------------------------------------------
-echo [Stage 5/5] Generate biography book
+echo [Stage 6/6] Generate biography book
 echo ------------------------------------------------------------
 echo.
 
@@ -112,9 +133,9 @@ if !errorlevel! neq 0 (
     echo *** FAILED: biography-run (code !errorlevel!)
     echo *** Log: !LOG_FILE!
     pause
-    exit /b 4
+    exit /b 6
 )
-echo [OK] Stage 5 done
+echo [OK] Stage 6 done
 
 echo.
 echo ============================================================

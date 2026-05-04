@@ -105,17 +105,17 @@ def _detect_changes(old_ts: str | None, new_ts: str) -> list[DashboardEvent]:
     """Detect what changed between timestamps."""
     events = []
 
-    # Get recent calls
-    recent_calls = _DB_READER.get_recent_calls(_USER_ID, limit=10)
+    # Get recent calls (last 20 to catch rapid updates)
+    recent_calls = _DB_READER.get_recent_calls(_USER_ID, limit=20)
 
     for call in recent_calls:
         call_updated = call.get("updated_at") or call.get("created_at")
         if not old_ts or (call_updated and call_updated > old_ts):
-            # New call or updated call
+            # New call or updated call - emit event based on current status
             if call["status"] == "pending":
                 events.append(DashboardEvent(
                     event_type="call_created",
-                    timestamp=datetime.now().isoformat(),
+                    timestamp=call_updated or datetime.now().isoformat(),
                     data={
                         "call_id": call["call_id"],
                         "contact_label": call["contact_label"],
@@ -125,7 +125,7 @@ def _detect_changes(old_ts: str | None, new_ts: str) -> list[DashboardEvent]:
             elif call["status"] == "transcribed":
                 events.append(DashboardEvent(
                     event_type="transcription_complete",
-                    timestamp=datetime.now().isoformat(),
+                    timestamp=call_updated or datetime.now().isoformat(),
                     data={
                         "call_id": call["call_id"],
                         "contact_label": call["contact_label"],
@@ -134,7 +134,7 @@ def _detect_changes(old_ts: str | None, new_ts: str) -> list[DashboardEvent]:
             elif call["status"] == "analyzed":
                 events.append(DashboardEvent(
                     event_type="analysis_complete",
-                    timestamp=datetime.now().isoformat(),
+                    timestamp=call_updated or datetime.now().isoformat(),
                     data={
                         "call_id": call["call_id"],
                         "contact_label": call["contact_label"],

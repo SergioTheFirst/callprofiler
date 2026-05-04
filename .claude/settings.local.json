@@ -45,7 +45,13 @@
       "Bash(cmd.exe *)",
       "Bash(pkill *)",
       "Bash(netstat -ano)",
-      "Bash(taskkill *)"
+      "Bash(taskkill *)",
+      "Bash(sqlite3 *)",
+      "Bash(pip install *)",
+      "Bash(./test-status.bat)",
+      "Bash(./test-p2-resume.bat)",
+      "Bash(dir srccallprofiler *)",
+      "Bash(export PYTHONPATH=/c/pro/callprofiler/src)"
     ]
   }
 }
