@@ -84,7 +84,7 @@ class TokenBudget:
 # Remaining token budget × 2.1 = char budget for JSON data.
 
 BUDGETS = {
-    "p1_scene": TokenBudget(6000, {"transcript": 1.0}),
+    "p1_scene": TokenBudget(12000, {"transcript": 1.0}),
     "p2_entities": TokenBudget(10000, {"mentions": 1.0}),
     "p3_threads": TokenBudget(12000, {"scenes": 1.0}),
     "p4_arcs": TokenBudget(14000, {"scenes": 1.0}),

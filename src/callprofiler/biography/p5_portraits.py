@@ -73,10 +73,9 @@ def run(
         thread = threads_by_entity.get(entity_id)
 
         all_scenes = bio.get_scenes_for_entity(entity_id)
-        # Pick top by importance, preserve chronology.
-        top = sorted(all_scenes, key=lambda s: int(s.get("importance") or 0),
-                     reverse=True)[:TOP_SCENES]
-        top.sort(key=lambda s: s.get("call_datetime") or "")
+        # Deterministic sort for cache hit (importance-based selection breaks memoization)
+        all_scenes.sort(key=lambda s: (s.get("call_datetime") or "", s.get("scene_id") or 0))
+        top = all_scenes[:TOP_SCENES]
         if not top:
             bio.tick_checkpoint(user_id, PASS_NAME, f"entity:{entity_id}")
             continue

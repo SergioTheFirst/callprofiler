@@ -75,7 +75,7 @@ Bump individual pass version to invalidate only that pass's memoization.
 
 | Pass | Output reserve | Input cap | Notes |
 |------|---------------|-----------|-------|
-| p1   | 1800          | 6000 ch   | transcript clip |
+| p1   | 1800          | 12000 ch  | transcript clip (6K head + 6K tail) |
 | p2   | 3800          | 10000 ch  | mention list |
 | p3   | 2500          | 12000 ch  | scene JSON |
 | p4   | 4200          | 14000 ch  | scene chronology |
