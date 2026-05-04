@@ -65,6 +65,10 @@ def run(
     total_types = sum(1 for v in mentions_by_type.values() if v)
     bio.start_checkpoint(user_id, PASS_NAME, total_types or 1)
 
+    # Resume support: skip already-completed types
+    completed_items = bio.get_completed_items(user_id, PASS_NAME)
+    log.info("[p2_entities] completed_items=%s", completed_items)
+
     processed = 0
     failed = 0
     created = 0
@@ -72,6 +76,11 @@ def run(
     began = time.monotonic()
 
     for etype, mentions in mentions_by_type.items():
+        item_key = f"type:{etype}"
+        if item_key in completed_items:
+            log.info("[p2_entities] SKIP %s (already done)", item_key)
+            processed += 1
+            continue
         # deduplicate surface forms per chunk to save tokens
         deduped: dict[str, dict] = {}
         for m in mentions:

@@ -34,7 +34,7 @@ echo [Stage 1/5] Reenrich v2 analyses
 echo ------------------------------------------------------------
 echo.
 
-python -m callprofiler --log-file "!LOG_FILE!" reenrich-v2 --user "!USER_ID!" 2>&1
+set PYTHONPATH=C:\pro\callprofiler\src&& python -m callprofiler --log-file "!LOG_FILE!" reenrich-v2 --user "!USER_ID!" 2>&1
 if !errorlevel! neq 0 (
     echo.
     echo *** FAILED: reenrich-v2 (code !errorlevel!)
@@ -52,7 +52,7 @@ echo [Stage 2/5] Graph backfill
 echo ------------------------------------------------------------
 echo.
 
-python -m callprofiler --log-file "!LOG_FILE!" graph-backfill --user "!USER_ID!" 2>&1
+set PYTHONPATH=C:\pro\callprofiler\src&& python -m callprofiler --log-file "!LOG_FILE!" graph-backfill --user "!USER_ID!" 2>&1
 if !errorlevel! neq 0 (
     echo.
     echo *** FAILED: graph-backfill (code !errorlevel!)
@@ -70,11 +70,11 @@ echo [Stage 3/5] Graph health check
 echo ------------------------------------------------------------
 echo.
 
-python -m callprofiler --log-file "!LOG_FILE!" graph-health --user "!USER_ID!" 2>&1
+set PYTHONPATH=C:\pro\callprofiler\src&& python -m callprofiler --log-file "!LOG_FILE!" graph-health --user "!USER_ID!" 2>&1
 if !errorlevel! neq 0 (
     echo.
     echo *** WARNING: graph-health issues detected
-    echo *** python -m callprofiler graph-audit --user "!USER_ID!"
+    echo *** set PYTHONPATH=C:\pro\callprofiler\src^&^& python -m callprofiler graph-audit --user "!USER_ID!"
     echo *** Continuing...
     timeout /t 3 /nobreak >nul
 ) else (
@@ -88,7 +88,7 @@ echo [Stage 4/5] Generate psychology profiles
 echo ------------------------------------------------------------
 echo.
 
-python -m callprofiler --log-file "!LOG_FILE!" profile-all --user "!USER_ID!" 2>&1
+set PYTHONPATH=C:\pro\callprofiler\src&& python -m callprofiler --log-file "!LOG_FILE!" profile-all --user "!USER_ID!" 2>&1
 if !errorlevel! neq 0 (
     echo.
     echo *** FAILED: profile-all (code !errorlevel!)
@@ -106,7 +106,7 @@ echo [Stage 5/5] Generate biography book
 echo ------------------------------------------------------------
 echo.
 
-python -m callprofiler --log-file "!LOG_FILE!" biography-run --user "!USER_ID!" 2>&1
+set PYTHONPATH=C:\pro\callprofiler\src&& python -m callprofiler --log-file "!LOG_FILE!" biography-run --user "!USER_ID!" 2>&1
 if !errorlevel! neq 0 (
     echo.
     echo *** FAILED: biography-run (code !errorlevel!)

@@ -8,14 +8,16 @@
 
 ## Status
 
+DONE: Biography pipeline resume fix — p2_entities now skips completed types (2026-05-04)
+NOW: p2_entities застрял на 2/5 (PERSON, PLACE done; COMPANY, PROJECT, EVENT remain)
+     Fixed: added get_completed_items() check to skip already-processed types
+     Fixed: build-book-and-profiles.bat now uses correct PYTHONPATH + python -m callprofiler
+     Testing: p2_entities resume in progress (background task b03k9613i)
+NEXT: Wait for p2_entities completion, then run full build-book-and-profiles.bat
+BLOCKERS: None
 DONE: Dynamic Resource Allocation — adaptive budgets, long call priority, chunked processing, psychology depth (2026-05-04)
-NOW: CRS-based budget system, 2× multiplier for long calls, smart clipping, adaptive feedback loop integrated
-NEXT: Test biography pipeline with new dynamic allocation: python -m callprofiler biography-run --user USER_ID
-BLOCKERS: None
 DONE: Real-time Web Dashboard with SSE, psychology profiles, dark theme UI (2026-05-04)
-NOW: Dashboard module complete (8 files), CLI command integrated, committed (d2b04b0)
-NEXT: Test dashboard with real data: python -m callprofiler dashboard --user USER_ID
-BLOCKERS: None
+NOW: Dashboard fully functional, all 3 bugs fixed (TemplateResponse API, SSE polling, entity profile query)
 DONE: Atomic agent backlog + unattended runner for opencode/DeepSeek work queue (2026-05-01)
 NOW: 30 todo tasks in agent_backlog.json; runner ready at tools/agent_runner.py
 NEXT: Run runner in dry-run first, then run with opencode command in direct or patch mode
