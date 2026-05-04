@@ -54,7 +54,11 @@ def set_user_id(user_id: str):
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """Serve main dashboard page."""
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={}
+    )
 
 
 @app.get("/events/stream")

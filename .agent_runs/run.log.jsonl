@@ -1,0 +1,7 @@
+{"apply_mode": "patch", "backlog": "C:\\pro\\callprofiler\\agent_backlog.json", "event": "run_started", "max_hours": 24.0, "max_tasks": 0, "repo": "C:\\pro\\callprofiler", "ts": "2026-05-01T18:14:42+00:00"}
+{"event": "task_started", "run_dir": "C:\\pro\\callprofiler\\.agent_runs\\20260501_211442_P0-001", "task_id": "P0-001", "ts": "2026-05-01T18:14:42+00:00"}
+{"attempted": 1, "done": 0, "event": "run_finished", "failed": 0, "ts": "2026-05-01T18:14:42+00:00"}
+{"apply_mode": "patch", "backlog": "C:\\pro\\callprofiler\\agent_backlog.json", "event": "run_started", "max_hours": 24.0, "max_tasks": 1, "repo": "C:\\pro\\callprofiler", "ts": "2026-05-01T18:15:11+00:00"}
+{"event": "task_started", "run_dir": "C:\\pro\\callprofiler\\.agent_runs\\20260501_211511_P0-001", "task_id": "P0-001", "ts": "2026-05-01T18:15:11+00:00"}
+{"error": "Fireworks API call failed: 401", "event": "task_failed", "task_id": "P0-001", "ts": "2026-05-01T18:15:12+00:00"}
+{"attempted": 1, "done": 0, "event": "run_finished", "failed": 1, "ts": "2026-05-01T18:15:12+00:00"}

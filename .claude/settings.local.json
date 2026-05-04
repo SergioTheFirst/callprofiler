@@ -37,7 +37,15 @@
       "mcp__plugin_context-mode_context-mode__ctx_execute",
       "mcp__plugin_context-mode_context-mode__ctx_execute_file",
       "Bash(git rm *)",
-      "Bash(git reset *)"
+      "Bash(git reset *)",
+      "Bash(PYTHONPATH=/c/pro/callprofiler/src python -m pytest tests/ -v --tb=line)",
+      "Bash(curl *)",
+      "Bash(PYTHONPATH=/c/pro/callprofiler/src python *)",
+      "Bash(PYTHONPATH=/c/pro/callprofiler/src timeout 5 python -m callprofiler dashboard --user serhio --port 8765 --host 127.0.0.1)",
+      "Bash(cmd.exe *)",
+      "Bash(pkill *)",
+      "Bash(netstat -ano)",
+      "Bash(taskkill *)"
     ]
   }
 }

@@ -46,14 +46,12 @@ class DashboardDBReader:
         SELECT MAX(ts) AS latest FROM (
             SELECT MAX(updated_at) AS ts FROM calls WHERE user_id = ?
             UNION ALL
-            SELECT MAX(updated_at) AS ts FROM analyses WHERE call_id IN (SELECT call_id FROM calls WHERE user_id = ?)
-            UNION ALL
             SELECT MAX(updated_at) AS ts FROM entities WHERE user_id = ?
             UNION ALL
             SELECT MAX(updated_at) AS ts FROM entity_metrics WHERE user_id = ?
         )
         """
-        row = self._conn.execute(query, (user_id, user_id, user_id, user_id)).fetchone()
+        row = self._conn.execute(query, (user_id, user_id, user_id)).fetchone()
         return row["latest"] if row else None
 
     def get_recent_calls(self, user_id: str, limit: int = 50) -> list[dict[str, Any]]:
@@ -103,7 +101,7 @@ class DashboardDBReader:
 
         # Entity metrics
         metrics_row = self._conn.execute(
-            """SELECT bs_index, avg_risk, total_calls, trust_score, volatility, conflict_count
+            """SELECT bs_index, avg_risk, total_calls, emotional_pattern
                FROM entity_metrics
                WHERE entity_id = ? AND user_id = ?""",
             (entity_id, user_id),
@@ -113,9 +111,7 @@ class DashboardDBReader:
                 "bs_index": metrics_row["bs_index"],
                 "avg_risk": metrics_row["avg_risk"],
                 "total_calls": metrics_row["total_calls"],
-                "trust_score": metrics_row["trust_score"],
-                "volatility": metrics_row["volatility"],
-                "conflict_count": metrics_row["conflict_count"],
+                "emotional_pattern": metrics_row["emotional_pattern"],
             })
 
         # Psychology profile (from graph)

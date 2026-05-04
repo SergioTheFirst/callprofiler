@@ -1,0 +1,1 @@
+[Fireworks API] model=accounts/fireworks/models/deepseek-v3p1
