@@ -8,6 +8,17 @@
 
 ## [Unreleased]
 
+### Fixed — Dashboard Auto-Refresh (2026-05-04)
+
+- `src/callprofiler/dashboard/static/app.js`:
+  - Dashboard now auto-refreshes history on ALL event types (call_created, transcription_complete, analysis_complete, entity_updated)
+  - Previously only refreshed on analysis_complete events, causing stale data in history list
+  - Removed event_type check in `addLiveEvent()` function
+  - History refreshes 800ms after any SSE event arrives
+  - Message ordering already correct: SQL uses DESC (newest first), UI appends in order
+
+**Impact:** Real-time dashboard now stays fully synchronized with live events stream.
+
 ### Added — Dynamic Resource Allocation (2026-05-04)
 
 - `src/callprofiler/biography/prompts.py`:

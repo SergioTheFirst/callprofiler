@@ -180,10 +180,8 @@ function addLiveEvent(event) {
         container.removeChild(container.lastChild);
     }
 
-    // Auto-refresh history if analysis complete
-    if (event.event_type === 'analysis_complete') {
-        setTimeout(loadHistory, 800);
-    }
+    // Auto-refresh history on ANY event (call status changed)
+    setTimeout(loadHistory, 800);
 }
 
 // Get event icon
