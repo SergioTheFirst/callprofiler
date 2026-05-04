@@ -51,7 +51,8 @@
       "Bash(./test-status.bat)",
       "Bash(./test-p2-resume.bat)",
       "Bash(dir srccallprofiler *)",
-      "Bash(export PYTHONPATH=/c/pro/callprofiler/src)"
+      "Bash(export PYTHONPATH=/c/pro/callprofiler/src)",
+      "Bash(findstr :8765)"
     ]
   }
 }
