@@ -1,0 +1,49 @@
+CLEANUP LOG - 2026-05-04
+=========================
+
+TASK: Remove temporary files accidentally committed to git
+
+FILES FOUND IN GIT (should be ignored):
+---------------------------------------
+1. src/callprofiler/__pycache__/__init__.cpython-310.pyc
+2. src/callprofiler/__pycache__/config.cpython-310.pyc
+3. src/callprofiler/__pycache__/models.cpython-310.pyc
+4. src/callprofiler/audio/__pycache__/__init__.cpython-310.pyc
+5. src/callprofiler/audio/__pycache__/normalizer.cpython-310.pyc
+6. src/callprofiler/db/__pycache__/__init__.cpython-310.pyc
+7. src/callprofiler/db/__pycache__/repository.cpython-310.pyc
+8. src/callprofiler/ingest/__pycache__/__init__.cpython-310.pyc
+9. src/callprofiler/ingest/__pycache__/filename_parser.cpython-310.pyc
+10. tests/__pycache__/test_filename_parser.cpython-310-pytest-8.4.2.pyc
+11. tests/__pycache__/test_repository.cpython-310-pytest-8.4.2.pyc
+
+REASON FOR REMOVAL:
+-------------------
+- These are Python bytecode cache files (.pyc)
+- Already listed in .gitignore under __pycache__/ and *.py[cod]
+- Should never be in version control (regenerated automatically)
+- Likely committed before .gitignore was properly configured
+
+ACTION PLAN:
+------------
+1. Remove from git index (keep local files): git rm --cached <files>
+2. Commit removal
+3. Push to origin/master
+4. Verify cleanup
+
+SAFETY CHECK:
+-------------
+✓ Files are in .gitignore
+✓ Files are auto-generated (safe to remove from git)
+✓ Local copies will remain (only removed from git tracking)
+✓ Will not affect functionality
+
+EXECUTION:
+----------
+[2026-05-04 19:06 UTC] git rm --cached executed successfully
+- 11 .pyc files removed from git index
+- Local files preserved (still exist on disk)
+- Files will be ignored by git going forward
+
+VERIFICATION:
+-------------
