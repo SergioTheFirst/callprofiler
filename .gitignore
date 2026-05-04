@@ -38,6 +38,9 @@ data/
 .env
 .env.local
 *.log
+*.log.*
+.pipeline-tmp.txt
+pipeline-tmp.txt
 .claude/settings.local.json
 
 # Cache
