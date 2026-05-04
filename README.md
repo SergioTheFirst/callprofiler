@@ -123,6 +123,35 @@ callprofiler/
 
 ## 🔧 Использование
 
+### 📊 Real-time Web Dashboard
+
+Веб-интерфейс для мониторинга pipeline в реальном времени:
+
+```bash
+# Запуск dashboard через CLI
+python -m callprofiler dashboard --user serhio --port 8765 --host 127.0.0.1
+```
+
+**Быстрый запуск через .bat файлы:**
+
+- `start-dashboard.bat` — запускает сервер (Ctrl+C для остановки)
+- `open-dashboard.bat` — запускает сервер + автоматически открывает браузер
+
+**Возможности:**
+- Real-time обновления через SSE (Server-Sent Events)
+- Список всех звонков с фильтрацией и сортировкой
+- Детали звонка: транскрипт, анализ, события, обещания
+- Профили контактов: риск-скор, психология, история взаимодействий
+- Темная тема с премиум-дизайном
+- Read-only доступ к БД (не блокирует pipeline)
+- Graceful degradation: fallback на polling при проблемах с SSE
+
+**Технологии:**
+- Backend: FastAPI + Uvicorn (async)
+- Frontend: Vanilla JS + EventSource API
+- Database: SQLite read-only mode (`file:path?mode=ro`)
+- Change detection: polling MAX(updated_at) каждые 2 секунды
+
 ### Базовый pipeline
 
 ```python
