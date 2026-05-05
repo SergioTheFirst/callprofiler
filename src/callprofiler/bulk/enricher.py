@@ -342,6 +342,15 @@ def bulk_enrich(
                     stats["skipped"] += 1
                     continue
 
+                # If duration_sec is not set, compute from transcript segments
+                call_dur = call.get("duration_sec")
+                if not call_dur:
+                    max_ms = max((s.get("end_ms", 0) if isinstance(s, dict) else getattr(s, "end_ms", 0)) for s in segments)
+                    if max_ms > 0:
+                        call_dur = max(1, max_ms // 1000)  # minimum 1s
+                        conn.execute("UPDATE calls SET duration_sec=? WHERE call_id=?", (call_dur, call_id))
+                        conn.commit()
+
                 transcript_text = _format_transcript(segments)
                 is_partial = False  # По умолчанию полный успех
 
