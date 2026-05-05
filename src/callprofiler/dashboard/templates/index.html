@@ -5,83 +5,57 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CallProfiler Dashboard</title>
     <link rel="stylesheet" href="/static/style.css">
-    <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-primary text-primary font-sans">
+<body>
     <!-- Header -->
-    <header class="bg-secondary border-b border-border px-6 py-4">
-        <div class="flex items-center justify-between">
-            <div>
-                <h1 class="text-2xl font-bold text-accent-primary">CallProfiler</h1>
-                <p class="text-secondary text-sm">Real-time Pipeline Monitor</p>
-            </div>
-            <div id="stats" class="flex gap-6 text-sm">
-                <div class="text-center">
-                    <div class="text-muted">Звонков</div>
-                    <div id="stat-calls" class="text-xl font-bold text-primary">—</div>
-                </div>
-                <div class="text-center">
-                    <div class="text-muted">Персонажей</div>
-                    <div id="stat-entities" class="text-xl font-bold text-primary">—</div>
-                </div>
-                <div class="text-center">
-                    <div class="text-muted">Портретов</div>
-                    <div id="stat-portraits" class="text-xl font-bold text-primary">—</div>
-                </div>
-                <div class="text-center">
-                    <div class="text-muted">Средний риск</div>
-                    <div id="stat-risk" class="text-xl font-bold text-primary">—</div>
-                </div>
-            </div>
+    <header id="header">
+        <div class="header-left">
+            <h1>CallProfiler</h1>
+            <span class="subtitle">Pipeline Monitor</span>
+        </div>
+        <div class="header-stats" id="header-stats">
+            <div class="stat-box"><span class="stat-num" id="s-calls">--</span>звонков</div>
+            <div class="stat-box"><span class="stat-num" id="s-entities">--</span>персонажей</div>
+            <div class="stat-box"><span class="stat-num" id="s-portraits">--</span>портретов</div>
+            <div class="stat-box risk"><span class="stat-num" id="s-risk">--</span>ср.риск</div>
+        </div>
+        <div class="header-right">
+            <button id="btn-shutdown" onclick="doShutdown()" title="Stop server">SHUTDOWN</button>
+            <span id="connection-dot" class="dot disconnected"></span>
+            <span id="connection-text">connecting...</span>
         </div>
     </header>
 
-    <!-- Main Content -->
-    <div class="flex h-[calc(100vh-80px)]">
-        <!-- Live Events Stream -->
-        <aside class="w-96 bg-secondary border-r border-border overflow-y-auto">
-            <div class="p-4 border-b border-border">
-                <h2 class="text-lg font-semibold text-primary">🔴 Live Events</h2>
-                <p class="text-xs text-muted mt-1">Real-time pipeline activity</p>
+    <!-- Main layout -->
+    <main>
+        <!-- LEFT: Live Feed -->
+        <section id="live-feed">
+            <div class="section-header">
+                <h2>Живая лента</h2>
+                <span id="feed-count">0 событий</span>
             </div>
-            <div id="live-events" class="p-4 space-y-3">
-                <div class="text-center text-muted py-8">
-                    <div class="animate-pulse">Подключение к серверу...</div>
-                </div>
-            </div>
-        </aside>
+            <div id="feed-container"></div>
+        </section>
 
-        <!-- History Browser -->
-        <main class="flex-1 overflow-y-auto">
-            <div class="p-6">
-                <div class="flex items-center justify-between mb-6">
-                    <div>
-                        <h2 class="text-xl font-semibold text-primary">История звонков</h2>
-                        <p class="text-xs text-muted mt-1">Автоматическое обновление</p>
-                    </div>
-                </div>
+        <!-- RIGHT: Entity Profile -->
+        <section id="entity-panel">
+            <div class="section-header">
+                <h2>Профиль</h2>
+                <span id="entity-close" style="cursor:pointer;display:none">✕</span>
+            </div>
+            <div id="entity-placeholder">Кликните на имя в ленте чтобы увидеть профиль</div>
+            <div id="entity-content" style="display:none"></div>
+        </section>
+    </main>
 
-                <div id="history-list" class="space-y-3">
-                    <div class="text-center text-muted py-12">
-                        <div class="animate-pulse">Загрузка истории...</div>
-                    </div>
-                </div>
+    <!-- Entity modal (click contact name) -->
+    <div id="modal-overlay" style="display:none">
+        <div id="modal">
+            <div id="modal-header">
+                <h2 id="modal-name"></h2>
+                <button id="modal-close">✕</button>
             </div>
-        </main>
-    </div>
-
-    <!-- Entity Profile Modal -->
-    <div id="entity-modal" class="hidden fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
-        <div class="bg-secondary rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto m-4">
-            <div class="sticky top-0 bg-secondary border-b border-border p-6 flex items-center justify-between">
-                <h2 id="modal-title" class="text-2xl font-bold text-primary">Профиль персонажа</h2>
-                <button id="modal-close" class="text-muted hover:text-primary text-3xl leading-none">&times;</button>
-            </div>
-            <div id="modal-content" class="p-6">
-                <div class="text-center text-muted py-12">
-                    <div class="animate-pulse">Загрузка профиля...</div>
-                </div>
-            </div>
+            <div id="modal-body"></div>
         </div>
     </div>
 

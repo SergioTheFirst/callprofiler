@@ -182,3 +182,39 @@ class DashboardDBReader:
             "avg_risk": avg_risk,
             "last_call_datetime": last_call_datetime,
         }
+
+    def get_new_analyses(self, user_id: str, since_id: int = 0, limit: int = 20) -> list[dict[str, Any]]:
+        """Get analyses created after since_id for the live feed."""
+        self.connect()
+        rows = self._conn.execute(
+            """SELECT a.analysis_id, a.call_id, a.parse_status, a.summary,
+                      a.risk_score, a.call_type, a.schema_version, a.model,
+                      a.prompt_version, a.created_at,
+                      COALESCE(cnt.display_name, cnt.phone_e164, '?') as contact_name,
+                      cnt.phone_e164,
+                      c.call_datetime, c.direction, c.duration_sec,
+                      c.source_filename
+               FROM analyses a
+               JOIN calls c ON c.call_id = a.call_id
+               LEFT JOIN contacts cnt ON cnt.contact_id = c.contact_id
+               WHERE c.user_id = ? AND a.analysis_id > ?
+               ORDER BY a.analysis_id DESC
+               LIMIT ?""",
+            (user_id, since_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_new_events(self, user_id: str, since_id: int = 0, limit: int = 20) -> list[dict[str, Any]]:
+        """Get events created after since_id for the live feed."""
+        self.connect()
+        rows = self._conn.execute(
+            """SELECT ev.id, ev.event_type, ev.who, ev.payload, ev.call_id,
+                      e.canonical_name as entity_name
+               FROM events ev
+               LEFT JOIN entities e ON e.id = ev.entity_id
+               WHERE ev.user_id = ? AND ev.id > ?
+               ORDER BY ev.id DESC
+               LIMIT ?""",
+            (user_id, since_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]

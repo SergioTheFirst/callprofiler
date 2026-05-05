@@ -52,7 +52,12 @@
       "Bash(./test-p2-resume.bat)",
       "Bash(dir srccallprofiler *)",
       "Bash(export PYTHONPATH=/c/pro/callprofiler/src)",
-      "Bash(findstr :8765)"
+      "Bash(findstr :8765)",
+      "WebFetch(domain:github.com)",
+      "Bash(grep -E '\\\\.\\(pyc|pyo|log|tmp|bak\\)$|~$|__pycache__|\\\\.DS_Store')",
+      "Bash(grep -E '\\\\.\\(db|sqlite|sqlite3|env|secret|key|pem|p12\\)$')",
+      "Bash(xargs -I {} sh -c 'stat -c \"%s %n\" \"{}\" 2>/dev/null || stat -f \"%z %N\" \"{}\" 2>/dev/null')",
+      "Bash(awk '$1 > 1048576 {print $1/1048576 \"MB\", $2}')"
     ]
   }
 }

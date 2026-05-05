@@ -8,6 +8,7 @@
 
 ## Status
 
+DONE: Dashboard v2 — analysis-only live feed, enriched cards, shutdown button, real-time SSE (2026-05-05)
 DONE: Biography pipeline resume fix — p2_entities completed successfully (2026-05-04)
 DONE: p2_entities test completed — all 5 types processed (PERSON, PLACE, COMPANY, PROJECT, EVENT)
 DONE: Resource optimization guide created — OPTIMIZATION.md with multi-day run recommendations
