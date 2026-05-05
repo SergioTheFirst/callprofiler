@@ -362,6 +362,10 @@ class Repository:
             int(getattr(analysis, "profanity_count", 0) or 0),
             float(getattr(analysis, "profanity_density", 0.0) or 0.0),
         ]
+        canonical = getattr(analysis, "canonical_json", None)
+        if canonical:
+            cols += ", canonical_json"
+            vals.append(canonical)
         if has_sv:
             cols += ", schema_version"
             vals.append(getattr(analysis, "schema_version", None) or "v2")
@@ -432,8 +436,8 @@ class Repository:
                    (call_id, priority, risk_score, summary, action_items,
                     flags, key_topics, raw_response, model, prompt_version,
                     call_type, hook, parse_status,
-                    profanity_count, profanity_density, schema_version)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    profanity_count, profanity_density, canonical_json, schema_version)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(call_id) DO UPDATE SET
                      priority=excluded.priority, risk_score=excluded.risk_score,
                      summary=excluded.summary, action_items=excluded.action_items,
@@ -443,6 +447,7 @@ class Repository:
                      hook=excluded.hook, parse_status=excluded.parse_status,
                      profanity_count=excluded.profanity_count,
                      profanity_density=excluded.profanity_density,
+                     canonical_json=COALESCE(excluded.canonical_json, analyses.canonical_json),
                      schema_version=excluded.schema_version""",
                 (
                     call_id, a.priority, a.risk_score, a.summary,
@@ -455,6 +460,7 @@ class Repository:
                     getattr(a, "parse_status", "unknown"),
                     int(getattr(a, "profanity_count", 0) or 0),
                     float(getattr(a, "profanity_density", 0.0) or 0.0),
+                    getattr(a, "canonical_json", None) or "",
                     getattr(a, "schema_version", None) or "v2",
                 ),
             )

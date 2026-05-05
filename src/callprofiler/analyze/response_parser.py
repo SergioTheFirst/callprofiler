@@ -341,6 +341,7 @@ def _build_analysis(
         call_type=call_type,
         hook=_get_str(parsed, "hook", None) or None,
         parse_status=parse_status,
+        canonical_json=json.dumps(parsed, ensure_ascii=False),
     )
 
 

@@ -46,14 +46,22 @@ def apply_graph_schema(conn: sqlite3.Connection) -> None:
         )
         log.info("[graph] migration: analyses.schema_version added (DEFAULT 'v1')")
 
+    # ── analyses.canonical_json ─────────────────────────────────────────
+    if not _col_exists(conn, "analyses", "canonical_json"):
+        conn.execute(
+            "ALTER TABLE analyses ADD COLUMN canonical_json TEXT DEFAULT ''"
+        )
+        log.info("[graph] migration: analyses.canonical_json added")
+
     # ── events graph-extension columns ───────────────────────────────────
     _migrations = [
         ("events", "entity_id", "INTEGER REFERENCES entities(id)"),
         ("events", "fact_id",   "TEXT"),
+        ("events", "fact_type", "TEXT"),
         ("events", "quote",     "TEXT"),
         ("events", "start_ms",  "INTEGER"),
         ("events", "end_ms",    "INTEGER"),
-        ("events", "polarity",  "INTEGER"),
+        ("events", "polarity",  "REAL"),
         ("events", "intensity", "REAL"),
     ]
     for table, col, defn in _migrations:

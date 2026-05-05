@@ -94,9 +94,13 @@ class GraphBuilder:
             log.debug("[graph] call_id=%d: schema_version=%s, skipping", call_id, schema_version)
             return False
 
-        raw = row["raw_response"] or ""
+        # Try canonical_json first (repaired by parser), fallback to raw_response
+        raw = (
+            (row["canonical_json"] if "canonical_json" in row.keys() else "")
+            or row["raw_response"] or ""
+        ).strip()
         if not raw:
-            log.debug("[graph] call_id=%d: empty raw_response, skipping", call_id)
+            log.debug("[graph] call_id=%d: empty response, skipping", call_id)
             return False
 
         try:

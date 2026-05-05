@@ -41,3 +41,5 @@ class Analysis:
     parse_status: str = "unknown"  # parsed_ok/parsed_partial/parse_failed/output_truncated
     profanity_count: int = 0    # всего матов в стенограмме (словарный детектор, без LLM)
     profanity_density: float = 0.0  # матов на 100 слов
+    schema_version: str = "v2"  # v1=legacy, v2=graph-enabled
+    canonical_json: str = ""  # repaired JSON — survives broken raw_response for graph
