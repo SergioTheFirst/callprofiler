@@ -130,7 +130,7 @@ def calculate_dynamic_budget(
     pass_name: str,
     crs: float,
     is_long_call: bool = False,
-    context_window: int = 16384
+    context_window: int = 32768
 ) -> int:
     """
     Calculate adaptive budget based on Content Richness Score.
