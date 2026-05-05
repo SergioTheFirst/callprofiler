@@ -80,21 +80,8 @@ class TokenBudget:
 
 
 # ---------------------------------------------------------------------------
-# Dynamic budget system — replaces fixed BUDGETS with adaptive allocation
+# Dynamic budget system — auto-scaling with context window
 # ---------------------------------------------------------------------------
-
-# Baseline budgets (used as starting point for CRS multiplier)
-BASELINE_BUDGETS = {
-    "p1_scene": 12000,
-    "p2_entities": 10000,
-    "p3_threads": 12000,
-    "p4_arcs": 14000,
-    "p5_portraits": 12000,
-    "p6_chapters": 17000,
-    "p7_book": 9000,
-    "p8_editorial": 18000,  # REDUCED from 32000 (was overflowing context)
-    "p9_yearly": 9500,
-}
 
 # Output token reserves per pass (for context window calculation)
 PASS_OUTPUT_RESERVES = {
@@ -122,8 +109,42 @@ EXPECTED_LENGTHS = {
     "p9_yearly": 2000,    # Markdown prose
 }
 
-# JSON passes (for validation in quality assessment)
 JSON_PASSES = {"p1_scene", "p2_entities", "p3_threads", "p4_arcs", "p5_portraits", "p7_book"}
+
+# Context budget constants
+SYSTEM_TOKENS = 2200           # system prompt ≈ 2200 tokens
+CHARS_PER_TOKEN_RU = 2.1       # Russian + JSON ≈ 2.1 chars per BPE token
+SAFETY_MARGIN = 0.85           # Use 85% of max safe; 15% headroom against OOM
+
+# Current context window (updated after performance tests)
+CURRENT_CONTEXT_WINDOW = 32768
+
+# ── Baseline budgets: expected data volume (60% of max safe) ────────────
+
+def _compute_baselines(context_window: int = CURRENT_CONTEXT_WINDOW) -> dict[str, int]:
+    """Compute baseline char budgets — expected volume at 60% of max safe.
+    
+    CRS multiplier expands to 90% for rich data, 100% for long calls.
+    Safety cap at 100% prevents OOM.
+    """
+    baselines = {}
+    for pass_name, output_tokens in PASS_OUTPUT_RESERVES.items():
+        available = context_window - SYSTEM_TOKENS - output_tokens
+        max_safe = int(available * CHARS_PER_TOKEN_RU)
+        baselines[pass_name] = int(max_safe * 0.60)  # 60% = expected volume
+    return baselines
+
+BASELINE_BUDGETS = _compute_baselines()
+# BASELINE_BUDGETS (60% of max):
+#   p1_scene:     35700  ← transcript budget
+#   p2_entities:  33100  ← mention list budget  
+#   p3_threads:   34800  ← scene JSON for thread
+#   p4_arcs:      32700  ← scene chronology
+#   p5_portraits: 34800  ← scene + psych profile
+#   p6_chapters:  31100  ← portraits + arcs + scenes
+#   p7_book:      33500  ← chapters + arcs + entities
+#   p8_editorial: 31100  ← chapter prose
+#   p9_yearly:    32900  ← chapters + arcs + entities + psychology
 
 
 def calculate_dynamic_budget(
@@ -152,15 +173,16 @@ def calculate_dynamic_budget(
     # Baseline (current values)
     baseline_chars = BASELINE_BUDGETS.get(pass_name, 10000)
 
-    # CRS multiplier
+    # CRS multiplier — scales from baseline (60%) up to 90% for rich data,
+    # 100% for long/priority calls. Safety cap prevents OOM at any level.
     if is_long_call:
-        multiplier = 2.0  # Long call priority: never truncate
+        multiplier = 1.67  # pushes 60% → 100% of max safe
     elif crs < 0.3:
-        multiplier = 0.5  # Thin material: reduce budget
+        multiplier = 0.5   # thin material → 30% of max
     elif crs > 0.7:
-        multiplier = 1.5  # Rich material: expand budget
+        multiplier = 1.5   # rich material → 90% of max
     else:
-        multiplier = 1.0  # Normal: baseline
+        multiplier = 1.0   # normal → 60% of max
 
     dynamic_chars = int(baseline_chars * multiplier)
 
