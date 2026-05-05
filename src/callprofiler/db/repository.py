@@ -366,8 +366,11 @@ class Repository:
             cols += ", schema_version"
             vals.append(getattr(analysis, "schema_version", None) or "v2")
         ph = ",".join("?" * len(vals))
+        update_cols = cols.replace("call_id, ", "")
+        update_sets = ", ".join(f"{c}=excluded.{c}" for c in update_cols.split(", "))
         conn.execute(
-            f"INSERT OR REPLACE INTO analyses ({cols}) VALUES ({ph})",
+            f"INSERT INTO analyses ({cols}) VALUES ({ph}) "
+            f"ON CONFLICT(call_id) DO UPDATE SET {update_sets}",
             vals,
         )
         conn.commit()
@@ -425,28 +428,34 @@ class Repository:
             call_id = item["call_id"]
             a = item["analysis"]
             conn.execute(
-                """INSERT OR REPLACE INTO analyses
+                """INSERT INTO analyses
                    (call_id, priority, risk_score, summary, action_items,
                     flags, key_topics, raw_response, model, prompt_version,
                     call_type, hook, parse_status,
-                    profanity_count, profanity_density)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    profanity_count, profanity_density, schema_version)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(call_id) DO UPDATE SET
+                     priority=excluded.priority, risk_score=excluded.risk_score,
+                     summary=excluded.summary, action_items=excluded.action_items,
+                     flags=excluded.flags, key_topics=excluded.key_topics,
+                     raw_response=excluded.raw_response, model=excluded.model,
+                     prompt_version=excluded.prompt_version, call_type=excluded.call_type,
+                     hook=excluded.hook, parse_status=excluded.parse_status,
+                     profanity_count=excluded.profanity_count,
+                     profanity_density=excluded.profanity_density,
+                     schema_version=excluded.schema_version""",
                 (
-                    call_id,
-                    a.priority,
-                    a.risk_score,
-                    a.summary,
+                    call_id, a.priority, a.risk_score, a.summary,
                     json.dumps(a.action_items, ensure_ascii=False),
                     json.dumps(a.flags, ensure_ascii=False),
                     json.dumps(a.key_topics, ensure_ascii=False),
-                    a.raw_response,
-                    a.model,
-                    a.prompt_version,
+                    a.raw_response, a.model, a.prompt_version,
                     getattr(a, "call_type", "unknown"),
                     getattr(a, "hook", None),
                     getattr(a, "parse_status", "unknown"),
                     int(getattr(a, "profanity_count", 0) or 0),
                     float(getattr(a, "profanity_density", 0.0) or 0.0),
+                    getattr(a, "schema_version", None) or "v2",
                 ),
             )
             contact_id = item.get("contact_id")
