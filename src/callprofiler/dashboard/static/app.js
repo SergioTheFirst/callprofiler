@@ -23,8 +23,28 @@
             var evt = JSON.parse(e.data);
             if (evt.type === 'analysis') renderCard(evt);
             if (evt.type === 'stats' && evt.data) updateStats(evt.data);
+            if (evt.type === 'heartbeat') updateHeartbeat(evt);
         } catch(ex) { console.error(ex); }
     });
+
+    var pollTimer = null;
+    var pollSec = 0;
+    var feedTitle = document.querySelector('#live-feed .section-header h2');
+
+    function updateHeartbeat(hb) {
+        pollSec = 0;
+        if (feedTitle) feedTitle.textContent = 'Live Feed [' + (hb.last_id || 0) + ']';
+    }
+
+    // Countdown refresh indicator
+    setInterval(function() {
+        pollSec += 1;
+        if (countEl) countEl.textContent = 'refresh in ' + (Math.max(2 - pollSec, 0)) + 's';
+        if (pollSec >= 2) {
+            pollSec = 0;
+            if (countEl) countEl.textContent = 'polling...';
+        }
+    }, 1000);
 
     function renderCard(a) {
         var card = document.createElement('div');
