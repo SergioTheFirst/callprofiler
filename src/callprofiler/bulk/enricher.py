@@ -33,7 +33,7 @@ _KEEP_SHORT_SEGS = {"да", "ну", "угу"}
 _SHORT_CALL_THRESHOLD = 50
 
 # Кол-во звонков, накапливаемых перед записью одной транзакцией.
-_BATCH_SIZE = 5
+_BATCH_SIZE = 1
 
 
 def _extract_events_from_analysis(

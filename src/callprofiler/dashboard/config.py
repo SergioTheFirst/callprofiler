@@ -4,7 +4,7 @@ Dashboard configuration constants.
 """
 
 # Polling
-POLL_INTERVAL_SEC = 2  # Check DB every 2 seconds
+POLL_INTERVAL_SEC = 5  # Check DB every 2 seconds
 SSE_KEEPALIVE_SEC = 30  # Send keepalive comment every 30s
 
 # History pagination

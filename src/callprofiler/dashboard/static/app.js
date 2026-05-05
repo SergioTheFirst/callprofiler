@@ -39,8 +39,8 @@
     // Countdown refresh indicator
     setInterval(function() {
         pollSec += 1;
-        if (countEl) countEl.textContent = 'refresh in ' + (Math.max(2 - pollSec, 0)) + 's';
-        if (pollSec >= 2) {
+        if (countEl) countEl.textContent = 'refresh in ' + (Math.max(5 - pollSec, 0)) + 's';
+        if (pollSec >= 5) {
             pollSec = 0;
             if (countEl) countEl.textContent = 'polling...';
         }
@@ -97,8 +97,10 @@
     // ── Shutdown ────────────────────────────────────────────────────────
     window.doShutdown = function() {
         if (!confirm('Stop dashboard server and close?')) return;
-        try { fetch('/api/shutdown'); } catch(ex) {}
-        window.close();
+        fetch('/api/shutdown').then(function() {
+            document.body.innerHTML = '<div style=\"color:#10b981;text-align:center;padding:100px;font-size:24px\">Server stopped. You may close this tab.</div>';
+            setTimeout(function() { window.close(); }, 2000);
+        }).catch(function() {});
     };
 
     // ── Entity Profile ──────────────────────────────────────────────────
