@@ -119,7 +119,7 @@ class WhisperRunner:
                 wav_path,
                 language=self.config.models.whisper_language,
                 beam_size=self.config.models.whisper_beam_size,
-                best_of=5,
+                best_of=1,  # best_of>1 redundant with temperature=0 (was 5 → 5× waste)
                 temperature=0,
                 vad_filter=True,
                 vad_parameters=dict(
