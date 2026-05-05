@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 import torch
 
 from callprofiler.models import Segment
+from callprofiler.transcribe.transcript_cleaner import TranscriptCleaner
 
 if TYPE_CHECKING:
     from callprofiler.config import Config
@@ -43,6 +44,7 @@ class WhisperRunner:
         self.config = config
         self.model = None
         self._device = None
+        self.cleaner = TranscriptCleaner(min_segment_length=3)
 
     def load(self) -> None:
         """Загрузить модель faster-whisper в GPU/CPU.
@@ -148,6 +150,9 @@ class WhisperRunner:
                         speaker="UNKNOWN",  # Роли назначаются потом в diarize
                     )
                 )
+
+            # Применить очистку от hallucinations и артефактов
+            result = self.cleaner.clean_segments(result)
 
             logger.info(
                 "Транскрибирование завершено: %d сегментов из %s",
