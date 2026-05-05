@@ -8,6 +8,31 @@
 
 ## [Unreleased]
 
+### Changed — Biography Token Budget Optimization (2026-05-05)
+
+- `src/callprofiler/biography/prompts.py`:
+  - Context window: 32768 → 24576 tokens (24K) for production stability on RTX 3060 12GB
+  - Baseline budgets: 60% → 75% of max safe capacity (maximize resource utilization)
+  - Output reserves increased across all passes (+18-40%):
+    - p1_scene: 1800 → 2500 tokens (+39%)
+    - p2_entities: 3800 → 4500 tokens (+18%)
+    - p3_threads: 2500 → 3500 tokens (+40%)
+    - p4_arcs: 4200 → 5000 tokens (+19%)
+    - p5_portraits: 2500 → 3500 tokens (+40%)
+    - p6_chapters: 5500 → 7000 tokens (+27%)
+    - p7_book: 3500 → 4500 tokens (+29%)
+    - p8_editorial: 5500 → 7000 tokens (+27%)
+    - p9_yearly: 4000 → 5000 tokens (+25%)
+  - CRS multipliers recalibrated for new baseline:
+    - Long calls: 1.67× → 1.33× (pushes 75% → 100%)
+    - Rich material (CRS>0.7): 1.5× → 1.27× (pushes 75% → 95%)
+    - Normal: 1.0× (75% of max)
+    - Thin material (CRS<0.3): 0.5× (37.5% of max)
+
+**Impact:** VRAM usage increases from 9.5GB to 11-11.5GB (target utilization), richer output quality (longer chapters, deeper portraits), maintains 0.5-1GB safety margin. Based on analysis in `docs/superpowers/specs/2026-05-05-24k-context-analysis.md`.
+
+**Verification:** 209 tests passing, no regressions.
+
 ### Fixed — Enricher Event Emission (2026-05-04)
 
 - `src/callprofiler/bulk/enricher.py`:
