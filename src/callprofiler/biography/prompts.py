@@ -84,16 +84,17 @@ class TokenBudget:
 # ---------------------------------------------------------------------------
 
 # Output token reserves per pass (for context window calculation)
+# Increased from conservative values to maximize output quality
 PASS_OUTPUT_RESERVES = {
-    "p1_scene": 1800,
-    "p2_entities": 3800,
-    "p3_threads": 2500,
-    "p4_arcs": 4200,
-    "p5_portraits": 2500,
-    "p6_chapters": 5500,
-    "p7_book": 3500,
-    "p8_editorial": 5500,
-    "p9_yearly": 4000,
+    "p1_scene": 2500,       # Increased from 1800 (+39%) — richer scene descriptions
+    "p2_entities": 4500,    # Increased from 3800 (+18%) — more entity details
+    "p3_threads": 3500,     # Increased from 2500 (+40%) — deeper thread analysis
+    "p4_arcs": 5000,        # Increased from 4200 (+19%) — more arc context
+    "p5_portraits": 3500,   # Increased from 2500 (+40%) — deeper psychological profiles
+    "p6_chapters": 7000,    # Increased from 5500 (+27%) — longer chapters (3500-5000 words)
+    "p7_book": 4500,        # Increased from 3500 (+29%) — richer book frame
+    "p8_editorial": 7000,   # Increased from 5500 (+27%) — more editorial depth
+    "p9_yearly": 5000,      # Increased from 4000 (+25%) — longer yearly summaries
 }
 
 # Expected output lengths (for quality assessment)
@@ -117,34 +118,37 @@ CHARS_PER_TOKEN_RU = 2.1       # Russian + JSON ≈ 2.1 chars per BPE token
 SAFETY_MARGIN = 0.85           # Use 85% of max safe; 15% headroom against OOM
 
 # Current context window (updated after performance tests)
-CURRENT_CONTEXT_WINDOW = 32768
+# 32768 tokens = 32K context (Q5_K_M + FA 35% = 14.95GB VRAM, borderline on RTX 3060 12GB)
+# Use 24576 for production stability (11.4GB with FA 40%, safe margin)
+CURRENT_CONTEXT_WINDOW = 24576
 
 # ── Baseline budgets: expected data volume (60% of max safe) ────────────
 
 def _compute_baselines(context_window: int = CURRENT_CONTEXT_WINDOW) -> dict[str, int]:
-    """Compute baseline char budgets — expected volume at 60% of max safe.
-    
-    CRS multiplier expands to 90% for rich data, 100% for long calls.
+    """Compute baseline char budgets — expected volume at 75% of max safe.
+
+    Increased from 60% to 75% to maximize resource utilization.
+    CRS multiplier expands to 95% for rich data, 100% for long calls.
     Safety cap at 100% prevents OOM.
     """
     baselines = {}
     for pass_name, output_tokens in PASS_OUTPUT_RESERVES.items():
         available = context_window - SYSTEM_TOKENS - output_tokens
         max_safe = int(available * CHARS_PER_TOKEN_RU)
-        baselines[pass_name] = int(max_safe * 0.60)  # 60% = expected volume
+        baselines[pass_name] = int(max_safe * 0.75)  # 75% = expected volume (was 60%)
     return baselines
 
 BASELINE_BUDGETS = _compute_baselines()
-# BASELINE_BUDGETS (60% of max):
-#   p1_scene:     35700  ← transcript budget
-#   p2_entities:  33100  ← mention list budget  
-#   p3_threads:   34800  ← scene JSON for thread
-#   p4_arcs:      32700  ← scene chronology
-#   p5_portraits: 34800  ← scene + psych profile
-#   p6_chapters:  31100  ← portraits + arcs + scenes
-#   p7_book:      33500  ← chapters + arcs + entities
-#   p8_editorial: 31100  ← chapter prose
-#   p9_yearly:    32900  ← chapters + arcs + entities + psychology
+# BASELINE_BUDGETS (75% of max safe, 24K context):
+#   p1_scene:     ~38000 chars  ← transcript budget (was 35700 @ 60%)
+#   p2_entities:  ~35000 chars  ← mention list budget (was 33100)
+#   p3_threads:   ~37000 chars  ← scene JSON for thread (was 34800)
+#   p4_arcs:      ~35000 chars  ← scene chronology (was 32700)
+#   p5_portraits: ~37000 chars  ← scene + psych profile (was 34800)
+#   p6_chapters:  ~32000 chars  ← portraits + arcs + scenes (was 31100)
+#   p7_book:      ~35000 chars  ← chapters + arcs + entities (was 33500)
+#   p8_editorial: ~32000 chars  ← chapter prose (was 31100)
+#   p9_yearly:    ~34000 chars  ← chapters + arcs + entities + psychology (was 32900)
 
 
 def calculate_dynamic_budget(
@@ -173,16 +177,16 @@ def calculate_dynamic_budget(
     # Baseline (current values)
     baseline_chars = BASELINE_BUDGETS.get(pass_name, 10000)
 
-    # CRS multiplier — scales from baseline (60%) up to 90% for rich data,
+    # CRS multiplier — scales from baseline (75%) up to 95% for rich data,
     # 100% for long/priority calls. Safety cap prevents OOM at any level.
     if is_long_call:
-        multiplier = 1.67  # pushes 60% → 100% of max safe
+        multiplier = 1.33  # pushes 75% → 100% of max safe
     elif crs < 0.3:
-        multiplier = 0.5   # thin material → 30% of max
+        multiplier = 0.5   # thin material → 37.5% of max
     elif crs > 0.7:
-        multiplier = 1.5   # rich material → 90% of max
+        multiplier = 1.27  # rich material → 95% of max
     else:
-        multiplier = 1.0   # normal → 60% of max
+        multiplier = 1.0   # normal → 75% of max
 
     dynamic_chars = int(baseline_chars * multiplier)
 
