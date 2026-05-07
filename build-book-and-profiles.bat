@@ -19,7 +19,7 @@ echo.
 
 echo Checking LLM server...
 curl -s -o nul --connect-timeout 3 http://localhost:8080/health 2>nul
-if !errorlevel! neq 0 (
+if errorlevel 1 (
     echo   [WARN] LLM server not responding
     echo          Run C:\llama\start.bat first
     echo.
@@ -34,11 +34,10 @@ echo [Stage 1/6] Enrich unprocessed calls
 echo ------------------------------------------------------------
 echo.
 
-set PYTHONPATH=C:\pro\callprofiler\src&& python -m callprofiler --log-file "!LOG_FILE!" bulk-enrich --user "!USER_ID!" --limit 0 2>&1
-set "ENRICH_CODE=!errorlevel!"
-if !ENRICH_CODE! neq 0 (
+python -m callprofiler --log-file "!LOG_FILE!" bulk-enrich --user "!USER_ID!"
+if errorlevel 1 (
     echo.
-    echo *** FAILED: bulk-enrich (code !ENRICH_CODE!)
+    echo *** FAILED: bulk-enrich
     echo *** Log: !LOG_FILE!
     pause
     exit /b 1
@@ -53,11 +52,10 @@ echo [Stage 2/6] Reenrich v2 analyses
 echo ------------------------------------------------------------
 echo.
 
-set PYTHONPATH=C:\pro\callprofiler\src&& python -m callprofiler --log-file "!LOG_FILE!" reenrich-v2 --user "!USER_ID!" 2>&1
-set "REENRICH_CODE=!errorlevel!"
-if !REENRICH_CODE! neq 0 (
+python -m callprofiler --log-file "!LOG_FILE!" reenrich-v2 --user "!USER_ID!"
+if errorlevel 1 (
     echo.
-    echo *** Note: reenrich-v2 returned code !REENRICH_CODE!
+    echo *** Note: reenrich-v2 returned non-zero
     echo *** This is OK if all analyses are already v2
     echo *** Continuing...
     timeout /t 2 /nobreak >nul
@@ -73,10 +71,10 @@ echo [Stage 3/6] Graph backfill
 echo ------------------------------------------------------------
 echo.
 
-set PYTHONPATH=C:\pro\callprofiler\src&& python -m callprofiler --log-file "!LOG_FILE!" graph-backfill --user "!USER_ID!" 2>&1
-if !errorlevel! neq 0 (
+python -m callprofiler --log-file "!LOG_FILE!" graph-backfill --user "!USER_ID!"
+if errorlevel 1 (
     echo.
-    echo *** FAILED: graph-backfill (code !errorlevel!)
+    echo *** FAILED: graph-backfill
     echo *** Log: !LOG_FILE!
     pause
     exit /b 3
@@ -91,11 +89,11 @@ echo [Stage 4/6] Graph health check
 echo ------------------------------------------------------------
 echo.
 
-set PYTHONPATH=C:\pro\callprofiler\src&& python -m callprofiler --log-file "!LOG_FILE!" graph-health --user "!USER_ID!" 2>&1
-if !errorlevel! neq 0 (
+python -m callprofiler --log-file "!LOG_FILE!" graph-health --user "!USER_ID!"
+if errorlevel 1 (
     echo.
     echo *** WARNING: graph-health issues detected
-    echo *** set PYTHONPATH=C:\pro\callprofiler\src^&^& python -m callprofiler graph-audit --user "!USER_ID!"
+    echo *** Fix: python -m callprofiler graph-audit --user "!USER_ID!"
     echo *** Continuing...
     timeout /t 3 /nobreak >nul
 ) else (
@@ -109,10 +107,10 @@ echo [Stage 5/6] Generate psychology profiles
 echo ------------------------------------------------------------
 echo.
 
-set PYTHONPATH=C:\pro\callprofiler\src&& python -m callprofiler --log-file "!LOG_FILE!" profile-all --user "!USER_ID!" 2>&1
-if !errorlevel! neq 0 (
+python -m callprofiler --log-file "!LOG_FILE!" profile-all --user "!USER_ID!"
+if errorlevel 1 (
     echo.
-    echo *** FAILED: profile-all (code !errorlevel!)
+    echo *** FAILED: profile-all
     echo *** Log: !LOG_FILE!
     pause
     exit /b 5
@@ -127,10 +125,10 @@ echo [Stage 6/6] Generate biography book
 echo ------------------------------------------------------------
 echo.
 
-set PYTHONPATH=C:\pro\callprofiler\src&& python -m callprofiler --log-file "!LOG_FILE!" biography-run --user "!USER_ID!" 2>&1
-if !errorlevel! neq 0 (
+python -m callprofiler --log-file "!LOG_FILE!" biography-run --user "!USER_ID!"
+if errorlevel 1 (
     echo.
-    echo *** FAILED: biography-run (code !errorlevel!)
+    echo *** FAILED: biography-run
     echo *** Log: !LOG_FILE!
     pause
     exit /b 6
