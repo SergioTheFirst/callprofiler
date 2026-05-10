@@ -8,6 +8,15 @@
 
 ## [Unreleased]
 
+### Fixed — p5_portraits TypeError (2026-05-10)
+- `build_portrait_prompt()` missing `profile_depth` parameter — added `profile_depth: str | None = None`
+- `profile_depth="light"` → minimal psych analysis; `"deep"` → 2-3 paragraph analysis; `"standard"` → default
+- Fixes crash in biography pipeline pass p5_portraits
+
+### Perf — best_of redundancy (2026-05-10)
+- `best_of=5` with `temperature=0` was redundant (deterministic decoding makes best_of>1 pointless)
+- Changed to `best_of=1` — 5× faster transcription, zero accuracy loss
+
 ### Changed — Biography Token Budget Optimization (2026-05-05)
 
 - `src/callprofiler/biography/prompts.py`:

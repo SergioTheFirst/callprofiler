@@ -606,6 +606,7 @@ def build_portrait_prompt(
     temperament: dict | None = None,
     big_five: dict | None = None,
     motivation: dict | None = None,
+    profile_depth: str | None = None,
 ) -> list[dict]:
     condensed = [
         {
@@ -648,12 +649,18 @@ def build_portrait_prompt(
             all_d = [d["driver"] for d in motivation.get("drivers", [])]
             parts.append(f"Мотивация: доминанта={prim}, драйверы={all_d}")
         psych_section = "\nПсихологический профиль (вычислен детерминированно, используй как основу для 'похоже/возможно'):\n" + "\n".join(f"  {p}" for p in parts) + "\n"
+    depth_note = ""
+    if profile_depth == "light":
+        depth_note = "\nПсихологическая глубина: минимальная. Не развёртывай анализ — достаточно 1 фразы.\n"
+    elif profile_depth == "deep":
+        depth_note = "\nПсихологическая глубина: максимальная. Разверни анализ мотивов и паттернов на 2-3 абзаца.\n"
     user = (
         f"Персонаж: {entity_name} ({entity_type})\n"
         f"Роль: {role or 'не определена'}\n"
         f"Сюжетная линия: {thread_summary or '-'}\n"
         f"{behavior_section}"
-        f"{psych_section}\n"
+        f"{psych_section}"
+        f"{depth_note}"
         f"Сцены (всего {len(scenes)}):\n"
         f"{BUDGETS['p5_portraits'].trim_one(json.dumps(condensed, ensure_ascii=False, indent=2), 'scenes')}\n\n"
         f"Верни JSON."
