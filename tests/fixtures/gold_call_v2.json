@@ -1,0 +1,79 @@
+{
+    "schema_version": "v2",
+    "summary": "Клиент обещал перезвонить завтра и уточнить детали заказа",
+    "category": "рабочий",
+    "priority": 60,
+    "risk_score": 15,
+    "sentiment": "конструктивный",
+    "action_items": ["перезвонить клиенту завтра в 10:00", "подготовить коммерческое предложение"],
+    "comment": null,
+    "analyzed_at": "2026-04-01T10:00:00",
+    "people": ["Алексей Петров"],
+    "companies": ["ООО СтройМаш"],
+    "amounts": ["450000"],
+    "contact_name_guess": "Алексей Петров",
+    "bs_score": 5,
+    "bs_evidence": [],
+    "flags": {"urgent": false, "conflict": false, "money": true, "legal_risk": false},
+    "call_type": "business",
+    "hook": null,
+    "entities": [
+        {
+            "type": "person",
+            "canonical_name": "Алексей Петров",
+            "normalized_key": "aleksey_petrov",
+            "aliases": ["Лёша"],
+            "attributes": {"role": "менеджер по закупкам"}
+        },
+        {
+            "type": "org",
+            "canonical_name": "ООО СтройМаш",
+            "normalized_key": "ooo_stroymash",
+            "aliases": ["СтройМаш"],
+            "attributes": {"industry": "строительство"}
+        }
+    ],
+    "relations": [
+        {
+            "src_key": "aleksey_petrov",
+            "dst_key": "ooo_stroymash",
+            "relation_type": "works_for",
+            "confidence": 0.95
+        }
+    ],
+    "structured_facts": [
+        {
+            "fact_type": "promise",
+            "entity_key": "aleksey_petrov",
+            "quote": "перезвоню завтра в десять утра",
+            "value": "перезвонит",
+            "confidence": 0.90,
+            "polarity": 1,
+            "intensity": 0.8,
+            "start_ms": 45000,
+            "end_ms": 52000
+        },
+        {
+            "fact_type": "promise",
+            "entity_key": "aleksey_petrov",
+            "quote": "пришлю коммерческое предложение на почту",
+            "value": "пришлёт КП",
+            "confidence": 0.85,
+            "polarity": 1,
+            "intensity": 0.7,
+            "start_ms": 120000,
+            "end_ms": 128000
+        },
+        {
+            "fact_type": "claim",
+            "entity_key": "ooo_stroymash",
+            "quote": "бюджет на этот квартал четыреста пятьдесят тысяч",
+            "value": "450000 руб бюджет",
+            "confidence": 0.80,
+            "polarity": 0,
+            "intensity": 0.5,
+            "start_ms": 85000,
+            "end_ms": 92000
+        }
+    ]
+}

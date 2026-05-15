@@ -359,6 +359,7 @@ class Orchestrator:
             "phone": contact.get("phone_e164") if contact else None,
             "call_datetime": call.get("call_datetime"),
             "direction": call.get("direction", "UNKNOWN"),
+            "duration_ms": call.get("duration_ms", 0),
         }
 
         # Построить промпт и отправить в LLM
@@ -366,15 +367,14 @@ class Orchestrator:
             transcript_text, metadata, previous_summaries
         )
 
-        try:
-            ollama = OllamaClient(
-                base_url=self.config.models.ollama_url,
-                model=self.config.models.llm_model,
-            )
-            raw_response = ollama.generate(prompt)
-        except (ConnectionError, RuntimeError) as exc:
-            logger.error("LLM недоступен для call_id=%d: %s", call_id, exc)
-            raw_response = ""
+            try:
+                llm = LLMClient(
+                    base_url=self.config.models.ollama_url
+                )
+                raw_response = llm.generate(messages=[{"role": "user", "content": prompt}])
+            except (ConnectionError, RuntimeError) as exc:
+                logger.error("LLM недоступен для call_id=%d: %s", call_id, exc)
+                raw_response = ""
 
         # Распарсить ответ
         analysis = parse_llm_response(

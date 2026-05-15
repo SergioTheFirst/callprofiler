@@ -6,8 +6,9 @@ repository.py — доступ к SQLite. Без ORM, только sqlite3.
 
 import json
 import sqlite3
+from datetime import datetime
 from pathlib import Path
-
+from typing import Optional
 from callprofiler.models import Analysis, Segment
 
 
@@ -223,14 +224,15 @@ class Repository:
         return row is not None
 
     def create_call(self, user_id: str, contact_id: int | None, direction: str,
-                    call_datetime: str | None, source_filename: str,
+                    call_datetime: datetime | None, source_filename: str,
                     source_md5: str, audio_path: str) -> int:
         conn = self._get_conn()
+        dt_value = call_datetime.isoformat() if isinstance(call_datetime, datetime) else call_datetime
         cur = conn.execute(
             """INSERT INTO calls (user_id, contact_id, direction, call_datetime,
                source_filename, source_md5, audio_path)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (user_id, contact_id, direction, call_datetime,
+            (user_id, contact_id, direction, dt_value,
              source_filename, source_md5, audio_path),
         )
         conn.commit()

@@ -48,40 +48,31 @@ class PromptBuilder:
             raise FileNotFoundError(f"Директория prompts не найдена: {prompts_dir}")
         logger.info("PromptBuilder инициализирован: %s", self.prompts_dir)
 
-def build(
-    prompt_template: str,
-    *,
-    transcript: str,
-    contact_name: str | None,
-    phone: str,
-    call_datetime: str,
-    direction: str,
-    duration_ms: int,
-    context_block: str,
-) -> str:
-    """Render the LLM prompt, substituting only the known safe placeholders.
-
-    Uses manual replacement instead of str.format() to avoid crashes when the
-    prompt template contains literal JSON braces (e.g. example output blocks).
-    """
-    replacements = {
-        "{transcript}": transcript,
-        "{contact_name}": contact_name or "неизвестный абонент",
-        "{phone}": phone,
-        "{call_datetime}": call_datetime,
-        "{direction}": direction,
-        "{duration}": str(duration_ms),
-        "{context_block}": context_block,
-    }
-    result = prompt_template
-    for placeholder, value in replacements.items():
-        result = result.replace(placeholder, value)
-    return result
-
-        logger.debug(
-            "Построен промпт для контакта %s (%s), версия %s, длина=%d",
-            contact_name, phone, version, len(prompt),
+    def build(
+        self,
+        transcript_text: str,
+        metadata: dict[str, str | int | None],
+        previous_summaries: list[dict],
+    ) -> str:
+        """Build LLM prompt from template + context."""
+        context_block = "\n\n".join(
+            f"Анализ звонка от {s['call_datetime']}:\n{s['summary']}"
+            for s in previous_summaries
         )
+        logger.debug("Building prompt with context length %d chars", len(context_block))
+
+        prompt = (
+            self.prompt_template
+            .replace("{transcript}", transcript_text or "")
+            .replace("{contact_name}", metadata.get("contact_name") or "Неизвестно")
+            .replace("{phone}", metadata.get("phone", ""))
+            .replace("{call_datetime}", metadata.get("call_datetime", ""))
+            .replace("{direction}", metadata.get("direction", ""))
+            .replace("{duration}", f"{metadata.get('duration_ms', 0) / 1000:.1f} сек")
+            .replace("{context_block}", context_block)
+        )
+
+        logger.debug("Built prompt length %d chars", len(prompt))
         return prompt
 
     def _extract_duration(self, transcript_text: str) -> str:

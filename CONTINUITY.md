@@ -8,11 +8,18 @@
 
 ## Status
 
+DONE: Phase F: Quality Framework — 26 new tests, 2 gold fixtures, all 235 pass (2026-05-15)
+DONE: EXECUTION_PLAN_FOR_AGENTS2.md fully executed — all phases A0–G confirmed
 DONE: Dashboard v2 — analysis-only live feed, enriched cards, shutdown button, real-time SSE (2026-05-05)
 DONE: Biography pipeline resume fix — p2_entities completed successfully (2026-05-04)
 DONE: p2_entities test completed — all 5 types processed (PERSON, PLACE, COMPANY, PROJECT, EVENT)
 DONE: Resource optimization guide created — OPTIMIZATION.md with multi-day run recommendations
-NOW: All biography passes in 'done' status (p1-p9, 11 passes total)
+NOW: EXECUTION_PLAN_FOR_AGENTS2.md fully executed — all phases A0–G confirmed. 235 tests green.
+     Phase F files: test_graph_builder.py (6), test_graph_replay.py (10), test_regressions.py (10).
+     Gold fixtures: tests/fixtures/gold_call_v2.json + gold_call_v2_corrupted.json.
+NEXT: Merge to main. Production-ready per Definition of Done.
+BLOCKERS: None
+PREV: All biography passes in 'done' status (p1-p9, 11 passes total)
      llama-server running (~10.8 GB RAM, health OK)
      Resume mechanism verified working (checkpoint + memoization)
 NEXT: User will run build-book-and-profiles.bat manually in separate window (multi-day run expected)
@@ -1954,9 +1961,14 @@ git pull origin claude/clone-callprofiler-repo-hL5dQ
 
 # Следующий шаг:
 # ШАГ 15: Интеграционный тест (ручной прогон)
-# python -m callprofiler add-user serhio --incoming D:\calls\audio \
-#   --ref-audio C:\pro\mbot\ref\manager.wav --sync-dir D:\calls\sync\serhio\cards
-# python -m callprofiler process "D:\calls\audio\test.mp3" --user serhio
 # python -m callprofiler status
+# python -m callprofiler digest serhio --days 7
+# python -m callprofiler reprocess
 # python -m callprofiler watch
 ```
+
+## [2026-05-15] Phase A — Базовая стабилизация (завершена)
+- **Статус**: 209 passed, 0 failed, 0 warnings.
+- **Исправления**: закрытие SQLite-соединений в 6 интеграционных тестах (`PermissionError: [WinError 32]`).
+- **Исправление**: `repository.create_call` — тип `datetime | None`, сериализация через `.isoformat()` перед SQL (устранение DeprecationWarning от sqlite3 datetime adapter).
+- **Следующий шаг**: Phase B — аудит replay engine (builder.py + replay.py).

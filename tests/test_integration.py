@@ -116,6 +116,7 @@ def test_add_user_and_ingest():
         contact = repo.get_contact(contact_id)
         assert contact is not None
         assert contact["phone_e164"] == "+79161234567"
+        repo.close()
 
 
 def test_ingest_duplicate():
@@ -150,6 +151,7 @@ def test_ingest_duplicate():
         # Второй инжест — дубликат (None)
         call_id_2 = ingester.ingest_file("test", str(test_file))
         assert call_id_2 is None
+        repo.close()
 
 
 def test_user_isolation():
@@ -182,6 +184,7 @@ def test_user_isolation():
         contact_b = repo.get_contact(contact_id_b)
         assert contact_a["display_name"] == "Alice"
         assert contact_b["display_name"] == "Bob"
+        repo.close()
 
 
 def test_transcript_save_and_retrieve():
@@ -225,6 +228,7 @@ def test_transcript_save_and_retrieve():
         assert saved[0]["text"] == "Привет"
         assert saved[0]["speaker"] == "OWNER"
         assert saved[1]["speaker"] == "OTHER"
+        repo.close()
 
 
 def test_analysis_save_and_retrieve():
@@ -279,6 +283,7 @@ def test_analysis_save_and_retrieve():
         assert saved["action_items"][0] == "Отправить счёт"
         # promises хранятся в отдельной таблице, не в analyses
         assert saved["flags"]["urgent"] is True
+        repo.close()
 
 
 def test_promises_save_and_query():
@@ -323,6 +328,7 @@ def test_promises_save_and_query():
         # Получить для контакта
         contact_promises = repo.get_contact_promises(user_id, contact_id)
         assert len(contact_promises) == 2
+        repo.close()
 
 
 if __name__ == "__main__":

@@ -8,6 +8,20 @@
 
 ## [Unreleased]
 
+### Added — Phase F: Quality Framework (2026-05-15)
+- Created 	ests/fixtures/gold_call_v2.json — gold standard v2 analysis fixture with entities, relations, and structured facts for deterministic replay testing.
+- Created 	ests/fixtures/gold_call_v2_corrupted.json — corrupted v2 fixture for error-handling regression tests.
+- Created 	ests/test_graph_builder.py (6 tests) — additional GraphBuilder edge-case tests: empty update, stats tracking, entity attributes persistence, relation forwarding, hash reproducibility, empty entity safety.
+- Created 	ests/test_graph_replay.py (10 tests) — additional GraphReplayer tests: return key completeness, run record saving, limit parameter, rejection rate, warnings, auditor integration, multiple calls, avg_bs_index, empty user.
+- Created 	ests/test_regressions.py (10 tests) — cross-cutting regression tests: duplicate call idempotency, cross-user isolation, zero-metrics entities, archived entity exclusion, empty canonical quotes audit, relation call count, fact dedup, entity aliases, metrics stability, corrupted analysis handling.
+- Result: **235 tests passed, 0 failed, 0 warnings** (209 prior + 26 new Phase F tests).
+
+
+### Fixed — 209 tests green (2026-05-15)
+- Fixed `PermissionError: [WinError 32]` in `tests/test_integration.py` by adding `repo.close()` after final assertions in 6 tests (`test_add_user_and_ingest`, `test_ingest_duplicate`, `test_user_isolation`, `test_transcript_save_and_retrieve`, `test_analysis_save_and_retrieve`, `test_promises_save_and_query`).
+- Fixed sqlite3 datetime adapter `DeprecationWarning` in `src/callprofiler/db/repository.py` by typing `call_datetime` as `datetime | None` and serializing with `.isoformat()` before SQL insertion.
+- Result: **209 passed, 0 failed, 0 warnings**.
+
 ### Fixed — p5_portraits TypeError (2026-05-10)
 - `build_portrait_prompt()` missing `profile_depth` parameter — added `profile_depth: str | None = None`
 - `profile_depth="light"` → minimal psych analysis; `"deep"` → 2-3 paragraph analysis; `"standard"` → default

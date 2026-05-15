@@ -1,0 +1,35 @@
+{
+    "schema_version": "v2",
+    "summary": "",
+    "category": "",
+    "priority": 0,
+    "risk_score": -999,
+    "sentiment": null,
+    "action_items": {},
+    "comment": null,
+    "analyzed_at": "",
+    "people": null,
+    "companies": "",
+    "amounts": "not_a_list",
+    "contact_name_guess": null,
+    "bs_score": 150,
+    "bs_evidence": {},
+    "flags": null,
+    "call_type": "",
+    "hook": "not_a_str",
+    "entities": [
+        {"type": null, "canonical_name": "", "normalized_key": null, "aliases": "not_a_list", "attributes": null},
+        {"type": "", "canonical_name": null, "normalized_key": "", "aliases": null, "attributes": "not_a_dict"},
+        {}
+    ],
+    "relations": [
+        {"src_key": null, "dst_key": "", "relation_type": null, "confidence": "not_a_number"},
+        {},
+        {"src_key": "", "dst_key": null, "relation_type": "", "confidence": 2.5}
+    ],
+    "structured_facts": [
+        {"fact_type": null, "entity_key": null, "quote": "", "confidence": "bad", "polarity": "not_int", "intensity": "not_float"},
+        {},
+        {"fact_type": "", "entity_key": "", "quote": null, "confidence": 3.0, "polarity": 5, "intensity": 10.0}
+    ]
+}
