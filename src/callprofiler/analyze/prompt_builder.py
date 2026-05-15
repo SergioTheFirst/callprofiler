@@ -48,67 +48,35 @@ class PromptBuilder:
             raise FileNotFoundError(f"Директория prompts не найдена: {prompts_dir}")
         logger.info("PromptBuilder инициализирован: %s", self.prompts_dir)
 
-    def build(
-        self,
-        transcript_text: str,
-        metadata: dict,
-        previous_summaries: list[str] | None = None,
-        version: str = "v001",
-    ) -> str:
-        """Построить промпт для анализа звонка.
+def build(
+    prompt_template: str,
+    *,
+    transcript: str,
+    contact_name: str | None,
+    phone: str,
+    call_datetime: str,
+    direction: str,
+    duration_ms: int,
+    context_block: str,
+) -> str:
+    """Render the LLM prompt, substituting only the known safe placeholders.
 
-        Параметры:
-            transcript_text     — стенограмма (с временами и ролями)
-            metadata           — метаданные звонка (CallMetadata или dict):
-                - contact_name (str | None)
-                - phone (str | None)
-                - call_datetime (datetime | None)
-                - direction (str)  # IN / OUT / UNKNOWN
-            previous_summaries — список саммари последних анализов этого контакта (для контекста)
-            version            — версия промпта (например, "v001", "v002")
-
-        Возвращает:
-            Готовый промпт с подставленными переменными
-
-        Raises:
-            FileNotFoundError  — если файл шаблона не найден
-        """
-        # Загрузить шаблон
-        template_path = self.prompts_dir / f"analyze_{version}.txt"
-        if not template_path.exists():
-            raise FileNotFoundError(f"Шаблон промпта не найден: {template_path}")
-
-        with open(template_path, "r", encoding="utf-8") as f:
-            template = f.read()
-
-        # Подготовить переменные
-        contact_name = metadata.get("contact_name") or "Неизвестный"
-        phone = metadata.get("phone") or "Неизвестный номер"
-        call_datetime = metadata.get("call_datetime")
-        direction = metadata.get("direction", "UNKNOWN")
-
-        # Форматировать дату/время
-        if isinstance(call_datetime, datetime):
-            datetime_str = call_datetime.strftime("%d.%m.%Y %H:%M")
-        else:
-            datetime_str = str(call_datetime) if call_datetime else "Неизвестно"
-
-        # Вычислить длительность (если есть временные метки в стенограмме)
-        duration = self._extract_duration(transcript_text)
-
-        # Построить блок контекста (предыдущие анализы)
-        context_block = self._build_context_block(previous_summaries)
-
-        # Подставить переменные
-        prompt = template.format(
-            contact_name=contact_name,
-            phone=phone,
-            call_datetime=datetime_str,
-            direction=direction,
-            duration=duration,
-            context_block=context_block,
-            transcript=transcript_text,
-        )
+    Uses manual replacement instead of str.format() to avoid crashes when the
+    prompt template contains literal JSON braces (e.g. example output blocks).
+    """
+    replacements = {
+        "{transcript}": transcript,
+        "{contact_name}": contact_name or "неизвестный абонент",
+        "{phone}": phone,
+        "{call_datetime}": call_datetime,
+        "{direction}": direction,
+        "{duration}": str(duration_ms),
+        "{context_block}": context_block,
+    }
+    result = prompt_template
+    for placeholder, value in replacements.items():
+        result = result.replace(placeholder, value)
+    return result
 
         logger.debug(
             "Построен промпт для контакта %s (%s), версия %s, длина=%d",

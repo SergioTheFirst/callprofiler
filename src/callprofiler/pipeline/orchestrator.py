@@ -18,7 +18,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from callprofiler.analyze.llm_client import OllamaClient
+from callprofiler.analyze.llm_client import LLMClient
 from callprofiler.analyze.prompt_builder import PromptBuilder
 from callprofiler.analyze.response_parser import parse_llm_response
 from callprofiler.audio.normalizer import normalize, get_duration_sec
