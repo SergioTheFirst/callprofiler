@@ -44,36 +44,70 @@ class PromptBuilder:
             prompts_dir  — директория с шаблонами (например, "configs/prompts")
         """
         self.prompts_dir = Path(prompts_dir)
+        self._cache: dict[str, str] = {}
         if not self.prompts_dir.exists():
             raise FileNotFoundError(f"Директория prompts не найдена: {prompts_dir}")
         logger.info("PromptBuilder инициализирован: %s", self.prompts_dir)
+
+    def _load_template(self, version: str = "v001") -> str:
+        """Загрузить и кэшировать шаблон промпта из файла."""
+        if version not in self._cache:
+            prompt_file = self.prompts_dir / f"analyze_{version}.txt"
+            if not prompt_file.exists():
+                raise FileNotFoundError(f"Шаблон промпта не найден: {prompt_file}")
+            self._cache[version] = prompt_file.read_text(encoding="utf-8")
+        return self._cache[version]
 
     def build(
         self,
         transcript_text: str,
         metadata: dict[str, str | int | None],
-        previous_summaries: list[dict],
-    ) -> str:
-        """Build LLM prompt from template + context."""
+        previous_summaries: list,
+        version: str = "v001",
+    ) -> dict[str, str]:
+        """Build LLM messages dict from template + context.
+
+        Returns:
+            {"system": str, "user": str}  — для OpenAI-совместимого API.
+        """
+        system_prompt = self._load_template(version)
+
         context_block = "\n\n".join(
-            f"Анализ звонка от {s['call_datetime']}:\n{s['summary']}"
-            for s in previous_summaries
-        )
-        logger.debug("Building prompt with context length %d chars", len(context_block))
-
-        prompt = (
-            self.prompt_template
-            .replace("{transcript}", transcript_text or "")
-            .replace("{contact_name}", metadata.get("contact_name") or "Неизвестно")
-            .replace("{phone}", metadata.get("phone", ""))
-            .replace("{call_datetime}", metadata.get("call_datetime", ""))
-            .replace("{direction}", metadata.get("direction", ""))
-            .replace("{duration}", f"{metadata.get('duration_ms', 0) / 1000:.1f} сек")
-            .replace("{context_block}", context_block)
+            (
+                f"Предыдущий анализ: {s}"
+                if isinstance(s, str)
+                else f"Анализ от {s.get('call_datetime', '?')}: {s.get('summary', '')}"
+            )
+            for s in (previous_summaries or [])
+            if s
         )
 
-        logger.debug("Built prompt length %d chars", len(prompt))
-        return prompt
+        contact_name = metadata.get("contact_name") or "Неизвестно"
+        phone = metadata.get("phone") or ""
+        call_datetime = str(metadata.get("call_datetime") or "")
+        direction = str(metadata.get("direction") or "")
+        duration_ms = int(metadata.get("duration_ms", 0) or 0)
+        duration_str = f"{duration_ms / 1000:.1f} сек"
+
+        user_parts = [
+            "Метаданные звонка:",
+            f"Контакт: {contact_name} ({phone})",
+            f"Дата/время: {call_datetime}",
+            f"Направление: {direction}",
+            f"Длительность: {duration_str}",
+        ]
+        if context_block:
+            user_parts.append(f"\nКонтекст (предыдущие звонки):\n{context_block}")
+        user_parts.append(f"\nСтенограмма:\n{transcript_text or '(пусто)'}")
+
+        user_message = "\n".join(user_parts)
+
+        logger.debug(
+            "Built prompt: system=%d chars, user=%d chars",
+            len(system_prompt),
+            len(user_message),
+        )
+        return {"system": system_prompt, "user": user_message}
 
     def _extract_duration(self, transcript_text: str) -> str:
         """Извлечь длительность из стенограммы по последней временной метке.
@@ -86,6 +120,7 @@ class PromptBuilder:
         """
         # Очень простой парсер: ищем последнюю временную метку [MM:SS]
         import re
+
         matches = re.findall(r"\[(\d{1,2}):(\d{2})\]", transcript_text)
         if matches:
             last_match = matches[-1]

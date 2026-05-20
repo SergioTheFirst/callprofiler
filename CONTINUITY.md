@@ -8,6 +8,7 @@
 
 ## Status
 
+DONE: analyze chain bug fixes — PromptBuilder._cache + _load_template + build() dict return + Orchestrator._analyze_call via AnalysisService (2026-05-20)
 DONE: Phase F: Quality Framework — 26 new tests, 2 gold fixtures, all 235 pass (2026-05-15)
 DONE: EXECUTION_PLAN_FOR_AGENTS2.md fully executed — all phases A0–G confirmed
 DONE: Dashboard v2 — analysis-only live feed, enriched cards, shutdown button, real-time SSE (2026-05-05)

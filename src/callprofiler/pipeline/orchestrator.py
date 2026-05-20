@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 from callprofiler.analyze.llm_client import LLMClient
 from callprofiler.analyze.prompt_builder import PromptBuilder
 from callprofiler.analyze.response_parser import parse_llm_response
-from callprofiler.audio.normalizer import normalize, get_duration_sec
+from callprofiler.audio.normalizer import get_duration_sec, normalize
 from callprofiler.deliver.card_generator import CardGenerator
 from callprofiler.deliver.telegram_bot import TelegramNotifier
 from callprofiler.diarize.pyannote_runner import PyannoteRunner
@@ -101,9 +101,14 @@ class Orchestrator:
             True если обработка успешна, False при ошибке
         """
         try:
-            call = self.repo._get_conn().execute(
-                "SELECT * FROM calls WHERE call_id=?", (call_id,),
-            ).fetchone()
+            call = (
+                self.repo._get_conn()
+                .execute(
+                    "SELECT * FROM calls WHERE call_id=?",
+                    (call_id,),
+                )
+                .fetchone()
+            )
             if not call:
                 logger.error("Звонок %d не найден", call_id)
                 return False
@@ -115,21 +120,29 @@ class Orchestrator:
 
             # ── Шаг 1: Normalize ─────────────────────────────
             self.repo.update_call_status(call_id, "normalizing")
-            norm_dir = Path(self.config.data_dir) / "users" / user_id / "audio" / "normalized"
+            norm_dir = (
+                Path(self.config.data_dir) / "users" / user_id / "audio" / "normalized"
+            )
             norm_dir.mkdir(parents=True, exist_ok=True)
             norm_path = str(norm_dir / f"{call_id}.wav")
 
             normalize(audio_path, norm_path)
             duration_sec = get_duration_sec(norm_path)
             self.repo.update_call_paths(call_id, norm_path, duration_sec)
-            logger.info("Нормализация завершена: call_id=%d, duration=%ds", call_id, duration_sec)
+            logger.info(
+                "Нормализация завершена: call_id=%d, duration=%ds",
+                call_id,
+                duration_sec,
+            )
 
             # ── Шаг 2: Transcribe ────────────────────────────
             self.repo.update_call_status(call_id, "transcribing")
             self.whisper_runner.load()
             segments = self.whisper_runner.transcribe(norm_path)
             self.whisper_runner.unload()
-            logger.info("Транскрибирование: call_id=%d, %d сегментов", call_id, len(segments))
+            logger.info(
+                "Транскрибирование: call_id=%d, %d сегментов", call_id, len(segments)
+            )
 
             # ── Шаг 3: Diarize ───────────────────────────────
             self.repo.update_call_status(call_id, "diarizing")
@@ -143,9 +156,13 @@ class Orchestrator:
                 diarization = self.pyannote_runner.diarize(norm_path)
                 segments = assign_speakers(segments, diarization)
                 self.pyannote_runner.unload()
-                logger.info("Диаризация: call_id=%d, %d интервалов", call_id, len(diarization))
+                logger.info(
+                    "Диаризация: call_id=%d, %d интервалов", call_id, len(diarization)
+                )
             else:
-                logger.warning("Нет ref_audio для user_id=%s, пропуск диаризации", user_id)
+                logger.warning(
+                    "Нет ref_audio для user_id=%s, пропуск диаризации", user_id
+                )
 
             # Сохранить транскрипт
             self.repo.save_transcripts(call_id, segments)
@@ -155,7 +172,10 @@ class Orchestrator:
                 self.repo.update_call_status(call_id, "analyzing")
                 self._analyze_call(call_id, call, segments)
             else:
-                logger.info("LLM analysis disabled by feature flag; skipping call_id=%d", call_id)
+                logger.info(
+                    "LLM analysis disabled by feature flag; skipping call_id=%d",
+                    call_id,
+                )
 
             # ── Шаг 5: Deliver ───────────────────────────────
             self.repo.update_call_status(call_id, "delivering")
@@ -188,9 +208,14 @@ class Orchestrator:
         # Собрать данные о звонках
         calls_data = []
         for call_id in call_ids:
-            call = self.repo._get_conn().execute(
-                "SELECT * FROM calls WHERE call_id=?", (call_id,),
-            ).fetchone()
+            call = (
+                self.repo._get_conn()
+                .execute(
+                    "SELECT * FROM calls WHERE call_id=?",
+                    (call_id,),
+                )
+                .fetchone()
+            )
             if call:
                 calls_data.append(dict(call))
 
@@ -202,7 +227,13 @@ class Orchestrator:
             try:
                 self.repo.update_call_status(call["call_id"], "normalizing")
                 user_id = call["user_id"]
-                norm_dir = Path(self.config.data_dir) / "users" / user_id / "audio" / "normalized"
+                norm_dir = (
+                    Path(self.config.data_dir)
+                    / "users"
+                    / user_id
+                    / "audio"
+                    / "normalized"
+                )
                 norm_dir.mkdir(parents=True, exist_ok=True)
                 norm_path = str(norm_dir / f"{call['call_id']}.wav")
 
@@ -235,7 +266,9 @@ class Orchestrator:
                 self.repo.update_call_status(call_id, "transcribing")
                 segments = self.whisper_runner.transcribe(call["_norm_path"])
                 segments_map[call_id] = segments
-                logger.info("Transcribe: call_id=%d, %d сегментов", call_id, len(segments))
+                logger.info(
+                    "Transcribe: call_id=%d, %d сегментов", call_id, len(segments)
+                )
             except Exception as exc:
                 logger.error("Ошибка транскрибирования call_id=%d: %s", call_id, exc)
                 self.repo.update_call_status(call_id, "error", str(exc))
@@ -255,7 +288,9 @@ class Orchestrator:
                 ref_audio = user.get("ref_audio", "") if user else ""
 
                 if not self.config.features.enable_diarization:
-                    logger.info("Diarization disabled by feature flag (call_id=%d)", call_id)
+                    logger.info(
+                        "Diarization disabled by feature flag (call_id=%d)", call_id
+                    )
                 elif ref_audio and Path(ref_audio).exists():
                     self.pyannote_runner.load(ref_audio)
                     diarization = self.pyannote_runner.diarize(call["_norm_path"])
@@ -271,7 +306,9 @@ class Orchestrator:
 
         # ── Фаза 3: Analyze (LLM, после выгрузки GPU моделей) ────
         if not self.config.features.enable_llm_analysis:
-            logger.info("LLM analysis disabled by feature flag; skipping batch analyze phase")
+            logger.info(
+                "LLM analysis disabled by feature flag; skipping batch analyze phase"
+            )
         else:
             for call in calls_data:
                 call_id = call["call_id"]
@@ -333,76 +370,77 @@ class Orchestrator:
         call: dict,
         segments: list[Segment],
     ) -> None:
-        """Запустить LLM-анализ для звонка.
-
-        Параметры:
-            call_id   — идентификатор звонка
-            call      — данные звонка из БД
-            segments  — сегменты транскрипции
-        """
+        """Запустить LLM-анализ для звонка через AnalysisService."""
         user_id = call["user_id"]
         contact_id = call.get("contact_id")
 
-        # Форматировать транскрипт
-        transcript_text = _format_transcript(segments)
+        # Использовать AnalysisService (единая точка анализа, F11.1)
+        try:
+            from callprofiler.analyze.service import AnalysisService
 
-        # Получить контекст (предыдущие анализы)
-        previous_summaries = []
-        if contact_id:
-            prev_analyses = self.repo.get_recent_analyses(user_id, contact_id, limit=5)
-            previous_summaries = [a.get("summary", "") for a in prev_analyses if a.get("summary")]
+            svc = AnalysisService(self.config, self.repo)
+            analysis = svc.analyze_one_call(call, segments)
+        except (ConnectionError, RuntimeError) as exc:
+            logger.error("LLM недоступен для call_id=%d: %s", call_id, exc)
+            analysis = parse_llm_response(
+                "",
+                model=self.config.models.llm_model,
+                prompt_version="v001",
+            )
+        except Exception as exc:
+            logger.error("Ошибка анализа call_id=%d: %s", call_id, exc)
+            self.repo.update_call_status(call_id, "error", str(exc))
+            return
 
-        # Получить метаданные для промпта
-        contact = self.repo.get_contact(contact_id) if contact_id else None
-        metadata = {
-            "contact_name": contact.get("display_name") if contact else None,
-            "phone": contact.get("phone_e164") if contact else None,
-            "call_datetime": call.get("call_datetime"),
-            "direction": call.get("direction", "UNKNOWN"),
-            "duration_ms": call.get("duration_ms", 0),
-        }
-
-        # Построить промпт и отправить в LLM
-        prompt = self.prompt_builder.build(
-            transcript_text, metadata, previous_summaries
-        )
-
-            try:
-                llm = LLMClient(
-                    base_url=self.config.models.ollama_url
-                )
-                raw_response = llm.generate(messages=[{"role": "user", "content": prompt}])
-            except (ConnectionError, RuntimeError) as exc:
-                logger.error("LLM недоступен для call_id=%d: %s", call_id, exc)
-                raw_response = ""
-
-        # Распарсить ответ
-        analysis = parse_llm_response(
-            raw_response,
-            model=self.config.models.llm_model,
-            prompt_version="v001",
-        )
-
-        # Сохранить в БД
+        # Сохранить анализ в БД
         self.repo.save_analysis(call_id, analysis)
 
         # Сохранить обещания
         if analysis.promises and contact_id:
             self.repo.save_promises(user_id, contact_id, call_id, analysis.promises)
 
-        # Обновить Knowledge Graph (только v2 analyses, non-fatal)
+        # Обновить Knowledge Graph (non-fatal)
         try:
             from callprofiler.graph.builder import GraphBuilder
             from callprofiler.graph.repository import apply_graph_schema
+
             conn = self.repo._get_conn()
             apply_graph_schema(conn)
             GraphBuilder(conn).update_from_call(call_id)
         except Exception as _graph_exc:
-            logger.warning("graph update failed for call_id=%d: %s", call_id, _graph_exc)
+            logger.warning(
+                "graph update failed for call_id=%d: %s", call_id, _graph_exc
+            )
+
+        # Отправить событие в дашборд (non-fatal, F5.1)
+        try:
+            from callprofiler.events import emit_event_sync
+
+            contact = self.repo.get_contact(contact_id) if contact_id else None
+            contact_label = (
+                (contact.get("display_name") or contact.get("phone_e164") or "?")
+                if contact
+                else "?"
+            )
+            emit_event_sync(
+                "analysis_complete",
+                {
+                    "call_id": call_id,
+                    "contact_label": contact_label,
+                    "risk_score": analysis.risk_score,
+                    "call_type": analysis.call_type,
+                    "summary": analysis.summary,
+                },
+            )
+        except Exception:
+            pass
 
         logger.info(
-            "Анализ: call_id=%d, priority=%d, risk=%d",
-            call_id, analysis.priority, analysis.risk_score,
+            "Анализ: call_id=%d, priority=%d, risk=%d, parse_status=%s",
+            call_id,
+            analysis.priority,
+            analysis.risk_score,
+            getattr(analysis, "parse_status", "?"),
         )
 
     def _deliver_call(

@@ -8,6 +8,26 @@
 
 ## [Unreleased]
 
+### Fixed — analyze chain: PromptBuilder, Orchestrator._analyze_call (2026-05-20)
+
+**`src/callprofiler/analyze/prompt_builder.py`**
+- Добавлен `self._cache: dict[str, str] = {}` в `__init__`
+- Добавлен приватный метод `_load_template(version)` — загрузка и кэширование файла `analyze_vNNN.txt`
+- Метод `build()` получил параметр `version: str = "v001"` (4-й аргумент)
+- `build()` теперь возвращает `dict[str, str]` с ключами `"system"` и `"user"` вместо одной строки
+- Исправлена обработка `previous_summaries`: поддерживаются оба формата — `list[str]` (из AnalysisService) и `list[dict]` (legacy)
+- Убрано обращение к несуществующему `self.prompt_template`
+
+**`src/callprofiler/pipeline/orchestrator.py`**
+- Полностью переписан метод `_analyze_call`: теперь делегирует в `AnalysisService` (F11.1)
+- Исправлен `IndentationError` — лишний отступ у блока `try:`
+- Удалён несуществующий `self.config.models.ollama_url` → используется `AnalysisService` с корректным `llm_url`
+- Добавлена обработка generic `Exception` → `update_call_status('error', ...)`
+- Добавлена отправка события `analysis_complete` в дашборд (non-fatal, F5.1)
+- Добавлен `parse_status` в итоговый лог-мессадж
+
+**Тесты:** все 235 проходят без изменений; три файла компилируются без ошибок.
+
 ### Added — Phase F: Quality Framework (2026-05-15)
 - Created 	ests/fixtures/gold_call_v2.json — gold standard v2 analysis fixture with entities, relations, and structured facts for deterministic replay testing.
 - Created 	ests/fixtures/gold_call_v2_corrupted.json — corrupted v2 fixture for error-handling regression tests.
