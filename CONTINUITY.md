@@ -8,18 +8,24 @@
 
 ## Status
 
+DONE: DS1 Sprints 1–3 — 288/288 tests green, merged to main (2026-05-20)
+  Sprint 1 (F1.1, F1.2, F11.1): PromptBuilder fixed (_load_template, version, dict return)
+    Orchestrator fixed (IndentationError, ollama_url→llm_url, AnalysisService, emit_event_sync)
+  Sprint 2 (F2.1–F2.5, F3.1–F3.2): _migrate() adds schema_version/canonical_json/fact_type,
+    save_batch() fresh-DB safe, save_transcripts() idempotent, create_call() atomic MD5 dedup,
+    get_contact_for_user() + get_analysis_for_user() added, idx_calls_user_md5 unique index
+  Sprint 3 (F7.3): entity_normalizer rewritten (ValueError maketrans fixed)
+  New tests: 53 (test_prompt_builder.py: 15, test_ds1_data_integrity.py: 27, test_analysis_service.py: 11)
+DONE: test regression fix — _add_call_row() unique MD5, 235/235 pass (2026-05-20)
 DONE: analyze chain bug fixes — PromptBuilder._cache + _load_template + build() dict return + Orchestrator._analyze_call via AnalysisService (2026-05-20)
 DONE: Phase F: Quality Framework — 26 new tests, 2 gold fixtures, all 235 pass (2026-05-15)
 DONE: EXECUTION_PLAN_FOR_AGENTS2.md fully executed — all phases A0–G confirmed
-DONE: Dashboard v2 — analysis-only live feed, enriched cards, shutdown button, real-time SSE (2026-05-05)
-DONE: Biography pipeline resume fix — p2_entities completed successfully (2026-05-04)
-DONE: p2_entities test completed — all 5 types processed (PERSON, PLACE, COMPANY, PROJECT, EVENT)
-DONE: Resource optimization guide created — OPTIMIZATION.md with multi-day run recommendations
-NOW: EXECUTION_PLAN_FOR_AGENTS2.md fully executed — all phases A0–G confirmed. 235 tests green.
-     Phase F files: test_graph_builder.py (6), test_graph_replay.py (10), test_regressions.py (10).
-     Gold fixtures: tests/fixtures/gold_call_v2.json + gold_call_v2_corrupted.json.
-NEXT: Merge to main. Production-ready per Definition of Done.
-BLOCKERS: None
+NOW: 288 tests green. Main branch. DS1 Sprint 1–3 complete.
+NEXT: DS1 Sprint 4+ (remaining phasees): F4 Contact Intelligence, F5.2 Audio player,
+  F6 Telegram tests, F7.1 fact_type in aggregator, F7.2 GraphAuditor read-only,
+  F8 Production reliability, F9 extraction eval, F10 docs sync, F10.3 pyproject deps,
+  F11.2 CLI split, F12 final stabilization run.
+BLOCKERS: None — compileall OK, 288/288 pass
 PREV: All biography passes in 'done' status (p1-p9, 11 passes total)
      llama-server running (~10.8 GB RAM, health OK)
      Resume mechanism verified working (checkpoint + memoization)

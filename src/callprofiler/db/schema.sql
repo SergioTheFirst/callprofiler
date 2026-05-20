@@ -121,6 +121,12 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE INDEX IF NOT EXISTS idx_events_contact ON events(user_id, contact_id, event_type);
 CREATE INDEX IF NOT EXISTS idx_events_status ON events(user_id, status);
+
+-- Атомарная MD5-дедупликация (F2.5): один звонок на пользователя по source_md5
+CREATE UNIQUE INDEX IF NOT EXISTS idx_calls_user_md5
+    ON calls(user_id, source_md5)
+    WHERE source_md5 IS NOT NULL;
+
 -- Graph extension columns added via migration in graph/repository.py:apply_graph_schema()
 --   entity_id INTEGER REFERENCES entities(id)
 --   fact_id   TEXT   (sha256 hash, 16 chars, for dedup)

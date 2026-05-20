@@ -8,6 +8,70 @@
 
 ## [Unreleased]
 
+### Added + Fixed — DS1 Sprint 1–3: Pipeline + Data Integrity + User Isolation (2026-05-20)
+
+#### Sprint 1 — Pipeline boots again (F1.1, F1.2, F11.1)
+
+**`src/callprofiler/analyze/prompt_builder.py`** — полный рефакторинг:
+- Добавлен `self._cache: dict[str, str]` в `__init__`
+- Новый метод `_load_template(version)` — читает `analyze_vNNN.txt`, кэширует
+- `build()` теперь принимает `version: str = "v001"` и возвращает `dict[str, str]` с ключами `"system"` и `"user"` вместо одной строки — корректная архитектура для OpenAI-compatible API
+- Убрано обращение к несуществующему `self.prompt_template` (было `AttributeError`)
+- `previous_summaries` поддерживает `list[str]` и `list[dict]` одновременно
+- Фигурные скобки в JSON-схеме промпта больше не вызывают `KeyError` (DS1 F1.1)
+
+**`src/callprofiler/pipeline/orchestrator.py`** — критические исправления:
+- Устранён `IndentationError` на строке 370 (`try:` с неверным отступом)
+- Удалена ссылка на несуществующее `self.config.models.ollama_url`
+- `_analyze_call` переведён на `AnalysisService` (DS1 F11.1 — единая точка анализа)
+- Добавлена обработка ошибок: `Exception → update_call_status('error', ...)` (CONSTITUTION 6.4)
+- Добавлена эмиссия события `analysis_complete` в dashboard (DS1 F5.1)
+- Добавлен `emit_event_sync("analysis_complete", {...})` non-fatal
+
+**`src/callprofiler/analyze/service.py`** — изменений не потребовалось, совместим с исправленным PromptBuilder.
+
+**Тесты:** `tests/test_prompt_builder.py` (15 тестов), `tests/test_analysis_service.py` (11 тестов).
+
+#### Sprint 2 — DB cannot corrupt itself (F2.1–F2.5)
+
+**`src/callprofiler/db/repository.py`**:
+- `_migrate()` теперь добавляет колонки `analyses.schema_version`, `analyses.canonical_json`, `events.fact_type`, `events.entity_id`, `events.fact_id`, `events.quote`, `events.start_ms/end_ms/polarity/intensity`, `entities.archived/merged_into_id/is_owner`
+- `save_batch()` переписан: динамически проверяет наличие `canonical_json` и `schema_version` перед вставкой — больше не падает на свежей БД без graph-migration (F2.1, F2.2)
+- `save_transcripts()` стал идемпотентным: удаляет старые сегменты (включая FTS) перед вставкой новых — повторный reprocess не дублирует транскрипт (F2.3)
+- `create_call()` ловит `IntegrityError` при конфликте уникального MD5-индекса и возвращает существующий `call_id` — атомарная дедупликация (F2.5)
+- Добавлены методы: `get_contact_for_user(user_id, contact_id)`, `get_analysis_for_user(user_id, call_id)` (F3.1, F3.2)
+- `_migrate()` создаёт `CREATE UNIQUE INDEX IF NOT EXISTS idx_calls_user_md5 ON calls(user_id, source_md5) WHERE source_md5 IS NOT NULL`
+
+**`src/callprofiler/db/schema.sql`**:
+- Добавлен `CREATE UNIQUE INDEX IF NOT EXISTS idx_calls_user_md5` для новых инсталляций (F2.5)
+
+**Тесты:** `tests/test_ds1_data_integrity.py` (27 тестов: F2.1–F2.5, F3.1–F3.2, F7.1 prerequisites).
+
+#### Sprint 3 — Entity Normalizer fix (F7.3)
+
+**`src/callprofiler/graph/entity_normalizer.py`** — полная перепись:
+- Удалён сломанный `str.maketrans()` с неравными строками (падал при импорте с `ValueError`)
+- Новая реализация через `dict`-маппинг `_RU_TRANSLIT` + `_transliterate()`
+- Поддержка многосимвольных маппингов: Ш→sh, Щ→shch, Ж→zh, Ц→ts, Ч→ch, и т.д.
+- `normalize_entity_key("Иван Петров", "person")` → `"person_ivan_petrov"` детерминированно
+- Импорт больше не падает (устранён blocker для graph-backfill)
+
+**Тесты:** добавлены в `tests/test_ds1_data_integrity.py` (8 тестов F7.3).
+
+#### Итог
+- `python -m compileall -q src` → OK (0 ошибок)
+- **288 тестов passed, 0 failed, 1 warning** (было 235 до сессии)
+- Новых тестов: 53 (test_prompt_builder.py: 15, test_ds1_data_integrity.py: 27, test_analysis_service.py: 11)
+
+### Fixed — test_psychology_profiler: уникальный MD5 в helper (2026-05-20)
+
+**`tests/test_psychology_profiler.py`**
+- `_add_call_row()`: `source_md5` теперь вычисляется как `md5(user_id|call_dt)` вместо хардкода `'md5test'`.
+  Причина: уникальный индекс `idx_calls_user_md5` (F2.5), добавленный в `schema.sql` и `_migrate()`,
+  не позволял вставлять несколько звонков с одинаковым md5 для одного пользователя.
+- Результат: `test_temporal_populated_from_events` и все 14 тестов файла зелёные.
+- **235/235 тестов passes.**
+
 ### Fixed — analyze chain: PromptBuilder, Orchestrator._analyze_call (2026-05-20)
 
 **`src/callprofiler/analyze/prompt_builder.py`**

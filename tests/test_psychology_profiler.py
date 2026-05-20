@@ -6,20 +6,21 @@ Uses in-memory SQLite. No LLM calls (LLM is patched/offline, interpretation=None
 """
 
 import json
+import os
 import sqlite3
 import sys
-import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import pytest
-from callprofiler.db.repository import Repository
-from callprofiler.biography.data_extractor import get_entity_profile_from_graph
-from callprofiler.graph.repository import GraphRepository, apply_graph_schema
-from callprofiler.biography.psychology_profiler import PsychologyProfiler
 
+from callprofiler.biography.data_extractor import get_entity_profile_from_graph
+from callprofiler.biography.psychology_profiler import PsychologyProfiler
+from callprofiler.db.repository import Repository
+from callprofiler.graph.repository import GraphRepository, apply_graph_schema
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
 
 def _make_conn(user_id: str = "u1") -> sqlite3.Connection:
     """In-memory DB with full schema and a seeded user."""
@@ -39,7 +40,9 @@ def _make_conn(user_id: str = "u1") -> sqlite3.Connection:
     return conn
 
 
-def _seed_entity(conn: sqlite3.Connection, user_id: str = "u1", name: str = "Vasya") -> int:
+def _seed_entity(
+    conn: sqlite3.Connection, user_id: str = "u1", name: str = "Vasya"
+) -> int:
     """Insert a minimal entity + entity_metrics row; return entity id."""
     conn.execute(
         """INSERT INTO entities (user_id, canonical_name, normalized_key, entity_type, aliases, archived)
@@ -61,19 +64,29 @@ def _seed_entity(conn: sqlite3.Connection, user_id: str = "u1", name: str = "Vas
 
 def _add_call_row(conn: sqlite3.Connection, user_id: str, call_dt: str) -> int:
     """Insert a minimal calls row; return call_id."""
+    import hashlib
+
+    unique_md5 = hashlib.md5(f"{user_id}|{call_dt}".encode()).hexdigest()
     conn.execute(
         """INSERT INTO calls (user_id, direction, call_datetime, source_filename, source_md5, status)
-           VALUES (?, 'IN', ?, 'f.mp3', 'md5test', 'enriched')""",
-        (user_id, call_dt),
+           VALUES (?, 'IN', ?, 'f.mp3', ?, 'enriched')""",
+        (user_id, call_dt, unique_md5),
     )
     cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     conn.commit()
     return cid
 
 
-def _add_event(conn: sqlite3.Connection, entity_id: int, call_id: int, user_id: str,
-               event_type: str = "fact", quote: str = "test quote") -> None:
+def _add_event(
+    conn: sqlite3.Connection,
+    entity_id: int,
+    call_id: int,
+    user_id: str,
+    event_type: str = "fact",
+    quote: str = "test quote",
+) -> None:
     import hashlib
+
     fid = hashlib.sha256(f"{event_type}|{entity_id}|{quote}".encode()).hexdigest()[:16]
     conn.execute(
         """INSERT OR IGNORE INTO events
@@ -86,6 +99,7 @@ def _add_event(conn: sqlite3.Connection, entity_id: int, call_id: int, user_id: 
 
 
 # ── tests ─────────────────────────────────────────────────────────────────────
+
 
 class TestBuildProfileBasic:
     """build_profile() with a seeded entity."""
@@ -120,8 +134,12 @@ class TestBuildProfileBasic:
         repo.init_db()
         for uid in ("u1", "u2"):
             repo.add_user(
-                user_id=uid, display_name="Test", telegram_chat_id="0",
-                incoming_dir="/tmp/in", sync_dir="/tmp/sync", ref_audio="/tmp/ref.wav",
+                user_id=uid,
+                display_name="Test",
+                telegram_chat_id="0",
+                incoming_dir="/tmp/in",
+                sync_dir="/tmp/sync",
+                ref_audio="/tmp/ref.wav",
             )
         conn = repo._get_conn()
         apply_graph_schema(conn)
@@ -166,9 +184,15 @@ class TestExtractPatterns:
         conn = _make_conn()
         profiler = PsychologyProfiler(conn)
         metrics = {
-            "total_calls": 10, "total_promises": 5, "broken_promises": 3,
-            "contradictions": 0, "vagueness_count": 0, "blame_shift_count": 0,
-            "emotional_spikes": 0, "avg_risk": 50.0, "bs_index": 40.0,
+            "total_calls": 10,
+            "total_promises": 5,
+            "broken_promises": 3,
+            "contradictions": 0,
+            "vagueness_count": 0,
+            "blame_shift_count": 0,
+            "emotional_spikes": 0,
+            "avg_risk": 50.0,
+            "bs_index": 40.0,
         }
         patterns = profiler._extract_patterns(1, metrics)
         names = [p["name"] for p in patterns]
@@ -178,9 +202,15 @@ class TestExtractPatterns:
         conn = _make_conn()
         profiler = PsychologyProfiler(conn)
         metrics = {
-            "total_calls": 10, "total_promises": 5, "broken_promises": 0,
-            "contradictions": 0, "vagueness_count": 0, "blame_shift_count": 0,
-            "emotional_spikes": 0, "avg_risk": 20.0, "bs_index": 5.0,
+            "total_calls": 10,
+            "total_promises": 5,
+            "broken_promises": 0,
+            "contradictions": 0,
+            "vagueness_count": 0,
+            "blame_shift_count": 0,
+            "emotional_spikes": 0,
+            "avg_risk": 20.0,
+            "bs_index": 5.0,
         }
         patterns = profiler._extract_patterns(1, metrics)
         names = [p["name"] for p in patterns]
@@ -213,7 +243,9 @@ class TestWithCallsAndFacts:
         conn = _make_conn()
         eid = _seed_entity(conn)
         cid = _add_call_row(conn, "u1", "2026-01-05 10:00:00")
-        _add_event(conn, eid, cid, "u1", event_type="promise", quote="I will deliver by Friday")
+        _add_event(
+            conn, eid, cid, "u1", event_type="promise", quote="I will deliver by Friday"
+        )
 
         profiler = PsychologyProfiler(conn, llm_url="http://localhost:9999/nowhere")
         profile = profiler.build_profile(eid, "u1")

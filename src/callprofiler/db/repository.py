@@ -9,6 +9,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
 from callprofiler.models import Analysis, Segment
 
 
@@ -47,40 +48,82 @@ class Repository:
 
         # contacts migrations
         contacts_cols = [
-            ("guessed_name",    "TEXT"),
+            ("guessed_name", "TEXT"),
             ("guessed_company", "TEXT"),
-            ("guess_source",    "TEXT"),
-            ("guess_call_id",   "INTEGER"),
-            ("guess_confidence","TEXT"),
-            ("name_confirmed",  "INTEGER NOT NULL DEFAULT 0"),
+            ("guess_source", "TEXT"),
+            ("guess_call_id", "INTEGER"),
+            ("guess_confidence", "TEXT"),
+            ("name_confirmed", "INTEGER NOT NULL DEFAULT 0"),
         ]
         existing_contacts = {
-            row[1]
-            for row in conn.execute("PRAGMA table_info(contacts)").fetchall()
+            row[1] for row in conn.execute("PRAGMA table_info(contacts)").fetchall()
         }
         for col_name, col_def in contacts_cols:
             if col_name not in existing_contacts:
-                conn.execute(
-                    f"ALTER TABLE contacts ADD COLUMN {col_name} {col_def}"
-                )
+                conn.execute(f"ALTER TABLE contacts ADD COLUMN {col_name} {col_def}")
 
         # analyses migrations
         analyses_cols = [
             ("call_type", "TEXT DEFAULT 'unknown'"),
-            ("hook",      "TEXT"),
+            ("hook", "TEXT"),
             ("parse_status", "TEXT DEFAULT 'unknown'"),
-            ("profanity_count",   "INTEGER DEFAULT 0"),
+            ("profanity_count", "INTEGER DEFAULT 0"),
             ("profanity_density", "REAL DEFAULT 0"),
+            ("schema_version", "TEXT DEFAULT 'v2'"),
+            ("canonical_json", "TEXT DEFAULT ''"),
         ]
         existing_analyses = {
-            row[1]
-            for row in conn.execute("PRAGMA table_info(analyses)").fetchall()
+            row[1] for row in conn.execute("PRAGMA table_info(analyses)").fetchall()
         }
         for col_name, col_def in analyses_cols:
             if col_name not in existing_analyses:
-                conn.execute(
-                    f"ALTER TABLE analyses ADD COLUMN {col_name} {col_def}"
-                )
+                conn.execute(f"ALTER TABLE analyses ADD COLUMN {col_name} {col_def}")
+
+        # events migrations (graph columns)
+        events_cols = [
+            ("entity_id", "INTEGER"),
+            ("fact_id", "TEXT"),
+            ("fact_type", "TEXT"),
+            ("quote", "TEXT"),
+            ("start_ms", "INTEGER"),
+            ("end_ms", "INTEGER"),
+            ("polarity", "REAL"),
+            ("intensity", "REAL"),
+        ]
+        existing_events = {
+            row[1] for row in conn.execute("PRAGMA table_info(events)").fetchall()
+        }
+        for col_name, col_def in events_cols:
+            if col_name not in existing_events:
+                conn.execute(f"ALTER TABLE events ADD COLUMN {col_name} {col_def}")
+
+        # entities migration
+        entities_cols = [
+            ("archived", "INTEGER DEFAULT 0"),
+            ("merged_into_id", "INTEGER"),
+            ("is_owner", "INTEGER DEFAULT 0"),
+        ]
+        try:
+            existing_entities = {
+                row[1] for row in conn.execute("PRAGMA table_info(entities)").fetchall()
+            }
+            for col_name, col_def in entities_cols:
+                if col_name not in existing_entities:
+                    conn.execute(
+                        f"ALTER TABLE entities ADD COLUMN {col_name} {col_def}"
+                    )
+        except Exception:
+            pass  # entities table may not exist yet
+
+        # Уникальный индекс для атомарной MD5-дедупликации звонков (F2.5)
+        try:
+            conn.execute(
+                """CREATE UNIQUE INDEX IF NOT EXISTS idx_calls_user_md5
+                   ON calls(user_id, source_md5)
+                   WHERE source_md5 IS NOT NULL"""
+            )
+        except Exception:
+            pass  # Index may already exist or duplicate data prevents it
 
         conn.commit()
 
@@ -93,21 +136,37 @@ class Repository:
     # Users
     # ------------------------------------------------------------------
 
-    def add_user(self, user_id: str, display_name: str, telegram_chat_id: str | None,
-                 incoming_dir: str, sync_dir: str, ref_audio: str) -> None:
+    def add_user(
+        self,
+        user_id: str,
+        display_name: str,
+        telegram_chat_id: str | None,
+        incoming_dir: str,
+        sync_dir: str,
+        ref_audio: str,
+    ) -> None:
         conn = self._get_conn()
         conn.execute(
             """INSERT INTO users (user_id, display_name, telegram_chat_id,
                incoming_dir, sync_dir, ref_audio)
                VALUES (?, ?, ?, ?, ?, ?)""",
-            (user_id, display_name, telegram_chat_id, incoming_dir, sync_dir, ref_audio),
+            (
+                user_id,
+                display_name,
+                telegram_chat_id,
+                incoming_dir,
+                sync_dir,
+                ref_audio,
+            ),
         )
         conn.commit()
 
     def get_user(self, user_id: str) -> dict | None:
-        row = self._get_conn().execute(
-            "SELECT * FROM users WHERE user_id = ?", (user_id,)
-        ).fetchone()
+        row = (
+            self._get_conn()
+            .execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+            .fetchone()
+        )
         return dict(row) if row else None
 
     def get_all_users(self) -> list[dict]:
@@ -118,8 +177,9 @@ class Repository:
     # Contacts
     # ------------------------------------------------------------------
 
-    def get_or_create_contact(self, user_id: str, phone_e164: str | None,
-                               display_name: str | None = None) -> int:
+    def get_or_create_contact(
+        self, user_id: str, phone_e164: str | None, display_name: str | None = None
+    ) -> int:
         """Найти контакт или создать новый.
 
         Если display_name передан (имя из имени файла = телефонная книга пользователя),
@@ -152,45 +212,75 @@ class Repository:
         return cur.lastrowid
 
     def get_contact(self, contact_id: int) -> dict | None:
-        row = self._get_conn().execute(
-            "SELECT * FROM contacts WHERE contact_id = ?", (contact_id,)
-        ).fetchone()
+        row = (
+            self._get_conn()
+            .execute("SELECT * FROM contacts WHERE contact_id = ?", (contact_id,))
+            .fetchone()
+        )
+        return dict(row) if row else None
+
+    def get_contact_for_user(self, user_id: str, contact_id: int) -> dict | None:
+        """Вернуть контакт только если он принадлежит user_id (безопасный вариант)."""
+        row = (
+            self._get_conn()
+            .execute(
+                "SELECT * FROM contacts WHERE contact_id = ? AND user_id = ?",
+                (contact_id, user_id),
+            )
+            .fetchone()
+        )
         return dict(row) if row else None
 
     def get_contact_by_phone(self, user_id: str, phone_e164: str) -> dict | None:
-        row = self._get_conn().execute(
-            "SELECT * FROM contacts WHERE user_id = ? AND phone_e164 = ?",
-            (user_id, phone_e164),
-        ).fetchone()
+        row = (
+            self._get_conn()
+            .execute(
+                "SELECT * FROM contacts WHERE user_id = ? AND phone_e164 = ?",
+                (user_id, phone_e164),
+            )
+            .fetchone()
+        )
         return dict(row) if row else None
 
     def get_all_contacts_for_user(self, user_id: str) -> list[dict]:
-        rows = self._get_conn().execute(
-            "SELECT * FROM contacts WHERE user_id = ? ORDER BY display_name",
-            (user_id,),
-        ).fetchall()
+        rows = (
+            self._get_conn()
+            .execute(
+                "SELECT * FROM contacts WHERE user_id = ? ORDER BY display_name",
+                (user_id,),
+            )
+            .fetchall()
+        )
         return [dict(r) for r in rows]
 
     def get_contacts_without_name(self, user_id: str) -> list[dict]:
         """Вернуть контакты без display_name и без подтверждённого guessed_name."""
-        rows = self._get_conn().execute(
-            """SELECT * FROM contacts
+        rows = (
+            self._get_conn()
+            .execute(
+                """SELECT * FROM contacts
                WHERE user_id = ?
                  AND (display_name IS NULL OR display_name = '')
                  AND (name_confirmed = 0 OR name_confirmed IS NULL)
                ORDER BY contact_id""",
-            (user_id,),
-        ).fetchall()
+                (user_id,),
+            )
+            .fetchall()
+        )
         return [dict(r) for r in rows]
 
     def get_calls_for_contact(self, user_id: str, contact_id: int) -> list[dict]:
         """Все звонки контакта, отфильтрованные по user_id."""
-        rows = self._get_conn().execute(
-            """SELECT * FROM calls
+        rows = (
+            self._get_conn()
+            .execute(
+                """SELECT * FROM calls
                WHERE user_id = ? AND contact_id = ?
                ORDER BY call_datetime""",
-            (user_id, contact_id),
-        ).fetchall()
+                (user_id, contact_id),
+            )
+            .fetchall()
+        )
         return [dict(r) for r in rows]
 
     def update_contact_guessed_name(
@@ -217,29 +307,64 @@ class Repository:
     # ------------------------------------------------------------------
 
     def call_exists(self, user_id: str, source_md5: str) -> bool:
-        row = self._get_conn().execute(
-            "SELECT 1 FROM calls WHERE user_id = ? AND source_md5 = ?",
-            (user_id, source_md5),
-        ).fetchone()
+        row = (
+            self._get_conn()
+            .execute(
+                "SELECT 1 FROM calls WHERE user_id = ? AND source_md5 = ?",
+                (user_id, source_md5),
+            )
+            .fetchone()
+        )
         return row is not None
 
-    def create_call(self, user_id: str, contact_id: int | None, direction: str,
-                    call_datetime: datetime | None, source_filename: str,
-                    source_md5: str, audio_path: str) -> int:
+    def create_call(
+        self,
+        user_id: str,
+        contact_id: int | None,
+        direction: str,
+        call_datetime: datetime | None,
+        source_filename: str,
+        source_md5: str,
+        audio_path: str,
+    ) -> int:
         conn = self._get_conn()
-        dt_value = call_datetime.isoformat() if isinstance(call_datetime, datetime) else call_datetime
-        cur = conn.execute(
-            """INSERT INTO calls (user_id, contact_id, direction, call_datetime,
-               source_filename, source_md5, audio_path)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (user_id, contact_id, direction, dt_value,
-             source_filename, source_md5, audio_path),
+        dt_value = (
+            call_datetime.isoformat()
+            if isinstance(call_datetime, datetime)
+            else call_datetime
         )
-        conn.commit()
-        return cur.lastrowid
+        try:
+            cur = conn.execute(
+                """INSERT INTO calls (user_id, contact_id, direction, call_datetime,
+                   source_filename, source_md5, audio_path)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    user_id,
+                    contact_id,
+                    direction,
+                    dt_value,
+                    source_filename,
+                    source_md5,
+                    audio_path,
+                ),
+            )
+            conn.commit()
+            return cur.lastrowid
+        except Exception as exc:
+            # Уникальный индекс idx_calls_user_md5 предотвращает дубликат
+            if "UNIQUE constraint failed" in str(exc) and source_md5:
+                conn.rollback()
+                row = conn.execute(
+                    "SELECT call_id FROM calls WHERE user_id=? AND source_md5=?",
+                    (user_id, source_md5),
+                ).fetchone()
+                if row:
+                    return row["call_id"]
+            raise
 
-    def update_call_status(self, call_id: int, status: str,
-                            error_message: str | None = None) -> None:
+    def update_call_status(
+        self, call_id: int, status: str, error_message: str | None = None
+    ) -> None:
         conn = self._get_conn()
         if error_message is not None:
             conn.execute(
@@ -255,8 +380,9 @@ class Repository:
             )
         conn.commit()
 
-    def update_call_paths(self, call_id: int, norm_path: str,
-                          duration_sec: int) -> None:
+    def update_call_paths(
+        self, call_id: int, norm_path: str, duration_sec: int
+    ) -> None:
         conn = self._get_conn()
         conn.execute(
             "UPDATE calls SET norm_path=?, duration_sec=?, updated_at=datetime('now') WHERE call_id=?",
@@ -265,30 +391,44 @@ class Repository:
         conn.commit()
 
     def get_pending_calls(self) -> list[dict]:
-        rows = self._get_conn().execute(
-            "SELECT * FROM calls WHERE status='new' ORDER BY created_at"
-        ).fetchall()
+        rows = (
+            self._get_conn()
+            .execute("SELECT * FROM calls WHERE status='new' ORDER BY created_at")
+            .fetchall()
+        )
         return [dict(r) for r in rows]
 
     def get_error_calls(self, max_retries: int = 3) -> list[dict]:
-        rows = self._get_conn().execute(
-            "SELECT * FROM calls WHERE status='error' AND retry_count < ? ORDER BY updated_at",
-            (max_retries,),
-        ).fetchall()
+        rows = (
+            self._get_conn()
+            .execute(
+                "SELECT * FROM calls WHERE status='error' AND retry_count < ? ORDER BY updated_at",
+                (max_retries,),
+            )
+            .fetchall()
+        )
         return [dict(r) for r in rows]
 
     def get_call_count_for_contact(self, user_id: str, contact_id: int) -> int:
-        row = self._get_conn().execute(
-            "SELECT COUNT(*) as cnt FROM calls WHERE user_id=? AND contact_id=?",
-            (user_id, contact_id),
-        ).fetchone()
+        row = (
+            self._get_conn()
+            .execute(
+                "SELECT COUNT(*) as cnt FROM calls WHERE user_id=? AND contact_id=?",
+                (user_id, contact_id),
+            )
+            .fetchone()
+        )
         return row["cnt"] if row else 0
 
     def get_calls_for_user(self, user_id: str, limit: int = 20) -> list[dict]:
-        rows = self._get_conn().execute(
-            "SELECT * FROM calls WHERE user_id=? ORDER BY created_at DESC LIMIT ?",
-            (user_id, limit),
-        ).fetchall()
+        rows = (
+            self._get_conn()
+            .execute(
+                "SELECT * FROM calls WHERE user_id=? ORDER BY created_at DESC LIMIT ?",
+                (user_id, limit),
+            )
+            .fetchall()
+        )
         return [dict(r) for r in rows]
 
     # ------------------------------------------------------------------
@@ -296,7 +436,30 @@ class Repository:
     # ------------------------------------------------------------------
 
     def save_transcripts(self, call_id: int, segments: list[Segment]) -> None:
+        """Сохранить сегменты транскрипта. Идемпотентен: повторный вызов
+        удаляет старые сегменты и вставляет новые (для случаев reprocess).
+        """
         conn = self._get_conn()
+        # Удалить старые сегменты из FTS и таблицы (идемпотентность, F2.3)
+        existing = conn.execute(
+            "SELECT segment_id, text, speaker, call_id FROM transcripts WHERE call_id=?",
+            (call_id,),
+        ).fetchall()
+        if existing:
+            user_row = conn.execute(
+                "SELECT user_id FROM calls WHERE call_id=?", (call_id,)
+            ).fetchone()
+            uid = user_row["user_id"] if user_row else ""
+            # FTS5 content table: нужно явно удалять через команду 'delete'
+            conn.executemany(
+                """INSERT INTO transcripts_fts(transcripts_fts, rowid, text, speaker, call_id, user_id)
+                   VALUES ('delete', ?, ?, ?, ?, ?)""",
+                [
+                    (r["segment_id"], r["text"], r["speaker"], r["call_id"], uid)
+                    for r in existing
+                ],
+            )
+            conn.execute("DELETE FROM transcripts WHERE call_id=?", (call_id,))
         conn.executemany(
             "INSERT INTO transcripts (call_id, start_ms, end_ms, text, speaker) VALUES (?,?,?,?,?)",
             [(call_id, s.start_ms, s.end_ms, s.text, s.speaker) for s in segments],
@@ -304,18 +467,26 @@ class Repository:
         conn.commit()
 
     def get_transcript(self, call_id: int) -> list[dict]:
-        rows = self._get_conn().execute(
-            "SELECT * FROM transcripts WHERE call_id=? ORDER BY start_ms",
-            (call_id,),
-        ).fetchall()
+        rows = (
+            self._get_conn()
+            .execute(
+                "SELECT * FROM transcripts WHERE call_id=? ORDER BY start_ms",
+                (call_id,),
+            )
+            .fetchall()
+        )
         return [dict(r) for r in rows]
 
-    def search_transcripts(self, user_id: str, query: str, limit: int = 50) -> list[dict]:
+    def search_transcripts(
+        self, user_id: str, query: str, limit: int = 50
+    ) -> list[dict]:
         # FTS5 phrase search; escape " in user input
         fts_query = '"' + query.replace('"', '""') + '"'
         # Subquery gets ranked rowids from FTS5; outer JOIN adds user_id filter
-        rows = self._get_conn().execute(
-            """SELECT t.*, c.user_id
+        rows = (
+            self._get_conn()
+            .execute(
+                """SELECT t.*, c.user_id
                FROM (
                    SELECT rowid, rank
                    FROM transcripts_fts
@@ -328,8 +499,10 @@ class Repository:
                WHERE c.user_id = ?
                ORDER BY ranked.rank
                LIMIT ?""",
-            (fts_query, user_id, limit),
-        ).fetchall()
+                (fts_query, user_id, limit),
+            )
+            .fetchall()
+        )
         return [dict(r) for r in rows]
 
     # ------------------------------------------------------------------
@@ -382,9 +555,11 @@ class Repository:
         conn.commit()
 
     def get_analysis(self, call_id: int) -> dict | None:
-        row = self._get_conn().execute(
-            "SELECT * FROM analyses WHERE call_id=?", (call_id,)
-        ).fetchone()
+        row = (
+            self._get_conn()
+            .execute("SELECT * FROM analyses WHERE call_id=?", (call_id,))
+            .fetchone()
+        )
         if not row:
             return None
         d = dict(row)
@@ -393,15 +568,40 @@ class Repository:
         d["key_topics"] = json.loads(d["key_topics"])
         return d
 
-    def get_recent_analyses(self, user_id: str, contact_id: int,
-                             limit: int = 5) -> list[dict]:
-        rows = self._get_conn().execute(
-            """SELECT a.* FROM analyses a
+    def get_analysis_for_user(self, user_id: str, call_id: int) -> dict | None:
+        """Вернуть анализ только для звонка, принадлежащего user_id."""
+        row = (
+            self._get_conn()
+            .execute(
+                """SELECT a.* FROM analyses a
+               JOIN calls c ON c.call_id = a.call_id
+               WHERE a.call_id = ? AND c.user_id = ?""",
+                (call_id, user_id),
+            )
+            .fetchone()
+        )
+        if not row:
+            return None
+        d = dict(row)
+        d["action_items"] = json.loads(d["action_items"])
+        d["flags"] = json.loads(d["flags"])
+        d["key_topics"] = json.loads(d["key_topics"])
+        return d
+
+    def get_recent_analyses(
+        self, user_id: str, contact_id: int, limit: int = 5
+    ) -> list[dict]:
+        rows = (
+            self._get_conn()
+            .execute(
+                """SELECT a.* FROM analyses a
                JOIN calls c ON c.call_id = a.call_id
                WHERE c.user_id=? AND c.contact_id=?
                ORDER BY a.created_at DESC LIMIT ?""",
-            (user_id, contact_id, limit),
-        ).fetchall()
+                (user_id, contact_id, limit),
+            )
+            .fetchall()
+        )
         result = []
         for row in rows:
             d = dict(row)
@@ -424,47 +624,65 @@ class Repository:
     # ------------------------------------------------------------------
 
     def save_batch(self, items: list[dict]) -> None:
-        """Сохранить батч анализов и promises в одной транзакции.
-
-        Формат каждого элемента: {call_id, analysis, user_id, contact_id, promises}.
-        contact_id может быть None — тогда promises пропускаются.
-        """
+        """Сохранить батч анализов и promises в одной транзакции."""
         conn = self._get_conn()
+        # Проверяем наличие необязательных колонок один раз
+        existing_analyses = {
+            row[1] for row in conn.execute("PRAGMA table_info(analyses)").fetchall()
+        }
+        has_sv = "schema_version" in existing_analyses
+        has_cj = "canonical_json" in existing_analyses
+
         for item in items:
             call_id = item["call_id"]
             a = item["analysis"]
+
+            cols = (
+                "call_id, priority, risk_score, summary, action_items, "
+                "flags, key_topics, raw_response, model, prompt_version, "
+                "call_type, hook, parse_status, profanity_count, profanity_density"
+            )
+            vals = [
+                call_id,
+                a.priority,
+                a.risk_score,
+                a.summary,
+                json.dumps(a.action_items, ensure_ascii=False),
+                json.dumps(a.flags, ensure_ascii=False),
+                json.dumps(a.key_topics, ensure_ascii=False),
+                a.raw_response,
+                a.model,
+                a.prompt_version,
+                getattr(a, "call_type", "unknown"),
+                getattr(a, "hook", None),
+                getattr(a, "parse_status", "unknown"),
+                int(getattr(a, "profanity_count", 0) or 0),
+                float(getattr(a, "profanity_density", 0.0) or 0.0),
+            ]
+            if has_cj:
+                cols += ", canonical_json"
+                vals.append(getattr(a, "canonical_json", None) or "")
+            if has_sv:
+                cols += ", schema_version"
+                vals.append(getattr(a, "schema_version", None) or "v2")
+
+            ph = ",".join("?" * len(vals))
+            update_cols = cols.replace("call_id, ", "")
+            update_sets = []
+            for c in update_cols.split(", "):
+                c = c.strip()
+                if c == "canonical_json":
+                    update_sets.append(
+                        "canonical_json=COALESCE(excluded.canonical_json, analyses.canonical_json)"
+                    )
+                else:
+                    update_sets.append(f"{c}=excluded.{c}")
+            update_str = ", ".join(update_sets)
+
             conn.execute(
-                """INSERT INTO analyses
-                   (call_id, priority, risk_score, summary, action_items,
-                    flags, key_topics, raw_response, model, prompt_version,
-                    call_type, hook, parse_status,
-                    profanity_count, profanity_density, canonical_json, schema_version)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                   ON CONFLICT(call_id) DO UPDATE SET
-                     priority=excluded.priority, risk_score=excluded.risk_score,
-                     summary=excluded.summary, action_items=excluded.action_items,
-                     flags=excluded.flags, key_topics=excluded.key_topics,
-                     raw_response=excluded.raw_response, model=excluded.model,
-                     prompt_version=excluded.prompt_version, call_type=excluded.call_type,
-                     hook=excluded.hook, parse_status=excluded.parse_status,
-                     profanity_count=excluded.profanity_count,
-                     profanity_density=excluded.profanity_density,
-                     canonical_json=COALESCE(excluded.canonical_json, analyses.canonical_json),
-                     schema_version=excluded.schema_version""",
-                (
-                    call_id, a.priority, a.risk_score, a.summary,
-                    json.dumps(a.action_items, ensure_ascii=False),
-                    json.dumps(a.flags, ensure_ascii=False),
-                    json.dumps(a.key_topics, ensure_ascii=False),
-                    a.raw_response, a.model, a.prompt_version,
-                    getattr(a, "call_type", "unknown"),
-                    getattr(a, "hook", None),
-                    getattr(a, "parse_status", "unknown"),
-                    int(getattr(a, "profanity_count", 0) or 0),
-                    float(getattr(a, "profanity_density", 0.0) or 0.0),
-                    getattr(a, "canonical_json", None) or "",
-                    getattr(a, "schema_version", None) or "v2",
-                ),
+                f"INSERT INTO analyses ({cols}) VALUES ({ph}) "
+                f"ON CONFLICT(call_id) DO UPDATE SET {update_str}",
+                vals,
             )
             contact_id = item.get("contact_id")
             promises = item.get("promises") or []
@@ -472,14 +690,23 @@ class Repository:
                 conn.executemany(
                     """INSERT INTO promises (user_id, contact_id, call_id, who, what, due)
                        VALUES (?,?,?,?,?,?)""",
-                    [(item["user_id"], contact_id, call_id,
-                      p.get("who", ""), p.get("what", ""), p.get("due"))
-                     for p in promises],
+                    [
+                        (
+                            item["user_id"],
+                            contact_id,
+                            call_id,
+                            p.get("who", ""),
+                            p.get("what", ""),
+                            p.get("due"),
+                        )
+                        for p in promises
+                    ],
                 )
         conn.commit()
 
-    def save_promises(self, user_id: str, contact_id: int | None, call_id: int,
-                      promises: list[dict]) -> None:
+    def save_promises(
+        self, user_id: str, contact_id: int | None, call_id: int, promises: list[dict]
+    ) -> None:
         """Save promises. Skip if contact_id is None or no promises."""
         if not promises or contact_id is None:
             return
@@ -487,24 +714,40 @@ class Repository:
         conn.executemany(
             """INSERT INTO promises (user_id, contact_id, call_id, who, what, due)
                VALUES (?,?,?,?,?,?)""",
-            [(user_id, contact_id, call_id,
-              p.get("who", ""), p.get("what", ""), p.get("due"))
-             for p in promises],
+            [
+                (
+                    user_id,
+                    contact_id,
+                    call_id,
+                    p.get("who", ""),
+                    p.get("what", ""),
+                    p.get("due"),
+                )
+                for p in promises
+            ],
         )
         conn.commit()
 
     def get_open_promises(self, user_id: str) -> list[dict]:
-        rows = self._get_conn().execute(
-            "SELECT * FROM promises WHERE user_id=? AND status='open' ORDER BY due",
-            (user_id,),
-        ).fetchall()
+        rows = (
+            self._get_conn()
+            .execute(
+                "SELECT * FROM promises WHERE user_id=? AND status='open' ORDER BY due",
+                (user_id,),
+            )
+            .fetchall()
+        )
         return [dict(r) for r in rows]
 
     def get_contact_promises(self, user_id: str, contact_id: int) -> list[dict]:
-        rows = self._get_conn().execute(
-            "SELECT * FROM promises WHERE user_id=? AND contact_id=? ORDER BY created_at DESC",
-            (user_id, contact_id),
-        ).fetchall()
+        rows = (
+            self._get_conn()
+            .execute(
+                "SELECT * FROM promises WHERE user_id=? AND contact_id=? ORDER BY created_at DESC",
+                (user_id, contact_id),
+            )
+            .fetchall()
+        )
         return [dict(r) for r in rows]
 
     # ------------------------------------------------------------------
@@ -526,23 +769,27 @@ class Repository:
                (user_id, contact_id, call_id, event_type, who, payload,
                 source_quote, confidence, deadline, status)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            [(
-                e.get("user_id", ""),
-                e.get("contact_id"),
-                call_id,
-                e.get("event_type", "fact"),
-                e.get("who", "UNKNOWN"),
-                e.get("payload", ""),
-                e.get("source_quote"),
-                e.get("confidence", 1.0),
-                e.get("deadline"),
-                e.get("status", "open"),
-             ) for e in events],
+            [
+                (
+                    e.get("user_id", ""),
+                    e.get("contact_id"),
+                    call_id,
+                    e.get("event_type", "fact"),
+                    e.get("who", "UNKNOWN"),
+                    e.get("payload", ""),
+                    e.get("source_quote"),
+                    e.get("confidence", 1.0),
+                    e.get("deadline"),
+                    e.get("status", "open"),
+                )
+                for e in events
+            ],
         )
         conn.commit()
 
-    def get_open_events(self, user_id: str, contact_id: int | None = None,
-                        event_type: str | None = None) -> list[dict]:
+    def get_open_events(
+        self, user_id: str, contact_id: int | None = None, event_type: str | None = None
+    ) -> list[dict]:
         """Get open events for a user, optionally filtered by contact and type."""
         query = "SELECT * FROM events WHERE user_id = ? AND status = 'open'"
         params = [user_id]
@@ -560,15 +807,20 @@ class Repository:
         rows = self._get_conn().execute(query, params).fetchall()
         return [dict(r) for r in rows]
 
-    def get_events_for_contact(self, user_id: str, contact_id: int,
-                                limit: int = 50) -> list[dict]:
+    def get_events_for_contact(
+        self, user_id: str, contact_id: int, limit: int = 50
+    ) -> list[dict]:
         """Get all events for a contact, newest first."""
-        rows = self._get_conn().execute(
-            """SELECT * FROM events
+        rows = (
+            self._get_conn()
+            .execute(
+                """SELECT * FROM events
                WHERE user_id = ? AND contact_id = ?
                ORDER BY created_at DESC LIMIT ?""",
-            (user_id, contact_id, limit),
-        ).fetchall()
+                (user_id, contact_id, limit),
+            )
+            .fetchall()
+        )
         return [dict(r) for r in rows]
 
     def update_event_status(self, event_id: int, status: str) -> None:
@@ -626,16 +878,24 @@ class Repository:
 
     def get_contact_summary(self, contact_id: int) -> dict | None:
         """Get contact summary by ID."""
-        row = self._get_conn().execute(
-            "SELECT * FROM contact_summaries WHERE contact_id = ?",
-            (contact_id,),
-        ).fetchone()
+        row = (
+            self._get_conn()
+            .execute(
+                "SELECT * FROM contact_summaries WHERE contact_id = ?",
+                (contact_id,),
+            )
+            .fetchone()
+        )
         return dict(row) if row else None
 
     def get_all_contacts_for_user(self, user_id: str) -> list[dict]:
         """Get all contacts for a user (previously in queries, now explicit)."""
-        rows = self._get_conn().execute(
-            "SELECT * FROM contacts WHERE user_id = ? ORDER BY display_name",
-            (user_id,),
-        ).fetchall()
+        rows = (
+            self._get_conn()
+            .execute(
+                "SELECT * FROM contacts WHERE user_id = ? ORDER BY display_name",
+                (user_id,),
+            )
+            .fetchall()
+        )
         return [dict(r) for r in rows]
