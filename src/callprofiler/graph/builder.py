@@ -10,6 +10,7 @@ analyses with schema_version='v2'.
 from __future__ import annotations
 
 import hashlib
+import re
 import json
 import logging
 import sqlite3
@@ -26,6 +27,14 @@ from callprofiler.graph.repository import GraphRepository, apply_graph_schema
 from callprofiler.graph.validator import FactValidator
 
 log = logging.getLogger(__name__)
+
+def normalize_entity_key(canonical_name: str, entity_type: str) -> str:
+    clean = canonical_name.strip().lower()
+    clean = re.sub(r'[^\w\s]', '', clean)
+    clean = re.sub(r'\s+', '_', clean)
+    return f"{entity_type}::{clean}"
+
+
 
 
 class GraphBuilder:

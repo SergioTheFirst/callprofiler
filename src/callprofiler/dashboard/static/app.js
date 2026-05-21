@@ -78,7 +78,8 @@
             '<span>src: ' + src + '</span>' +
             '<span>schema: ' + esh(a.schema_version || 'v2') + '</span>' +
             '</div>' +
-            (a.summary ? '<div class="c-summary">' + esh(a.summary) + '</div>' : '');
+            (a.summary ? '<div class="c-summary">' + esh(a.summary) + '</div>' : '') +
+            '<div class="c-audio"><button class="btn-audio" onclick="window._playAudio(' + a.call_id + ', this)">\u25b6\ufe0f \u041f\u0440\u043e\u0441\u043b\u0443\u0448\u0430\u0442\u044c</button></div>';
 
         feed.insertBefore(card, feed.firstChild);
         while (feed.children.length > MAX) feed.lastChild.remove();
@@ -145,6 +146,16 @@
             document.getElementById('modal-overlay').style.display = 'none';
         }
     };
+
+
+// Audio player for call history items
+window._playAudio = function(callId, el) {
+    var audio = new Audio('/api/audio/' + callId);
+    audio.onerror = function() { el.textContent = 'err'; };
+    audio.onended = function() { el.textContent = '\u25b6\ufe0f \u041f\u0440\u043e\u0441\u043b\u0443\u0448\u0430\u0442\u044c'; };
+    audio.play();
+    el.textContent = '\u23f8\ufe0f ...';
+};
 
     // ── Helpers ─────────────────────────────────────────────────────────
     function fmt(n) {

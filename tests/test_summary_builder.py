@@ -48,6 +48,7 @@ class TestSummaryBuilder:
             sb.rebuild_contact("u1", cid)
 
             summary = repo.get_contact_summary("u1", cid)
+            repo.close()
             assert summary is None or summary.get("total_calls") == 0
 
     def test_rebuild_contact_with_call(self):
@@ -75,6 +76,7 @@ class TestSummaryBuilder:
             sb.rebuild_contact("u1", cid)
 
             summary = repo.get_contact_summary("u1", cid)
+            repo.close()
             assert summary is not None
             assert summary.get("total_calls") == 1
             assert summary.get("global_risk") == 30
@@ -116,4 +118,5 @@ class TestSummaryBuilder:
 
             # u2 summary should still be empty (not rebuilt)
             s2 = repo.get_contact_summary("u2", c2)
+            repo.close()
             assert s2 is None or int(s2.get("total_calls") or 0) == 0

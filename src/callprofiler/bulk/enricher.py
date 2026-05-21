@@ -19,6 +19,7 @@ from callprofiler.analyze.profanity_detector import count_profanity
 from callprofiler.analyze.response_parser import parse_llm_response
 from callprofiler.config import load_config
 from callprofiler.db.repository import Repository
+from callprofiler.analyze.prompt_budget import estimate_tokens, clip_transcript_for_llm
 from callprofiler.events import emit_event_sync
 from callprofiler.models import Analysis
 
