@@ -1,7 +1,7 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
-repository.py — доступ к SQLite. Без ORM, только sqlite3.
-Каждый метод, работающий с данными пользователя, фильтрует по user_id.
+repository.py вЂ” РґРѕСЃС‚СѓРї Рє SQLite. Р‘РµР· ORM, С‚РѕР»СЊРєРѕ sqlite3.
+РљР°Р¶РґС‹Р№ РјРµС‚РѕРґ, СЂР°Р±РѕС‚Р°СЋС‰РёР№ СЃ РґР°РЅРЅС‹РјРё РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ, С„РёР»СЊС‚СЂСѓРµС‚ РїРѕ user_id.
 """
 
 import json
@@ -33,7 +33,7 @@ class Repository:
         return self._conn
 
     def init_db(self) -> None:
-        """Создать все таблицы по schema.sql + применить миграции."""
+        """РЎРѕР·РґР°С‚СЊ РІСЃРµ С‚Р°Р±Р»РёС†С‹ РїРѕ schema.sql + РїСЂРёРјРµРЅРёС‚СЊ РјРёРіСЂР°С†РёРё."""
         schema_path = Path(__file__).parent / "schema.sql"
         with open(schema_path, encoding="utf-8") as f:
             sql = f.read()
@@ -43,7 +43,7 @@ class Repository:
         self._migrate()
 
     def _migrate(self) -> None:
-        """Применить ALTER TABLE для колонок, добавленных после первого релиза."""
+        """РџСЂРёРјРµРЅРёС‚СЊ ALTER TABLE РґР»СЏ РєРѕР»РѕРЅРѕРє, РґРѕР±Р°РІР»РµРЅРЅС‹С… РїРѕСЃР»Рµ РїРµСЂРІРѕРіРѕ СЂРµР»РёР·Р°."""
         conn = self._get_conn()
 
         # contacts migrations
@@ -115,7 +115,7 @@ class Repository:
         except Exception:
             pass  # entities table may not exist yet
 
-        # Уникальный индекс для атомарной MD5-дедупликации звонков (F2.5)
+        # РЈРЅРёРєР°Р»СЊРЅС‹Р№ РёРЅРґРµРєСЃ РґР»СЏ Р°С‚РѕРјР°СЂРЅРѕР№ MD5-РґРµРґСѓРїР»РёРєР°С†РёРё Р·РІРѕРЅРєРѕРІ (F2.5)
         try:
             conn.execute(
                 """CREATE UNIQUE INDEX IF NOT EXISTS idx_calls_user_md5
@@ -180,11 +180,11 @@ class Repository:
     def get_or_create_contact(
         self, user_id: str, phone_e164: str | None, display_name: str | None = None
     ) -> int:
-        """Найти контакт или создать новый.
+        """РќР°Р№С‚Рё РєРѕРЅС‚Р°РєС‚ РёР»Рё СЃРѕР·РґР°С‚СЊ РЅРѕРІС‹Р№.
 
-        Если display_name передан (имя из имени файла = телефонная книга пользователя),
-        оно ВСЕГДА обновляется как приоритетное — даже если контакт уже существует.
-        Имя из телефонной книги имеет безусловный приоритет над auto-extracted именами.
+        Р•СЃР»Рё display_name РїРµСЂРµРґР°РЅ (РёРјСЏ РёР· РёРјРµРЅРё С„Р°Р№Р»Р° = С‚РµР»РµС„РѕРЅРЅР°СЏ РєРЅРёРіР° РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ),
+        РѕРЅРѕ Р’РЎР•Р“Р”Рђ РѕР±РЅРѕРІР»СЏРµС‚СЃСЏ РєР°Рє РїСЂРёРѕСЂРёС‚РµС‚РЅРѕРµ вЂ” РґР°Р¶Рµ РµСЃР»Рё РєРѕРЅС‚Р°РєС‚ СѓР¶Рµ СЃСѓС‰РµСЃС‚РІСѓРµС‚.
+        РРјСЏ РёР· С‚РµР»РµС„РѕРЅРЅРѕР№ РєРЅРёРіРё РёРјРµРµС‚ Р±РµР·СѓСЃР»РѕРІРЅС‹Р№ РїСЂРёРѕСЂРёС‚РµС‚ РЅР°Рґ auto-extracted РёРјРµРЅР°РјРё.
         """
         conn = self._get_conn()
         row = conn.execute(
@@ -193,7 +193,7 @@ class Repository:
         ).fetchone()
         if row:
             contact_id = row["contact_id"]
-            # Имя из имени файла = имя из телефонной книги = безусловный приоритет
+            # РРјСЏ РёР· РёРјРµРЅРё С„Р°Р№Р»Р° = РёРјСЏ РёР· С‚РµР»РµС„РѕРЅРЅРѕР№ РєРЅРёРіРё = Р±РµР·СѓСЃР»РѕРІРЅС‹Р№ РїСЂРёРѕСЂРёС‚РµС‚
             if display_name:
                 conn.execute(
                     """UPDATE contacts SET display_name = ?, name_confirmed = 1
@@ -202,7 +202,7 @@ class Repository:
                 )
                 conn.commit()
             return contact_id
-        # Создать новый контакт
+        # РЎРѕР·РґР°С‚СЊ РЅРѕРІС‹Р№ РєРѕРЅС‚Р°РєС‚
         cur = conn.execute(
             """INSERT INTO contacts (user_id, phone_e164, display_name, name_confirmed)
                VALUES (?, ?, ?, ?)""",
@@ -211,16 +211,19 @@ class Repository:
         conn.commit()
         return cur.lastrowid
 
-    def get_contact(self, contact_id: int) -> dict | None:
+    def get_contact(self, user_id: str, contact_id: int) -> dict | None:
         row = (
             self._get_conn()
-            .execute("SELECT * FROM contacts WHERE contact_id = ?", (contact_id,))
+            .execute(
+                "SELECT * FROM contacts WHERE contact_id = ? AND user_id = ?",
+                (contact_id, user_id),
+            )
             .fetchone()
         )
         return dict(row) if row else None
 
     def get_contact_for_user(self, user_id: str, contact_id: int) -> dict | None:
-        """Вернуть контакт только если он принадлежит user_id (безопасный вариант)."""
+        """Р’РµСЂРЅСѓС‚СЊ РєРѕРЅС‚Р°РєС‚ С‚РѕР»СЊРєРѕ РµСЃР»Рё РѕРЅ РїСЂРёРЅР°РґР»РµР¶РёС‚ user_id (Р±РµР·РѕРїР°СЃРЅС‹Р№ РІР°СЂРёР°РЅС‚)."""
         row = (
             self._get_conn()
             .execute(
@@ -254,7 +257,7 @@ class Repository:
         return [dict(r) for r in rows]
 
     def get_contacts_without_name(self, user_id: str) -> list[dict]:
-        """Вернуть контакты без display_name и без подтверждённого guessed_name."""
+        """Р’РµСЂРЅСѓС‚СЊ РєРѕРЅС‚Р°РєС‚С‹ Р±РµР· display_name Рё Р±РµР· РїРѕРґС‚РІРµСЂР¶РґС‘РЅРЅРѕРіРѕ guessed_name."""
         rows = (
             self._get_conn()
             .execute(
@@ -270,7 +273,7 @@ class Repository:
         return [dict(r) for r in rows]
 
     def get_calls_for_contact(self, user_id: str, contact_id: int) -> list[dict]:
-        """Все звонки контакта, отфильтрованные по user_id."""
+        """Р’СЃРµ Р·РІРѕРЅРєРё РєРѕРЅС‚Р°РєС‚Р°, РѕС‚С„РёР»СЊС‚СЂРѕРІР°РЅРЅС‹Рµ РїРѕ user_id."""
         rows = (
             self._get_conn()
             .execute(
@@ -291,7 +294,7 @@ class Repository:
         guess_call_id: int,
         guess_confidence: str,
     ) -> None:
-        """Записать угаданное имя контакта (не перезаписывает подтверждённые)."""
+        """Р—Р°РїРёСЃР°С‚СЊ СѓРіР°РґР°РЅРЅРѕРµ РёРјСЏ РєРѕРЅС‚Р°РєС‚Р° (РЅРµ РїРµСЂРµР·Р°РїРёСЃС‹РІР°РµС‚ РїРѕРґС‚РІРµСЂР¶РґС‘РЅРЅС‹Рµ)."""
         conn = self._get_conn()
         conn.execute(
             """UPDATE contacts
@@ -316,6 +319,17 @@ class Repository:
             .fetchone()
         )
         return row is not None
+
+    def get_call(self, user_id: str, call_id: int) -> dict | None:
+        row = (
+            self._get_conn()
+            .execute(
+                "SELECT * FROM calls WHERE call_id = ? AND user_id = ?",
+                (call_id, user_id),
+            )
+            .fetchone()
+        )
+        return dict(row) if row else None
 
     def create_call(
         self,
@@ -351,7 +365,7 @@ class Repository:
             conn.commit()
             return cur.lastrowid
         except Exception as exc:
-            # Уникальный индекс idx_calls_user_md5 предотвращает дубликат
+            # РЈРЅРёРєР°Р»СЊРЅС‹Р№ РёРЅРґРµРєСЃ idx_calls_user_md5 РїСЂРµРґРѕС‚РІСЂР°С‰Р°РµС‚ РґСѓР±Р»РёРєР°С‚
             if "UNIQUE constraint failed" in str(exc) and source_md5:
                 conn.rollback()
                 row = conn.execute(
@@ -390,23 +404,43 @@ class Repository:
         )
         conn.commit()
 
-    def get_pending_calls(self) -> list[dict]:
-        rows = (
-            self._get_conn()
-            .execute("SELECT * FROM calls WHERE status='new' ORDER BY created_at")
-            .fetchall()
-        )
+    def get_pending_calls(self, user_id: str | None = None) -> list[dict]:
+        if user_id:
+            rows = (
+                self._get_conn()
+                .execute(
+                    "SELECT * FROM calls WHERE status='new' AND user_id=? ORDER BY created_at",
+                    (user_id,),
+                )
+                .fetchall()
+            )
+        else:
+            rows = (
+                self._get_conn()
+                .execute("SELECT * FROM calls WHERE status='new' ORDER BY created_at")
+                .fetchall()
+            )
         return [dict(r) for r in rows]
 
-    def get_error_calls(self, max_retries: int = 3) -> list[dict]:
-        rows = (
-            self._get_conn()
-            .execute(
-                "SELECT * FROM calls WHERE status='error' AND retry_count < ? ORDER BY updated_at",
-                (max_retries,),
+    def get_error_calls(self, user_id: str | None = None, max_retries: int = 3) -> list[dict]:
+        if user_id:
+            rows = (
+                self._get_conn()
+                .execute(
+                    "SELECT * FROM calls WHERE status='error' AND retry_count < ? AND user_id=? ORDER BY updated_at",
+                    (max_retries, user_id),
+                )
+                .fetchall()
             )
-            .fetchall()
-        )
+        else:
+            rows = (
+                self._get_conn()
+                .execute(
+                    "SELECT * FROM calls WHERE status='error' AND retry_count < ? ORDER BY updated_at",
+                    (max_retries,),
+                )
+                .fetchall()
+            )
         return [dict(r) for r in rows]
 
     def get_call_count_for_contact(self, user_id: str, contact_id: int) -> int:
@@ -436,11 +470,11 @@ class Repository:
     # ------------------------------------------------------------------
 
     def save_transcripts(self, call_id: int, segments: list[Segment]) -> None:
-        """Сохранить сегменты транскрипта. Идемпотентен: повторный вызов
-        удаляет старые сегменты и вставляет новые (для случаев reprocess).
+        """РЎРѕС…СЂР°РЅРёС‚СЊ СЃРµРіРјРµРЅС‚С‹ С‚СЂР°РЅСЃРєСЂРёРїС‚Р°. РРґРµРјРїРѕС‚РµРЅС‚РµРЅ: РїРѕРІС‚РѕСЂРЅС‹Р№ РІС‹Р·РѕРІ
+        СѓРґР°Р»СЏРµС‚ СЃС‚Р°СЂС‹Рµ СЃРµРіРјРµРЅС‚С‹ Рё РІСЃС‚Р°РІР»СЏРµС‚ РЅРѕРІС‹Рµ (РґР»СЏ СЃР»СѓС‡Р°РµРІ reprocess).
         """
         conn = self._get_conn()
-        # Удалить старые сегменты из FTS и таблицы (идемпотентность, F2.3)
+        # РЈРґР°Р»РёС‚СЊ СЃС‚Р°СЂС‹Рµ СЃРµРіРјРµРЅС‚С‹ РёР· FTS Рё С‚Р°Р±Р»РёС†С‹ (РёРґРµРјРїРѕС‚РµРЅС‚РЅРѕСЃС‚СЊ, F2.3)
         existing = conn.execute(
             "SELECT segment_id, text, speaker, call_id FROM transcripts WHERE call_id=?",
             (call_id,),
@@ -450,7 +484,7 @@ class Repository:
                 "SELECT user_id FROM calls WHERE call_id=?", (call_id,)
             ).fetchone()
             uid = user_row["user_id"] if user_row else ""
-            # FTS5 content table: нужно явно удалять через команду 'delete'
+            # FTS5 content table: РЅСѓР¶РЅРѕ СЏРІРЅРѕ СѓРґР°Р»СЏС‚СЊ С‡РµСЂРµР· РєРѕРјР°РЅРґСѓ 'delete'
             conn.executemany(
                 """INSERT INTO transcripts_fts(transcripts_fts, rowid, text, speaker, call_id, user_id)
                    VALUES ('delete', ?, ?, ?, ?, ?)""",
@@ -554,10 +588,15 @@ class Repository:
         )
         conn.commit()
 
-    def get_analysis(self, call_id: int) -> dict | None:
+    def get_analysis(self, user_id: str, call_id: int) -> dict | None:
         row = (
             self._get_conn()
-            .execute("SELECT * FROM analyses WHERE call_id=?", (call_id,))
+            .execute(
+                """SELECT a.* FROM analyses a
+                   JOIN calls c ON c.call_id = a.call_id
+                   WHERE a.call_id = ? AND c.user_id = ?""",
+                (call_id, user_id),
+            )
             .fetchone()
         )
         if not row:
@@ -569,7 +608,7 @@ class Repository:
         return d
 
     def get_analysis_for_user(self, user_id: str, call_id: int) -> dict | None:
-        """Вернуть анализ только для звонка, принадлежащего user_id."""
+        """Р’РµСЂРЅСѓС‚СЊ Р°РЅР°Р»РёР· С‚РѕР»СЊРєРѕ РґР»СЏ Р·РІРѕРЅРєР°, РїСЂРёРЅР°РґР»РµР¶Р°С‰РµРіРѕ user_id."""
         row = (
             self._get_conn()
             .execute(
@@ -624,9 +663,9 @@ class Repository:
     # ------------------------------------------------------------------
 
     def save_batch(self, items: list[dict]) -> None:
-        """Сохранить батч анализов и promises в одной транзакции."""
+        """РЎРѕС…СЂР°РЅРёС‚СЊ Р±Р°С‚С‡ Р°РЅР°Р»РёР·РѕРІ Рё promises РІ РѕРґРЅРѕР№ С‚СЂР°РЅР·Р°РєС†РёРё."""
         conn = self._get_conn()
-        # Проверяем наличие необязательных колонок один раз
+        # РџСЂРѕРІРµСЂСЏРµРј РЅР°Р»РёС‡РёРµ РЅРµРѕР±СЏР·Р°С‚РµР»СЊРЅС‹С… РєРѕР»РѕРЅРѕРє РѕРґРёРЅ СЂР°Р·
         existing_analyses = {
             row[1] for row in conn.execute("PRAGMA table_info(analyses)").fetchall()
         }
@@ -824,7 +863,7 @@ class Repository:
         return [dict(r) for r in rows]
 
     def update_event_status(self, event_id: int, status: str) -> None:
-        """Update status of an event (open → fulfilled/broken/expired/resolved)."""
+        """Update status of an event (open в†’ fulfilled/broken/expired/resolved)."""
         conn = self._get_conn()
         conn.execute(
             "UPDATE events SET status = ? WHERE id = ?",
@@ -876,13 +915,13 @@ class Repository:
         )
         conn.commit()
 
-    def get_contact_summary(self, contact_id: int) -> dict | None:
-        """Get contact summary by ID."""
+    def get_contact_summary(self, user_id: str, contact_id: int) -> dict | None:
+        """Get contact summary by ID, enforcing user_id isolation."""
         row = (
             self._get_conn()
             .execute(
-                "SELECT * FROM contact_summaries WHERE contact_id = ?",
-                (contact_id,),
+                "SELECT * FROM contact_summaries WHERE contact_id = ? AND user_id = ?",
+                (contact_id, user_id),
             )
             .fetchone()
         )

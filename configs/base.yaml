@@ -21,4 +21,4 @@ audio:
   channels: 1
   format: "wav"
 
-hf_token: "TOKEN"
+hf_token: "${HF_TOKEN}"  # "TOKEN"

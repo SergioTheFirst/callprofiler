@@ -251,7 +251,7 @@ def test_save_and_get_analysis(repo):
         model="qwen", prompt_version="v001",
     )
     repo.save_analysis(call_id, a)
-    result = repo.get_analysis(call_id)
+    result = repo.get_analysis("user1", call_id)
     assert result is not None
     assert result["priority"] == 70
     assert result["action_items"] == ["Отправить КП"]
@@ -263,9 +263,9 @@ def test_set_feedback(repo):
     call_id, _ = add_call(repo)
     a = Analysis(priority=50, risk_score=10, summary="ok")
     repo.save_analysis(call_id, a)
-    analysis = repo.get_analysis(call_id)
+    analysis = repo.get_analysis("user1", call_id)
     repo.set_feedback(analysis["analysis_id"], "good")
-    result = repo.get_analysis(call_id)
+    result = repo.get_analysis("user1", call_id)
     assert result["feedback"] == "good"
 
 

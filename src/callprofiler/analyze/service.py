@@ -63,7 +63,7 @@ class AnalysisService:
             ]
 
         # Get metadata
-        contact = self.repo.get_contact(contact_id) if contact_id else None
+        contact = self.repo.get_contact(user_id, contact_id) if contact_id else None
         metadata = {
             "contact_name": contact.get("display_name") if contact else None,
             "phone": contact.get("phone_e164") if contact else None,

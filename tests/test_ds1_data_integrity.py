@@ -88,7 +88,7 @@ def test_schema_version_saved_and_retrieved():
     call_id = _add_call(repo)
     a = _make_analysis(schema_version="v2")
     repo.save_analysis(call_id, a)
-    result = repo.get_analysis(call_id)
+    result = repo.get_analysis("u1", call_id)
     assert result["schema_version"] == "v2"
 
 
@@ -110,7 +110,7 @@ def test_canonical_json_saved_and_retrieved():
     payload = json.dumps({"summary": "test", "risk_score": 10}, ensure_ascii=False)
     a = _make_analysis(canonical_json=payload)
     repo.save_analysis(call_id, a)
-    result = repo.get_analysis(call_id)
+    result = repo.get_analysis("u1", call_id)
     assert result["canonical_json"] == payload
 
 
@@ -132,7 +132,7 @@ def test_save_batch_on_fresh_db():
             }
         ]
     )
-    result = repo.get_analysis(call_id)
+    result = repo.get_analysis("u1", call_id)
     assert result is not None
     assert result["summary"] == "test"
 
@@ -195,11 +195,11 @@ def test_save_analysis_preserves_feedback():
     call_id = _add_call(repo)
     a = _make_analysis()
     repo.save_analysis(call_id, a)
-    analysis = repo.get_analysis(call_id)
+    analysis = repo.get_analysis("u1", call_id)
     repo.set_feedback(analysis["analysis_id"], "accurate")
     # Повторное сохранение (reprocess)
     repo.save_analysis(call_id, _make_analysis(summary="updated"))
-    result = repo.get_analysis(call_id)
+    result = repo.get_analysis("u1", call_id)
     assert result["feedback"] == "accurate", (
         "Feedback не должен сбрасываться при обновлении анализа"
     )

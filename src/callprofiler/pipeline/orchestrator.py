@@ -374,23 +374,39 @@ class Orchestrator:
         user_id = call["user_id"]
         contact_id = call.get("contact_id")
 
-        # Использовать AnalysisService (единая точка анализа, F11.1)
-        try:
-            from callprofiler.analyze.service import AnalysisService
-
-            svc = AnalysisService(self.config, self.repo)
-            analysis = svc.analyze_one_call(call, segments)
-        except (ConnectionError, RuntimeError) as exc:
-            logger.error("LLM недоступен для call_id=%d: %s", call_id, exc)
+        # Короткие звонки — skip LLM entirely (Sprint 4)
+        transcript_text = " ".join(s.text for s in segments).strip()
+        if len(transcript_text) < 50 and not any(
+            kw in transcript_text.lower() for kw in ("долг", "обещ", "срок", "завтра", "оплат")
+        ):
+            logger.info(
+                "Короткий звонок call_id=%d (%d символов), skip LLM",
+                call_id, len(transcript_text),
+            )
             analysis = parse_llm_response(
                 "",
                 model=self.config.models.llm_model,
                 prompt_version="v001",
             )
-        except Exception as exc:
-            logger.error("Ошибка анализа call_id=%d: %s", call_id, exc)
-            self.repo.update_call_status(call_id, "error", str(exc))
-            return
+            analysis.call_type = "short"
+        else:
+            # Использовать AnalysisService (единая точка анализа, F11.1)
+            try:
+                from callprofiler.analyze.service import AnalysisService
+
+                svc = AnalysisService(self.config, self.repo)
+                analysis = svc.analyze_one_call(call, segments)
+            except (ConnectionError, RuntimeError) as exc:
+                logger.error("LLM недоступен для call_id=%d: %s", call_id, exc)
+                analysis = parse_llm_response(
+                    "",
+                    model=self.config.models.llm_model,
+                    prompt_version="v001",
+                )
+            except Exception as exc:
+                logger.error("Ошибка анализа call_id=%d: %s", call_id, exc)
+                self.repo.update_call_status(call_id, "error", str(exc))
+                return
 
         # Сохранить анализ в БД
         self.repo.save_analysis(call_id, analysis)
@@ -398,6 +414,20 @@ class Orchestrator:
         # Сохранить обещания
         if analysis.promises and contact_id:
             self.repo.save_promises(user_id, contact_id, call_id, analysis.promises)
+
+        # Rebuild contact summary after analysis (Sprint 4)
+        if contact_id:
+            try:
+                from callprofiler.aggregate.summary_builder import SummaryBuilder
+
+                SummaryBuilder(self.repo).rebuild_contact(user_id, contact_id)
+                logger.debug(
+                    "Summary rebuilt: user=%s, contact_id=%d", user_id, contact_id
+                )
+            except Exception as _sbe:
+                logger.warning(
+                    "Summary rebuild failed (non-fatal): %s", _sbe
+                )
 
         # Обновить Knowledge Graph (non-fatal)
         try:
@@ -416,7 +446,7 @@ class Orchestrator:
         try:
             from callprofiler.events import emit_event_sync
 
-            contact = self.repo.get_contact(contact_id) if contact_id else None
+            contact = self.repo.get_contact(user_id, contact_id) if contact_id else None
             contact_label = (
                 (contact.get("display_name") or contact.get("phone_e164") or "?")
                 if contact
@@ -433,7 +463,7 @@ class Orchestrator:
                 },
             )
         except Exception:
-            pass
+            logger.warning("Failed to emit analysis_complete event", exc_info=True)
 
         logger.info(
             "Анализ: call_id=%d, priority=%d, risk=%d, parse_status=%s",

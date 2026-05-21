@@ -113,7 +113,7 @@ def test_add_user_and_ingest():
 
         # Проверить что контакт создан
         contact_id = dict(call)["contact_id"]
-        contact = repo.get_contact(contact_id)
+        contact = repo.get_contact("test", contact_id)
         assert contact is not None
         assert contact["phone_e164"] == "+79161234567"
         repo.close()
@@ -180,8 +180,8 @@ def test_user_isolation():
         assert contact_id_a != contact_id_b
 
         # Проверить что они действительно разные
-        contact_a = repo.get_contact(contact_id_a)
-        contact_b = repo.get_contact(contact_id_b)
+        contact_a = repo.get_contact("test", contact_id_a)
+        contact_b = repo.get_contact("test", contact_id_b)
         assert contact_a["display_name"] == "Alice"
         assert contact_b["display_name"] == "Bob"
         repo.close()
@@ -275,7 +275,7 @@ def test_analysis_save_and_retrieve():
         repo.save_analysis(call_id, analysis)
 
         # Получить и проверить
-        saved = repo.get_analysis(call_id)
+        saved = repo.get_analysis("test", call_id)
         assert saved is not None
         assert saved["priority"] == 75
         assert saved["risk_score"] == 30

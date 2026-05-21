@@ -134,7 +134,7 @@ class Orchestrator:
                 try:
                     self.bio.finish_checkpoint(self.user_id, name, "failed")
                 except Exception:  # noqa: BLE001
-                    pass
+                    log.debug("Checkpoint finish failed (non-fatal)", exc_info=True)
         results["_total_sec"] = round(time.monotonic() - overall_start, 1)
         log.info("=" * 60)
         log.info("  BIOGRAPHY PIPELINE DONE in %.1f sec", results["_total_sec"])

@@ -558,6 +558,26 @@ def bulk_enrich(
         elapsed_total, total_done / elapsed_total if elapsed_total > 0 else 0, avg_tps,
     )
 
+    # Batch summary rebuild: collect affected contacts, rebuild once per contact (Sprint 4)
+    try:
+        from callprofiler.aggregate.summary_builder import SummaryBuilder
+
+        sb = SummaryBuilder(repo)
+        affected_contacts: set = set()
+        for item in pending_batch:
+            cid = item.get("contact_id")
+            if cid is not None:
+                affected_contacts.add(cid)
+        for cid in sorted(affected_contacts):
+            try:
+                sb.rebuild_contact(user_id, cid)
+                log.debug("[enricher] Summary rebuilt: contact_id=%d", cid)
+            except Exception as se:
+                log.warning("[enricher] Summary rebuild failed for contact_id=%d: %s", cid, se)
+        log.info("[enricher] Batch summary rebuilt for %d contacts", len(affected_contacts))
+    except Exception as e:
+        log.warning("[enricher] Batch summary rebuild error (non-fatal): %s", e)
+
     # Вернуть совместимые со старым кодом stats
     return {
         "processed": stats["processed"] + stats["partial"],  # total successful + partial

@@ -29,6 +29,20 @@ from callprofiler.graph.repository import GraphRepository
 
 log = logging.getLogger(__name__)
 
+def _call_type_weight(call_type: str | None) -> float:
+    if not call_type or call_type == "business":
+        return 1.0
+    if call_type == "personal":
+        return 0.7
+    if call_type == "smalltalk":
+        return 0.1
+    if call_type in ("short", "spam"):
+        return 0.0
+    if call_type == "unknown":
+        return 0.5
+    return 0.5
+
+
 
 class SummaryBuilder:
     """Синтезирует и обновляет профили контактов (contact_summaries).
@@ -80,7 +94,7 @@ class SummaryBuilder:
             return "🟡"
         return "🟢"
 
-    def rebuild_contact(self, contact_id: int) -> None:
+    def rebuild_contact(self, user_id: str, contact_id: int) -> None:
         """Пересчитать summary одного контакта.
 
         Агрегирует данные из:
@@ -88,7 +102,7 @@ class SummaryBuilder:
         2. Событий (обещания, долги, факты)
         3. Истории взаимодействий (дата, роль, компания)
         """
-        contact = self.repo.get_contact(contact_id)
+        contact = self.repo.get_contact(user_id, contact_id)
         if not contact:
             log.warning("[summary] Contact %d not found", contact_id)
             return
@@ -107,7 +121,7 @@ class SummaryBuilder:
         # Получить анализы для расчёта risk/bs_score
         analyses = []
         for call in calls:
-            analysis = self.repo.get_analysis(call["call_id"])
+            analysis = self.repo.get_analysis(user_id, call["call_id"])
             if analysis:
                 analyses.append({
                     "call_id": call["call_id"],
@@ -173,7 +187,7 @@ class SummaryBuilder:
 
         for contact in contacts:
             try:
-                self.rebuild_contact(contact["contact_id"])
+                self.rebuild_contact(user_id, contact["contact_id"])
             except Exception as e:
                 log.error(
                     "[summary] Error rebuilding contact_id=%d: %s",
@@ -183,7 +197,7 @@ class SummaryBuilder:
 
         log.info("[summary] Completed rebuilding all contacts for %s", user_id)
 
-    def generate_card_text(self, contact_id: int) -> str:
+    def generate_card_text(self, user_id: str, contact_id: int) -> str:
         """Сгенерировать текст карточки ≤512 байт для Android overlay.
 
         Формат:
@@ -195,11 +209,11 @@ class SummaryBuilder:
             • {bullet3}
             💡 {advice}
         """
-        summary = self.repo.get_contact_summary(contact_id)
+        summary = self.repo.get_contact_summary(user_id, contact_id)
         if not summary:
             return ""
 
-        contact = self.repo.get_contact(contact_id)
+        contact = self.repo.get_contact(user_id, contact_id)
         if not contact:
             return ""
 
@@ -268,9 +282,9 @@ class SummaryBuilder:
 
         return text
 
-    def write_card(self, contact_id: int, sync_dir: str) -> None:
+    def write_card(self, user_id: str, contact_id: int, sync_dir: str) -> None:
         """Записать карточку {phone}.txt в sync_dir."""
-        contact = self.repo.get_contact(contact_id)
+        contact = self.repo.get_contact(user_id, contact_id)
         if not contact:
             log.warning("[summary] Contact %d not found for card write", contact_id)
             return
@@ -282,7 +296,7 @@ class SummaryBuilder:
 
         from pathlib import Path
 
-        card_text = self.generate_card_text(contact_id)
+        card_text = self.generate_card_text(user_id, contact_id)
         if not card_text:
             log.warning("[summary] No card text for contact_id=%d", contact_id)
             return
@@ -313,7 +327,7 @@ class SummaryBuilder:
 
         for contact in contacts:
             try:
-                self.write_card(contact["contact_id"], sync_dir)
+                self.write_card(user_id, contact["contact_id"], sync_dir)
             except Exception as e:
                 log.error(
                     "[summary] Error writing card for contact_id=%d: %s",
@@ -348,8 +362,10 @@ class SummaryBuilder:
 
             analysis = item.get("analysis", {})
             risk = analysis.get("risk_score", 0)
+            call_type = analysis.get("call_type")
+            ct_weight = _call_type_weight(call_type)
 
-            weights.append(weight)
+            weights.append(weight * ct_weight)
             risks.append(risk)
 
         total_weight = sum(weights)

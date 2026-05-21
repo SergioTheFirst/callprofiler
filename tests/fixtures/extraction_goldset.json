@@ -1,0 +1,74 @@
+[
+  {
+    "id": "g1_promise",
+    "transcript": "[Я]: Я обещаю прислать документы завтра\n[Собеседник]: Хорошо, жду до пятницы\n[Я]: Договорились",
+    "call_type": "business",
+    "expected": {
+      "promises": [
+        {
+          "who": "OWNER",
+          "what": "прислать документы",
+          "due": "завтра"
+        }
+      ],
+      "risk_score_range": [
+        20,
+        50
+      ]
+    }
+  },
+  {
+    "id": "g2_debt",
+    "transcript": "[Собеседник]: Ты должен мне 5000 рублей\n[Я]: Я помню, отдам на следующей неделе\n[Собеседник]: Хорошо, жду",
+    "call_type": "personal",
+    "expected": {
+      "debts": [
+        {
+          "who": "OWNER",
+          "what": "5000 рублей",
+          "due": "следующая неделя"
+        }
+      ],
+      "risk_score_range": [
+        30,
+        60
+      ]
+    }
+  },
+  {
+    "id": "g3_short",
+    "transcript": "[Я]: Привет\n[Собеседник]: Привет\n[Я]: Пока",
+    "call_type": "short",
+    "expected": {
+      "call_type": "short",
+      "risk_score_range": [
+        0,
+        5
+      ]
+    }
+  },
+  {
+    "id": "g4_conflict",
+    "transcript": "[Собеседник]: Ты опять опоздал на встречу! Я ждал час\n[Я]: Извини, пробки\n[Собеседник]: Это уже третий раз, меня это бесит",
+    "call_type": "business",
+    "expected": {
+      "contradictions_present": true,
+      "risk_score_range": [
+        60,
+        90
+      ]
+    }
+  },
+  {
+    "id": "g5_smalltalk",
+    "transcript": "[Я]: Как дела?\n[Собеседник]: Нормально, погода хорошая\n[Я]: Да, тепло наконец-то",
+    "call_type": "smalltalk",
+    "expected": {
+      "call_type": "smalltalk",
+      "risk_score_range": [
+        0,
+        15
+      ]
+    }
+  }
+]

@@ -8,7 +8,7 @@ from __future__ import annotations
 __all__ = ["run_dashboard"]
 
 
-def run_dashboard(user_id: str, port: int = 8765, host: str = "127.0.0.1"):
+def run_dashboard(user_id: str, config, port: int = 8765, host: str = "127.0.0.1"):
     """
     Launch the dashboard web server.
 
@@ -20,5 +20,5 @@ def run_dashboard(user_id: str, port: int = 8765, host: str = "127.0.0.1"):
     from callprofiler.dashboard.server import app, set_user_id
     import uvicorn
 
-    set_user_id(user_id)
+    set_user_id(user_id, config)
     uvicorn.run(app, host=host, port=port, log_level="info")

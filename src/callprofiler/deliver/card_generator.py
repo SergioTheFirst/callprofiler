@@ -146,13 +146,13 @@ class CardGenerator:
         Возвращает:
             Текст карточки ≤ 512 байт (MacroDroid-compatible key:value формат)
         """
-        contact = self.repo.get_contact(contact_id)
+        contact = self.repo.get_contact(user_id, contact_id)
         if not contact:
             logger.warning("Контакт %d не найден", contact_id)
             return ""
 
         name = _best_name(contact)
-        summary = self.repo.get_contact_summary(contact_id)
+        summary = self.repo.get_contact_summary(user_id, contact_id)
 
         # Минимальная карточка если нет summary
         if not summary:
@@ -210,7 +210,7 @@ class CardGenerator:
             contact_id  — идентификатор контакта
             sync_dir    — директория синхронизации (для FolderSync)
         """
-        contact = self.repo.get_contact(contact_id)
+        contact = self.repo.get_contact(user_id, contact_id)
         if not contact:
             logger.warning("Контакт %d не найден, карточка не записана", contact_id)
             return

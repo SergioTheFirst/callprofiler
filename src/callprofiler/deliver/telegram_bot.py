@@ -93,11 +93,11 @@ class TelegramNotifier:
 
         call = dict(call)
         contact_id = call.get("contact_id")
-        contact = self.repo.get_contact(contact_id) if contact_id else None
+        contact = self.repo.get_contact(user_id, contact_id) if contact_id else None
         contact_name = contact.get("display_name", "?") if contact else "?"
         phone = contact.get("phone_e164", "?") if contact else "?"
 
-        analysis = self.repo.get_analysis(call_id)
+        analysis = self.repo.get_analysis(user_id, call_id)
         if not analysis:
             logger.warning("Анализ для звонка %d не найден", call_id)
             return
@@ -188,7 +188,7 @@ class TelegramNotifier:
 
         try:
             # Получить analysis_id для call_id
-            analysis = self.repo.get_analysis(call_id)
+            analysis = self.repo.get_analysis(user_id, call_id)
             if analysis:
                 analysis_id = analysis.get("analysis_id")
                 if analysis_id:
@@ -207,6 +207,20 @@ class TelegramNotifier:
         except Exception as exc:
             logger.error("Ошибка при сохранении feedback для call_id=%d: %s", call_id, exc)
             await query.edit_message_text(text="❌ Ошибка сохранения")
+
+
+    async def cmd_help(self, update, context) -> None:
+        """/help — список доступных команд."""
+        msg = (
+            "🤖 <b>CallProfiler — команды:</b>\n\n"
+            "/digest [N] [дни] — дайджест важных звонков\n"
+            "/search текст — найти разговор\n"
+            "/contact +7... или имя — карточка контакта\n"
+            "/promises — открытые обещания\n"
+            "/status — очередь и ошибки\n"
+            "/help — этот список"
+        )
+        await update.message.reply_text(msg, parse_mode="HTML")
 
     async def cmd_start(self, update, context) -> None:
         """/start — приветствие и список команд."""
@@ -275,7 +289,7 @@ class TelegramNotifier:
         # Сортируем по priority и берём топ limit
         call_with_priority = []
         for call in recent:
-            analysis = self.repo.get_analysis(call["call_id"])
+            analysis = self.repo.get_analysis(user_id, call["call_id"])
             priority = analysis.get("priority", 0) if analysis else 0
             call_with_priority.append((priority, call, analysis))
 
@@ -285,7 +299,7 @@ class TelegramNotifier:
         for priority, call, analysis in call_with_priority[:limit]:
             contact_id = call.get("contact_id")
             contact = (
-                self.repo.get_contact(contact_id) if contact_id else None
+                self.repo.get_contact(user_id, contact_id) if contact_id else None
             )
             name = contact.get("display_name", "?") if contact else "?"
             phone = contact.get("phone_e164", "?") if contact else "?"
@@ -318,15 +332,13 @@ class TelegramNotifier:
         msg = f"🔍 Найдено {len(results)} совпадений (показаны первые 5):\n\n"
         for res in results[:5]:
             call_id = res.get("call_id")
-            call = self.repo._get_conn().execute(
-                "SELECT * FROM calls WHERE call_id = ?", (call_id,)
-            ).fetchone()
+            call = self.repo.get_call(user_id, call_id)
 
             if call:
                 call = dict(call)
                 contact_id = call.get("contact_id")
                 contact = (
-                    self.repo.get_contact(contact_id) if contact_id else None
+                    self.repo.get_contact(user_id, contact_id) if contact_id else None
                 )
                 contact_name = (
                     contact.get("display_name", "?") if contact else "?"
@@ -384,7 +396,7 @@ class TelegramNotifier:
         name = contact.get("display_name", "?")
         phone = contact.get("phone_e164", "?")
 
-        summary = self.repo.get_contact_summary(contact_id)
+        summary = self.repo.get_contact_summary(user_id, contact_id)
 
         if not summary:
             await update.message.reply_text(
@@ -474,7 +486,7 @@ class TelegramNotifier:
                 msg += f"... и ещё {len(by_contact) - count} контактов\n"
                 break
 
-            contact = self.repo.get_contact(contact_id) if contact_id else None
+            contact = self.repo.get_contact(user_id, contact_id) if contact_id else None
             name = contact.get("display_name", "?") if contact else "?"
 
             msg += f"👤 <b>{name}</b>\n"
@@ -497,8 +509,8 @@ class TelegramNotifier:
             return
 
         # Общее состояние очереди
-        pending = self.repo.get_pending_calls()
-        errors = self.repo.get_error_calls(max_retries=3)
+        pending = self.repo.get_pending_calls(user_id)
+        errors = self.repo.get_error_calls(user_id=user_id, max_retries=3)
 
         # Фильтр для конкретного пользователя
         pending_for_user = [c for c in pending if c.get("user_id") == user_id]
@@ -507,7 +519,7 @@ class TelegramNotifier:
         # Статистика звонков пользователя
         all_calls = self.repo.get_calls_for_user(user_id, limit=1000)
         calls_with_analysis = sum(
-            1 for c in all_calls if self.repo.get_analysis(c["call_id"]) is not None
+            1 for c in all_calls if self.repo.get_analysis(user_id, c["call_id"]) is not None
         )
 
         msg = (
@@ -524,7 +536,7 @@ class TelegramNotifier:
             for call in pending_for_user[:3]:
                 contact_id = call.get("contact_id")
                 contact = (
-                    self.repo.get_contact(contact_id) if contact_id else None
+                    self.repo.get_contact(user_id, contact_id) if contact_id else None
                 )
                 name = contact.get("display_name", "?") if contact else "?"
                 status = call.get("status", "new")
@@ -537,7 +549,7 @@ class TelegramNotifier:
             for call in errors_for_user[:3]:
                 contact_id = call.get("contact_id")
                 contact = (
-                    self.repo.get_contact(contact_id) if contact_id else None
+                    self.repo.get_contact(user_id, contact_id) if contact_id else None
                 )
                 name = contact.get("display_name", "?") if contact else "?"
                 retry_count = call.get("retry_count", 0)

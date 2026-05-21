@@ -225,7 +225,7 @@ def cmd_digest(args: argparse.Namespace) -> int:
     for call in calls:
         if call.get("created_at", "") < cutoff:
             continue
-        analysis = repo.get_analysis(call["call_id"])
+        analysis = repo.get_analysis(args.user_id, call["call_id"])
         priority = analysis.get("priority", 0) if analysis else 0
         results.append((priority, call, analysis))
 
@@ -241,7 +241,7 @@ def cmd_digest(args: argparse.Namespace) -> int:
 
     for priority, call, analysis in results[:10]:
         contact_id = call.get("contact_id")
-        contact = repo.get_contact(contact_id) if contact_id else None
+        contact = repo.get_contact(args.user_id, contact_id) if contact_id else None
         name = contact.get("display_name", "?") if contact else "?"
         phone = contact.get("phone_e164", "?") if contact else "?"
         direction = call.get("direction", "?")
@@ -408,7 +408,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     if pending:
         print("\n  ⏳ Ожидают обработки:")
         for call in pending[:5]:
-            contact = repo.get_contact(call.get("contact_id")) if call.get("contact_id") else None
+            contact = repo.get_contact(call["user_id"], call.get("contact_id")) if call.get("contact_id") else None
             name = contact.get("display_name", "?") if contact else "?"
             print(f"    call_id={call['call_id']} | {name} | user={call['user_id']}")
 
@@ -589,16 +589,13 @@ def cmd_search(args: argparse.Namespace) -> int:
 
     for i, result in enumerate(results[:10], 1):
         call_id = result.get("call_id")
-        call = repo._get_conn().execute(
-            "SELECT call_id, contact_id, created_at, call_datetime FROM calls WHERE call_id = ?",
-            (call_id,)
-        ).fetchone()
+        call = repo.get_call(args.user_id, call_id)
 
         if not call:
             continue
 
         contact_id = call["contact_id"]
-        contact = repo.get_contact(contact_id) if contact_id else None
+        contact = repo.get_contact(args.user_id, contact_id) if contact_id else None
         name = _get_best_contact_name(contact)
         phone = contact.get("phone_e164", "?") if contact else "?"
         call_date = (call.get("call_datetime") or "")[:16]
@@ -642,7 +639,7 @@ def cmd_promises(args: argparse.Namespace) -> int:
 
     total = 0
     for contact_id in sorted(by_contact.keys()):
-        contact = repo.get_contact(contact_id) if contact_id else None
+        contact = repo.get_contact(args.user_id, contact_id) if contact_id else None
         contact_name = _get_best_contact_name(contact)
         phone = contact.get("phone_e164", "?") if contact else "?"
 

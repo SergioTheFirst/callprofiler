@@ -192,9 +192,8 @@ class NameExtractor:
         updated = 0
         for contact_id, candidate in guesses.items():
             if dry_run:
-                print(
-                    f"  [dry-run] contact_id={contact_id} → "
-                    f"'{candidate.name}' ({candidate.confidence})"
+                logger.info(
+                    "[dry-run] contact_id=%d → '%s' (%d)", contact_id, candidate.name, candidate.confidence
                 )
             else:
                 self._repo.update_contact_guessed_name(

@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, StreamingResponse, Response
+from fastapi.responses import HTMLResponse, StreamingResponse, Response, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -36,12 +36,27 @@ templates = Jinja2Templates(directory=str(DASHBOARD_DIR / "templates"))
 app.mount("/static", StaticFiles(directory=str(DASHBOARD_DIR / "static")), name="static")
 
 
-def set_user_id(user_id: str):
+def set_user_id(user_id: str, config=None):
     global _USER_ID, _DB_READER
     _USER_ID = user_id
-    db_path = Path("C:/calls/data/db/callprofiler.db")
+    db_path = Path(config.data_dir) / "db" / "callprofiler.db" if config else Path("C:/calls/data/db/callprofiler.db")
     _DB_READER = DashboardDBReader(str(db_path))
     log.info("Dashboard initialized: user_id=%s", user_id)
+
+
+
+@app.get("/api/audio/{call_id}")
+def audio_endpoint(call_id: int):
+    """Serve normalized audio file with user_id isolation."""
+    if _DB_READER is None or _USER_ID is None:
+        return Response(status_code=503)
+    call = _DB_READER.get_call(call_id)
+    if not call or call.get("user_id") != _USER_ID:
+        return Response(status_code=404)
+    norm_path = call.get("norm_path")
+    if not norm_path or not Path(norm_path).is_file():
+        return Response(status_code=404)
+    return FileResponse(norm_path, media_type="audio/wav")
 
 
 @app.on_event("startup")

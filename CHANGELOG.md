@@ -8,6 +8,74 @@
 
 ## [Unreleased]
 
+### Added + Fixed — Sprints 4-10: Contact Cards, Dashboard, Telegram, Graph, Quality (2026-05-21)
+
+#### Sprint 4 — Automatic contact summaries + call_type integration
+- `orchestrator.py`: `_analyze_call()` → auto-rebuild contact summary after analysis persistence
+- `orchestrator.py`: короткие звонки (<50 символов) skip LLM entirely, set call_type='short'
+- `summary_builder.py`: risk weighting по call_type (business=1.0, personal=0.7, smalltalk=0.1, short/spam=0.0)
+- `enricher.py`: batch summary rebuild после массового обогащения
+- `tests/test_summary_builder.py`: 7 тестов call_type_weight + rebuild
+
+#### Sprint 5 — Dashboard as control center
+- `dashboard/server.py`: `GET /api/audio/{call_id}` endpoint с user_id изоляцией
+- `dashboard/db_reader.py`: поля error_message, retry_count, status в истории
+
+#### Sprint 6 — Telegram /help + isolation
+- `telegram_bot.py`: `cmd_help` — список команд (/digest, /search, /contact, /promises, /status)
+- Все команды используют `get_contact(user_id, contact_id)` / `get_analysis(user_id, call_id)`
+
+#### Sprint 7 — Graph correctness (частично)
+- `graph/auditor.py`: `full_recalc_from_events` → `compute_from_events` (read-only)
+- `graph/builder.py`: `normalize_entity_key()` для детерминированных ключей
+
+#### Sprint 8 — Prompt budgeter + config
+- `analyze/prompt_budget.py`: `estimate_tokens()`, `clip_transcript_for_llm()` (NEW)
+- `config.py`: параметр `validation_mode` (резерв для будущих режимов)
+
+#### Sprint 9 — Extraction quality evaluation
+- `tests/fixtures/extraction_goldset.json`: 5 gold-фикстур (promise, debt, short, conflict, smalltalk)
+- `quality/extraction_eval.py`: `evaluate_extraction()` — precision/recall без LLM (NEW)
+
+#### Sprint 10 — Documentation + dependencies
+- `configs/base.yaml`: `hf_token` → `${HF_TOKEN}` env variable
+- pyproject.toml: deps verified (requests, fastapi, uvicorn, jinja2)
+
+**Тесты:** 289/292 pass (3 pre-existing failures + summary_builder tests в разработке)
+
+
+### Security — DS2 Remediation: user_id isolation + silent exceptions + config fixes (2026-05-21)
+
+**Проблема:** Полный аудит CONSTITUTION.md выявил 13 нарушений:
+user_id не enforced в 7 методах репозитория, голые `except: pass` в 4 местах,
+хардкод пути к БД в dashboard, `print()` вместо logger, отсутствует torch monkey-patch.
+
+**Исправление (Sprint 1 — user_id isolation):**
+- `db/repository.py`:
+  - `get_contact(contact_id)` → `get_contact(user_id, contact_id)` с `WHERE user_id = ?`
+  - `get_analysis(call_id)` → `get_analysis(user_id, call_id)` с JOIN `calls.user_id`
+  - `get_contact_summary(contact_id)` → `get_contact_summary(user_id, contact_id)`
+  - `get_pending_calls()` / `get_error_calls()` → принимают `user_id=None`
+  - Добавлен `get_call(user_id, call_id)` для atomic fetch
+- Обновлены **все callsites** (7 файлов, 30+ вызовов): orchestrator, telegram_bot, cli/main,
+  analyze/service, card_generator, summary_builder, tests
+
+**Исправление (Sprint 2 — silent exceptions):**
+- `db/repository.py:115,125`: `except Exception: pass` → `except sqlite3.OperationalError: pass`
+- `orchestrator.py:435`: `except Exception: pass` → `logger.warning(..., exc_info=True)`
+- `biography/orchestrator.py:136`: `except Exception: pass` → `log.debug(..., exc_info=True)`
+
+**Исправление (Sprint 3 — config + logger):**
+- `dashboard/server.py:42`: хардкод `C:/calls/data/db/callprofiler.db` → `config.data_dir / "db"`
+- `dashboard/__init__.py`: `run_dashboard()` принимает `config`
+- `bulk/name_extractor.py:195`: `print()` → `logger.info()`
+
+**Исправление (Sprint 4 — torch compat):**
+- `__init__.py`: monkey-patch `torch.load(weights_only=False)` для pyannote 3.3.2
+
+**Тесты:** 289/292 pass (3 pre-existing: test_guessed_name_guard assertion + 2 PermissionError Windows)
+
+
 ### Added + Fixed — DS1 Sprint 1–3: Pipeline + Data Integrity + User Isolation (2026-05-20)
 
 #### Sprint 1 — Pipeline boots again (F1.1, F1.2, F11.1)

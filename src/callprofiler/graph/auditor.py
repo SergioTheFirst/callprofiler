@@ -294,7 +294,7 @@ class GraphAuditor:
 
         for entity_id, stored_bs, _ in sample:
             try:
-                result = agg.full_recalc_from_events(entity_id)
+                result = agg.compute_from_events(entity_id)
                 recalc_bs = result.get("bs_index", 0.0)
                 drift = abs(stored_bs - recalc_bs) / max(stored_bs, 1.0)
 
