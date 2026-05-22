@@ -35,7 +35,10 @@ from callprofiler.cli.commands.admin import (  # noqa: E402
     cmd_status, cmd_dashboard, cmd_bot,
 )
 
-
+# ---- bulk commands ----
+from callprofiler.cli.commands.bulk import (  # noqa: E402
+    cmd_extract_names, cmd_bulk_load, cmd_bulk_enrich,
+)
 
 # ---- query commands ----
 from callprofiler.cli.commands.query import (  # noqa: E402
