@@ -8,6 +8,11 @@
 
 ## [Unreleased]
 
+### Added — README rewrite + backlog sync (2026-05-22)
+- README.md: full rewrite with actual project structure, 33 CLI commands, real stack, 302 tests
+- agent_backlog.json: 24/30 tasks marked done, 6 remain todo
+- biography/prompts.py: BUDGETS removal aborted (9 pass builders still use it)
+
 ### Audit — CONSTITUTION.md полный grep-аудит 18 статей (2026-05-22)
 
 **Проверено (12 статей — OK):** GPU-дисциплина, user_id-изоляция, MD5-дедупликация, статусная модель, silent exceptions (0 найдено), batch-оптимизация, torch.load monkey-patch, use_auth_token=, секреты из env, антипаттерны (0 нарушений).

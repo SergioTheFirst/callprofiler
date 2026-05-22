@@ -15,8 +15,10 @@ DONE: CONSTITUTION AUDIT — полный grep-аудит 18 статей + ви
   ✅ Batch-оптимизация: фазовая обработка с GPU выгрузкой между фазами
   ⚠️ Найдено 5 недочётов (1 production, 2 теста, 1 монолит, 1 журнал)
   Тесты: 299/302 pass (3 pre-existing) — compileall OK
-NOW: Sprint 11 COMPLETE — main.py: 2339 -> 567 lines (4.1x reduction). 8 modules total. 302/302 pass.
-NEXT: Commit, push, update journals → Sprint 12 final stabilization
+NOW: README.md rewritten (actual project state) + agent_backlog.json synced (24/30 done). 302/302 pass.
+NEXT: Sprint 12 — P0-002 deps audit, P0-003 regression tests, P0-019 config split → commit → push
+BLOCKERS: BUDGETS dict in biography/prompts.py still actively used by 9 pass builders (migration to calculate_dynamic_budget NOT done)</出parameter>
+
 BLOCKERS: None
 
 PREV: Sprints 4-10 — 289/292 pass (2026-05-21)

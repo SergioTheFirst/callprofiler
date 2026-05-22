@@ -1,23 +1,24 @@
 # CallProfiler
 
-**Локальная система обработки телефонных звонков в реальном времени** с автоматическим распознаванием речи, идентификацией говорящего и отправкой резюме в Telegram.
+**Локальная мультипользовательская система пост-обработки записей телефонных разговоров** с транскрибацией, диаризацией, LLM-анализом, графом знаний, психологическим профилированием и биографическим конвейером.
 
-> 📱 Запись → 🤖 Обработка (локально) → 💬 Дайджест → 📲 Telegram + Android overlay
+> 🎙️ Аудиофайл → normalize → whisper → pyannote → LLM → SQLite → Telegram / caller card
 
 ---
 
-## 🎯 Назначение
+## 🎯 Возможности
 
-CallProfiler обрабатывает звонки, полученные на локальной машине Windows, и:
+CallProfiler обрабатывает аудиозаписи звонков на локальной машине Windows и:
 
-1. **Распознаёт речь** (Whisper + faster-whisper) в текст с временными метками
-2. **Идентифицирует говорящих** (pyannote.audio 3.3.2) с разделением по `user_id`
-3. **Нормализует аудио** (EBU R128) перед обработкой
-4. **Сохраняет данные** в SQLite с полнотекстовым поиском (FTS5)
-5. **Генерирует дайджесты** и отправляет в Telegram
-6. **Синхронизирует оверлей** на Android (через FolderSync + MacroDroid)
-
-Результат: **структурированный архив звонков с быстрым поиском и мобильным доступом**.
+1. **Нормализует аудио** (ffmpeg + EBU R128 LUFS) перед обработкой
+2. **Транскрибирует речь** (faster-whisper large-v3) с временны́ми метками
+3. **Диаризирует спикеров** (pyannote.audio 3.3.2 + reference embedding) — свой/чужой
+4. **Анализирует разговор** через локальный LLM (llama.cpp, Qwen 3.5 9B) — риски, обещания, долги, факты, smalltalk
+5. **Строит граф знаний** с BS-калибровкой, объединением сущностей и health gate
+6. **Профилирует психологию** контактов (темперамент, Big Five OCEAN, мотивация McClelland)
+7. **Генерирует биографические книги** (11-pass LLM конвейер по транскриптам)
+8. **Доставляет результаты** в Telegram-бот и через caller cards (.txt) для Android-оверлея
+9. **Веб-дашборд** — FastAPI + SSE + тёмная тема, мониторинг в реальном времени
 
 ---
 
@@ -26,66 +27,53 @@ CallProfiler обрабатывает звонки, полученные на л
 | Параметр | Значение |
 |----------|----------|
 | **ОС** | Windows 10/11 |
-| **GPU** | RTX 3060 12GB (или совместимый CUDA-чип) |
+| **GPU** | RTX 3060 12GB |
 | **CUDA** | 12.4+ |
 | **PyTorch** | 2.6.0+cu124 |
-| **Python** | 3.10+ |
-| **Свободное место** | ≥50 GB (модели + архив) |
+| **Python** | 3.10+ (системный, без venv) |
+| **Свободное место** | ≥50 GB |
 
 ### Модели (автозагрузка)
 
-- **Whisper**: ~3 GB (faster-whisper)
-- **pyannote.audio**: ~1.5 GB (speaker diarization)
-- **Ollama Qwen 14B Q4**: ~10 GB (опционально, для обобщений)
+| Модель | VRAM | Библиотека |
+|--------|------|------------|
+| Whisper large-v3 | ~3 GB | faster-whisper |
+| pyannote 3.1 | ~1.5 GB | pyannote.audio 3.3.2 |
+| Qwen 3.5 9B Q8_0 | ~10 GB | llama.cpp server |
 
 ---
 
 ## 🚀 Установка
 
-### 1. Клонирование репозитория
+### 1. Клонирование
 
 ```bash
 git clone https://github.com/SergioTheFirst/callprofiler.git
 cd callprofiler
 ```
 
-### 2. Зависимости
+### 2. Установка пакета
 
 ```bash
-pip install --break-system-packages \
-    torch==2.6.0+cu124 \
-    torchaudio \
-    faster-whisper \
-    pyannote.audio==3.3.2 \
-    torch-audiomentations \
-    librosa \
-    numpy \
-    requests \
-    python-telegram-bot
+pip install -e . --break-system-packages
 ```
 
-### 3. Авторизация pyannote
+### 3. Переменные окружения
 
-pyannote требует `use_auth_token` (не `token`):
+```bash
+# configs/base.yaml — основной конфиг (data_dir, модели, ffmpeg, HF_TOKEN)
+export HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxx
+export TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234ghIkl
+```
+
+### 4. Обязательные хаки (CONSTITUTION Статья 13.1)
 
 ```python
-from pyannote.audio import Pipeline
-pipeline = Pipeline.from_pretrained(
-    "pyannote/speaker-diarization-3.1",
-    use_auth_token="YOUR_HUGGINGFACE_TOKEN"  # ← важно!
-)
-```
+# torch.load monkey-patch (src/callprofiler/__init__.py)
+checkpoint = torch.load("model.pt", weights_only=False)
 
-Получить токен: https://huggingface.co/settings/tokens
-
-### 4. Переменные окружения
-
-```bash
-# .env
-TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
-TELEGRAM_CHAT_ID=987654321
-HUGGINGFACE_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxx
-LLM_SERVER_URL=http://127.0.0.1:8080  # Опционально (llama-server)
+# pyannote 3.3.2: use_auth_token= (не token=)
+Pipeline.from_pretrained(..., use_auth_token="hf_...")
 ```
 
 ---
@@ -94,340 +82,245 @@ LLM_SERVER_URL=http://127.0.0.1:8080  # Опционально (llama-server)
 
 ```
 callprofiler/
-├── src/
-│   ├── audio_processor.py       # Нормализация (EBU R128), сегментация
-│   ├── speech_recognizer.py     # Whisper + временные метки
-│   ├── speaker_diarizer.py      # pyannote.audio, идентификация
-│   ├── database.py              # SQLite + FTS5, multi-user isolation
-│   ├── telegram_notifier.py     # Отправка дайджестов
-│   └── llm_adapter.py           # OpenAI-совместимый LLM (Ollama/llama-server)
-├── config/
-│   ├── config.json              # Параметры: device, batch_size, output_paths
-│   └── users.json               # Маппинг speaker_id → user_id
-├── models/
-│   ├── whisper-model            # Кэш Whisper
-│   └── pyannote-checkpoint      # Кэш pyannote
-├── archive/
-│   └── calls_db.sqlite          # База звонков (FTS5)
-├── documents/
-│   ├── STRATEGIC_PLAN_v3.md     # Долгосрочное видение
-│   ├── ARCHITECTURE_v3.md       # Технический дизайн
-│   ├── DEVELOPMENT_PLAN.md      # 15-step implementation plan
-│   ├── CONSTITUTION.md          # 18-article merge-blocking rules
-│   └── AGENTS.md                # AI-агенты для обработки
-└── tests/
-    └── test_pipeline.py         # Smoke tests (18/18 passing)
+├── AGENTS.md, CLAUDE.md, CONSTITUTION.md, CHANGELOG.md, CONTINUITY.md
+├── configs/
+│   ├── base.yaml
+│   └── prompts/
+│       ├── analyze_v001.txt          # Системный промпт LLM
+│       └── psychology_profile.txt    # Промпт психопрофилирования
+├── src/callprofiler/
+│   ├── config.py                     # Dataclass Config + load_config()
+│   ├── models.py                     # CallMetadata, Segment, Analysis
+│   ├── audio/normalizer.py           # ffmpeg + EBU R128 LUFS
+│   ├── transcribe/whisper_runner.py  # faster-whisper large-v3
+│   ├── diarize/
+│   │   ├── pyannote_runner.py        # pyannote 3.3.2 + ref embedding
+│   │   └── role_assigner.py          # overlap-mapping → спикер
+│   ├── analyze/
+│   │   ├── llm_client.py             # HTTP клиент llama.cpp (OpenAI API)
+│   │   ├── prompt_builder.py         # Подстановка в analyze_vNNN.txt
+│   │   ├── response_parser.py        # 4-уровневый robust JSON parser
+│   │   ├── prompt_budget.py          # Бюджетирование токенов
+│   │   └── service.py                # Сервисный слой анализа
+│   ├── db/
+│   │   ├── schema.sql                # CREATE TABLE IF NOT EXISTS
+│   │   └── repository.py             # sqlite3 + FTS5 (без ORM)
+│   ├── ingest/
+│   │   ├── filename_parser.py        # 5 форматов имён Android-диктофонов
+│   │   └── ingester.py               # MD5 дедупликация + регистрация
+│   ├── aggregate/summary_builder.py  # Построение сводок
+│   ├── bulk/
+│   │   ├── enricher.py               # Массовый LLM-анализ
+│   │   ├── loader.py                 # Импорт готовых транскриптов
+│   │   └── name_extractor.py         # Извлечение имён из транскриптов
+│   ├── deliver/
+│   │   ├── card_generator.py         # Caller cards ({phone}.txt)
+│   │   └── telegram_bot.py           # Telegram-бот
+│   ├── pipeline/
+│   │   ├── orchestrator.py           # Главный pipeline
+│   │   └── watcher.py                # Сканирование incoming_dir
+│   ├── graph/
+│   │   ├── builder.py, aggregator.py # Построение и агрегация графа
+│   │   ├── calibration.py            # BS-калибровка
+│   │   ├── resolver.py, llm_disambiguator.py  # Разрешение сущностей
+│   │   ├── auditor.py, validator.py  # Аудит и валидация
+│   │   ├── replay.py, repository.py  # Перестроение и хранение
+│   ├── biography/                    # 11-pass LLM конвейер
+│   │   ├── p1-p9/                    # Шаги 1-9
+│   │   ├── psychology_profiler.py    # Психопрофиль
+│   │   ├── orchestrator.py, repo.py  # Оркестратор и хранилище
+│   │   └── prompts/                  # Промпты для каждого шага
+│   ├── dashboard/
+│   │   ├── server.py                 # FastAPI + SSE
+│   │   ├── db_reader.py, models.py   # Чтение БД
+│   │   ├── templates/index.html      # SPA интерфейс
+│   │   └── static/                   # CSS/JS ассеты
+│   ├── quality/extraction_eval.py    # Оценка качества извлечения
+│   ├── cli/
+│   │   ├── main.py                   # Точка входа (567 строк)
+│   │   ├── commands/                 # admin, bulk, query, graph, biography, contacts
+│   │   └── utils.py
+│   └── events.py                     # Модель событий
+├── tests/                            # 302 теста (pytest)
+├── .claude/skills/                   # filename-parser, journal-keeper
+└── memory/                           # roadmap, business, decisions, bugs
 ```
 
 ---
 
-## 🔧 Использование
-
-### 📊 Real-time Web Dashboard
-
-Веб-интерфейс для мониторинга pipeline в реальном времени:
+## 🔧 CLI (33 команды)
 
 ```bash
-# Запуск dashboard через CLI
-python -m callprofiler dashboard --user serhio --port 8765 --host 127.0.0.1
+# Основной режим работы
+python -m callprofiler watch                     # Watchdog: автообработка incoming_dir
+python -m callprofiler process <файл> --user U  # Разовый процессинг
+python -m callprofiler reprocess                # Переобработка
+python -m callprofiler add-user                 # Добавить пользователя
+python -m callprofiler status                   # Статус системы
+python -m callprofiler dashboard                # Веб-дашборд (FastAPI)
+python -m callprofiler bot                      # Telegram-бот
+
+# Поиск и отчёты
+python -m callprofiler digest U --days 7        # Дайджест за неделю
+python -m callprofiler search "запрос" --user U # FTS5 полнотекстовый поиск
+python -m callprofiler promises --user U        # Список обещаний
+python -m callprofiler analytics --user U       # Аналитика
+python -m callprofiler inspect-schema           # Схема БД
+
+# Массовые операции
+python -m callprofiler bulk-load <директория> --user U
+python -m callprofiler bulk-enrich --user U [--limit N]
+python -m callprofiler extract-names --user U [--dry-run]
+
+# Перестроение
+python -m callprofiler rebuild-summaries
+python -m callprofiler rebuild-cards
+python -m callprofiler backfill-events
+python -m callprofiler backfill-calltypes
+
+# Граф знаний
+python -m callprofiler graph-backfill
+python -m callprofiler graph-replay
+python -m callprofiler graph-stats
+python -m callprofiler graph-audit
+python -m callprofiler graph-health
+
+# Сущности
+python -m callprofiler entity-merge
+python -m callprofiler entity-unmerge
+python -m callprofiler reenrich-v2
+
+# Биография
+python -m callprofiler biography-run
+python -m callprofiler biography-status
+python -m callprofiler biography-export
+python -m callprofiler book-chapter
+python -m callprofiler person-profile
+python -m callprofiler profile-all
 ```
 
-**Быстрый запуск через .bat файлы:**
+---
 
-- `start-dashboard.bat` — запускает сервер (Ctrl+C для остановки)
-- `open-dashboard.bat` — запускает сервер + автоматически открывает браузер
+## 🗄️ Модель данных
 
-**Возможности:**
+```
+users → contacts → calls → transcripts (FTS5 indexed)
+                       → analyses (LLM results)
+                       → promises (open/closed tracking)
+                       → events (promise/debt/risk/fact/smalltalk)
+
+entities → relations → entity_metrics → bs_thresholds
+
+bio_books, bio_portraits, bio_scenes, bio_chapters (biography)
+```
+
+**Приоритет имён контактов:**
+```
+МАКСИМАЛЬНЫЙ: display_name (из имени файла = телефонная книга Android)
+ВТОРИЧНЫЙ:    guessed_name (автоизвлечение из транскрипта)
+```
+
+Все SQL-запросы к `contacts/calls/analyses/promises` — строго с `WHERE user_id = ?`.
+
+---
+
+## ⚡ Pipeline
+
+```
+аудиофайл → normalize (EBU R128, ffmpeg) → transcribe (faster-whisper large-v3)
+→ diarize (pyannote 3.3.2 + ref embedding) → assign roles (OWNER|OTHER)
+→ analyze (llama.cpp Qwen 3.5 9B Q8_0) → deliver (Telegram + caller cards)
+```
+
+**GPU-дисциплина**: Whisper + pyannote загружаются вместе, выгружаются перед LLM-запросом. Три модели одновременно в VRAM не держатся.
+
+---
+
+## 💻 Веб-дашборд
+
+```bash
+python -m callprofiler dashboard --user serhio --port 8765
+```
+
 - Real-time обновления через SSE (Server-Sent Events)
 - Список всех звонков с фильтрацией и сортировкой
 - Детали звонка: транскрипт, анализ, события, обещания
-- Профили контактов: риск-скор, психология, история взаимодействий
-- Темная тема с премиум-дизайном
+- Профили контактов: риск-скор, психология, история
+- Тёмная тема, адаптивный дизайн
 - Read-only доступ к БД (не блокирует pipeline)
-- Graceful degradation: fallback на polling при проблемах с SSE
-
-**Технологии:**
-- Backend: FastAPI + Uvicorn (async)
-- Frontend: Vanilla JS + EventSource API
-- Database: SQLite read-only mode (`file:path?mode=ro`)
-- Change detection: polling MAX(updated_at) каждые 2 секунды
-
-### Базовый pipeline
-
-```python
-from src.audio_processor import AudioProcessor
-from src.speech_recognizer import SpeechRecognizer
-from src.speaker_diarizer import SpeakerDiarizer
-from src.database import CallDatabase
-
-# 1. Загрузить аудио
-audio_processor = AudioProcessor()
-normalized_audio = audio_processor.normalize_ebu_r128("path/to/call.wav")
-
-# 2. Распознать речь
-recognizer = SpeechRecognizer()
-transcript = recognizer.transcribe(normalized_audio)  
-# → [{'start': 0.5, 'end': 3.2, 'text': 'Привет', 'speaker': 'speaker_0'}, ...]
-
-# 3. Идентифицировать говорящих
-diarizer = SpeakerDiarizer()
-speakers = diarizer.diarize(normalized_audio, transcript)
-# → {'speaker_0': 'user_123', 'speaker_1': 'user_456'}
-
-# 4. Сохранить в БД
-db = CallDatabase("archive/calls_db.sqlite")
-db.save_call(
-    call_id="call_20250409_120000",
-    user_id="user_123",
-    transcript=transcript,
-    speakers=speakers,
-    audio_duration=125.5
-)
-
-# 5. Поиск
-results = db.full_text_search("важное слово", user_id="user_123")
-```
-
-### Отправка в Telegram
-
-```python
-from src.telegram_notifier import TelegramNotifier
-
-notifier = TelegramNotifier(token=TELEGRAM_BOT_TOKEN, chat_id=TELEGRAM_CHAT_ID)
-
-digest = {
-    "call_id": "call_20250409_120000",
-    "duration": "2:05",
-    "speakers": ["Иван", "Петя"],
-    "summary": "Обсудили квартальный план",
-    "key_points": ["Deadline 30 апреля", "Нужна презентация"]
-}
-
-notifier.send_digest(digest)
-```
-
-### LLM-адаптер (опционально)
-
-Для обобщений используется **llama-server** (совместимо с OpenAI API):
-
-```bash
-# Запуск локального LLM (Qwen 3.5 9B)
-llama-server.exe -m "C:\models\Qwen3.5-9B.Q5_K_M.gguf" \
-  -ngl 99 -c 16384 --host 127.0.0.1 --port 8080
-```
-
-```python
-from src.llm_adapter import LLMAdapter
-
-llm = LLMAdapter(base_url="http://127.0.0.1:8080/v1")
-summary = llm.summarize_transcript(transcript)
-```
 
 ---
 
-## 🗄️ База данных
+## 📱 Android-интеграция
 
-### Схема SQLite
-
-```sql
-CREATE TABLE calls (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    duration REAL,
-    transcript TEXT,
-    speakers JSON,
-    metadata JSON
-);
-
-CREATE VIRTUAL TABLE calls_fts USING fts5(
-    id UNINDEXED,
-    user_id UNINDEXED,
-    transcript,
-    content=calls,
-    content_rowid=rowid
-);
-```
-
-### Изоляция по user_id
-
-Все запросы **обязательно** фильтруют по `user_id` — исключена утечка данных между пользователями:
-
-```python
-db.search("текст", user_id="user_123")  # ← Безопасно
-db.search("текст")                       # ✗ Ошибка: user_id не указан
-```
-
----
-
-## 🚨 Критические особенности
-
-### ⚠️ torch.load()
-
-**Проблема**: pyannote требует `weights_only=False` при загрузке чекпоинтов.
-
-```python
-# Неправильно (вызывает ошибку):
-checkpoint = torch.load("model.pt")
-
-# Правильно:
-checkpoint = torch.load("model.pt", weights_only=False)
-```
-
-### ⚠️ pyannote токен
-
-**Проблема**: параметр `token=` устарел.
-
-```python
-# Неправильно:
-Pipeline.from_pretrained(..., token="hf_...")
-
-# Правильно:
-Pipeline.from_pretrained(..., use_auth_token="hf_...")
-```
-
-### ⚠️ Выгрузка моделей перед LLM
-
-Whisper (~3GB) + pyannote (~1.5GB) занимают GPU память. Перед запуском Ollama Qwen 14B (~10GB) нужна очистка:
-
-```python
-# После обработки звонка
-del recognizer, diarizer
-torch.cuda.empty_cache()
-
-# Теперь безопасно запустить LLM
-llm = LLMAdapter(...)
-```
-
-### ✅ --break-system-packages
-
-На Windows 10/11 без venv нужен флаг:
-
-```bash
-pip install --break-system-packages torch faster-whisper pyannote.audio
-```
-
----
-
-## 📱 Мобильная интеграция
-
-### Android overlay (MacroDroid + FolderSync)
-
-1. **FolderSync** синхронизирует `archive/` → Android
-2. **MacroDroid** читает `.txt` файлы (результаты) и показывает overlay при входящем звонке
-3. CallProfiler пишет в `archive/pending_overlay/{caller_id}.txt`
-
-```
-archive/
-├── calls_db.sqlite
-├── transcripts/
-│   ├── call_20250409_120000.json
-│   └── call_20250409_120100.json
-└── pending_overlay/
-    ├── +71234567890.txt          ← Появляется перед звонком
-    ├── +71234567891.txt
-    └── ...
-```
-
----
-
-## 📊 Документация проекта
-
-| Документ | Описание |
-|----------|---------|
-| **STRATEGIC_PLAN_v3.md** | Долгосрочное видение: масштабирование, новые источники, интеграции |
-| **ARCHITECTURE_v3.md** | Полный технический дизайн: компоненты, потоки данных, обработка ошибок |
-| **DEVELOPMENT_PLAN.md** | 15-шаговый план реализации (текущий статус: Step 5 завершён) |
-| **CONSTITUTION.md** | 18 статей merge-blocking: качество кода, testing, документация |
-| **AGENTS.md** | AI-агенты для автоматизации (анализ, категоризация, поиск паттернов) |
+1. **FolderSync** синхронизирует caller cards (.txt) на телефон
+2. **MacroDroid** читает файл и показывает оверлей при входящем звонке
+3. CallProfiler генерирует `{phone}.txt` в sync-директории пользователя
 
 ---
 
 ## ✅ Тестирование
 
-### Smoke tests (18/18 passing)
-
 ```bash
-python tests/test_pipeline.py
+pytest tests/ -v          # 302/302 passing
+python -m compileall src/ # OK
 ```
 
-Покрытие:
-- ✓ Нормализация аудио (EBU R128)
-- ✓ Распознавание речи (Whisper)
-- ✓ Дарваризация (pyannote)
-- ✓ Сохранение в БД
-- ✓ Поиск (FTS5)
-- ✓ Отправка в Telegram
-- ✓ LLM-адаптер
+Покрытие: все модули от `filename_parser` до `biography`, включая граф знаний, психопрофили и веб-дашборд.
+
+---
+
+## 📊 Производительность
+
+| Операция | Время | Устройство |
+|----------|-------|-----------|
+| Нормализация (10 мин аудио) | ~5 сек | CPU |
+| Транскрибация (faster-whisper) | 2-3x real-time | RTX 3060 |
+| Диаризация (pyannote) | 1-2x real-time | RTX 3060 |
+| LLM-анализ (llama.cpp) | зависит от длины | RTX 3060 / CPU |
 
 ---
 
 ## 🔒 Безопасность
 
-- ✓ Изоляция данных по `user_id` (multi-user safe)
-- ✓ Локальная обработка (нет передачи в облако)
-- ✓ Шифрование Telegram токена в `.env`
-- ✓ HTTPS для HuggingFace API
+- Локальная обработка — никаких облаков, Docker, Redis, PostgreSQL
+- Изоляция данных по `user_id` во всех запросах
+- MD5-дедупликация аудиофайлов
+- Оригиналы аудио неприкосновенны
 
 ---
 
-## 📈 Производительность
+## 🐛 Известные особенности
 
-| Операция | Время | GPU |
-|----------|-------|-----|
-| Нормализация 10 мин аудио | 5 сек | CPU |
-| Распознавание (Whisper) | 2-3x реальное время | RTX 3060 |
-| Дарваризация (pyannote) | 1-2x реальное время | RTX 3060 |
-| LLM-обобщение | зависит от длины | Ollama Qwen |
-
----
-
-## 🐛 Известные проблемы
-
-| Проблема | Решение |
+| Ситуация | Решение |
 |----------|---------|
-| `RuntimeError: Model not found` (pyannote) | Установить `use_auth_token` с валидным HF токеном |
-| CUDA out of memory при 2+ параллельных звонках | Использовать `--break-system-packages`, выгружать модели после каждого звонка |
-| Telegram сообщения не отправляются | Проверить `TELEGRAM_BOT_TOKEN`, интернет-соединение |
-| FTS5 поиск очень медленный на >10k записях | Добавить индексы: `CREATE INDEX idx_user_id ON calls(user_id)` |
+| `RuntimeError: Model not found` (pyannote) | Проверить `HF_TOKEN` и `use_auth_token=` |
+| CUDA out of memory | Выгружать Whisper+pyannote перед LLM |
+| Telegram не отправляет | Проверить `TELEGRAM_BOT_TOKEN` |
+| FTS5 поиск медленный на больших объёмах | Штатная работа SQLite FTS5 |
 
 ---
 
-## 🤝 Контрибьютинг
+## 📚 Документация
 
-Любые PR должны соответствовать **CONSTITUTION.md** (18 статей). Ключевые требования:
-
-- [ ] Код покрыт тестами
-- [ ] Документация актуальна
-- [ ] Совместимость с Python 3.10+, PyTorch 2.6.0+
-- [ ] Изоляция по `user_id` (multi-user safe)
-- [ ] Нет нарушений CONSTITUTION.md
+| Документ | Описание |
+|----------|---------|
+| **CONSTITUTION.md** | 18 статей merge-blocking правил |
+| **AGENTS.md** | Руководство для AI-агентов |
+| **CLAUDE.md** | Исходный 15-шаговый план разработки |
+| **CHANGELOG.md** | Журнал всех изменений |
+| **CONTINUITY.md** | Текущее состояние и незавершённые задачи |
+| **memory/** | Рабочая память: roadmap, решения, баги |
 
 ---
 
 ## 📄 Лицензия
 
-MIT License. Используй свободно, но указывай авторство.
+MIT License.
 
 ---
 
-## 👤 Автор
-
-**Sergio** (@SergioTheFirst)  
-GitHub: https://github.com/SergioTheFirst  
-CallProfiler Repository: https://github.com/SergioTheFirst/callprofiler
-
----
-
-## 📚 Ссылки
-
-- [PyTorch + CUDA Setup](https://pytorch.org/get-started/locally/)
-- [faster-whisper docs](https://github.com/guillaumekln/faster-whisper)
-- [pyannote.audio](https://huggingface.co/pyannote/speaker-diarization-3.1)
-- [Telegram Bot API](https://core.telegram.org/bots/api)
-- [llama.cpp server](https://github.com/ggerganov/llama.cpp/blob/master/examples/server/README.md)
-
----
-
-**Последнее обновление**: Апрель 2026  
-**Статус**: Production Ready (Phase 1 complete, Step 5/15)
+**Автор**: Sergio (@SergioTheFirst)  
+**Репозиторий**: https://github.com/SergioTheFirst/callprofiler  
+**Последнее обновление**: Май 2026  
+**Статус**: Production Ready — все 15+ шагов завершены, 302 теста проходят
