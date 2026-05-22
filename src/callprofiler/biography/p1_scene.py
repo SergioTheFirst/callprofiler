@@ -48,7 +48,7 @@ def is_long_call(duration_sec: int, transcript_length: int) -> bool:
     Returns:
         True if call is long (>10 min OR >5K chars)
     """
-    return duration_sec > 600 or transcript_length > 5000
+    return (duration_sec or 0) > 600 or transcript_length > 5000
 
 
 def smart_clip_transcript(transcript: str, max_chars: int) -> str:
