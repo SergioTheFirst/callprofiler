@@ -26,6 +26,14 @@
 
 **Тесты:** 299/302 pass (3 pre-existing). Compileall OK.
 
+### Fixed — Dashboard `config` argument for CLI command (2026-05-22)
+
+- `admin.py:194-201`: `cmd_dashboard()` — load config via `load_config_and_repo(args.config)`, pass `cfg` as positional to `run_dashboard()`
+  - **Root cause:** `run_dashboard(user_id, config, port, host)` signature requires `config` positional argument; CLI was calling it without `config`
+  - **Fix:** `load_config_and_repo(args.config)` → `run_dashboard(args.user_id, cfg, port=args.port, host=args.host)`
+  - `setup_logging(cfg.log_file, args.verbose)` added for logging consistency
+- Error before fix: `TypeError: run_dashboard() missing 1 required positional argument: 'config'`
+
 ### Added + Fixed — Sprints 4-10: Contact Cards, Dashboard, Telegram, Graph, Quality (2026-05-21)
 
 #### Sprint 4 — Automatic contact summaries + call_type integration

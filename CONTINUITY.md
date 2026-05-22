@@ -1,4 +1,4 @@
-# CONTINUITY.md — Журнал непрерывности разработки
+﻿# CONTINUITY.md — Журнал непрерывности разработки
 
 Этот файл обновляется после **каждой рабочей сессии**.
 Цель: любой разработчик или AI-агент может открыть репозиторий и мгновенно
@@ -15,14 +15,12 @@ DONE: CONSTITUTION AUDIT — полный grep-аудит 18 статей + ви
   ✅ Batch-оптимизация: фазовая обработка с GPU выгрузкой между фазами
   ⚠️ Найдено 5 недочётов (1 production, 2 теста, 1 монолит, 1 журнал)
   Тесты: 299/302 pass (3 pre-existing) — compileall OK
-NOW: README.md rewritten (actual project state) + agent_backlog.json synced (24/30 done). 302/302 pass.
+NOW: README.md rewritten (actual project state) + agent_backlog.json synced (24/30 done) + dashboard CLI `config` argument fix (2026-05-22). 302/302 pass.
 NEXT: Sprint 12 — P0-002 deps audit, P0-003 regression tests, P0-019 config split → commit → push
-BLOCKERS: BUDGETS dict in biography/prompts.py still actively used by 9 pass builders (migration to calculate_dynamic_budget NOT done)</出parameter>
-
-BLOCKERS: None
+BLOCKERS: BUDGETS dict in biography/prompts.py still actively used by 9 pass builders (migration to calculate_dynamic_budget NOT done)
 
 PREV: Sprints 4-10 — 289/292 pass (2026-05-21)
-DEFERRED: Sprint 11 — CLI modularization (2300-line split, needs dedicated session)</出parameter>
+DEFERRED: Sprint 11 — CLI modularization (2300-line split, needs dedicated session)
 
 
 PREV: All biography passes in 'done' status (p1-p9, 11 passes total)

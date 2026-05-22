@@ -193,8 +193,11 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 def cmd_dashboard(args: argparse.Namespace) -> int:
     """Start real-time dashboard web server."""
+    cfg, repo = load_config_and_repo(args.config)
+    setup_logging(cfg.log_file, args.verbose)
+
     from callprofiler.dashboard import run_dashboard
-    run_dashboard(args.user_id, port=args.port, host=args.host)
+    run_dashboard(args.user_id, cfg, port=args.port, host=args.host)
     return 0
 
 
