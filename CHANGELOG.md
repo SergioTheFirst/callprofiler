@@ -8,6 +8,16 @@
 
 ## [Unreleased]
 
+### Added — P0-003: Regression tests for 3 modules (2026-05-23)
+
+- \	ests/test_event_bus.py\ — 6 tests (subscribe, unsubscribe, emit_event_sync, broadcast, get_client_count, DashboardEvent). 6/6 pass.
+- \	ests/test_dashboard_tools.py\ — 13 tests (DashboardTools: init, get_status, logging, async ops, get_history). 13/13 pass.
+  - Fixed \	emp_db\ fixture: \TemporaryDirectory(ignore_cleanup_errors=True)\ — \PermissionError: [WinError 32]\ on Windows teardown
+  - Fixed tests to match source API: attribute names, \get_status\ keys, mock targets, history order, shallow copy
+- \	ests/test_llm_disambiguator.py\ — 16 tests (in_gray_zone, _build_prompt, disambiguate_pair, _parse_response). 16/16 pass.
+  - Rewritten: \disambiguate_pair(entity_a, entity_b, score, signals)\, OpenAI-compatible mock, template placeholders, gray zone validation
+- Full suite: **346/346 pass, 0 failures** (was 302)
+
 ### Added — README rewrite + backlog sync (2026-05-22)
 - README.md: full rewrite with actual project structure, 33 CLI commands, real stack, 302 tests
 - agent_backlog.json: 24/30 tasks marked done, 6 remain todo
@@ -33,6 +43,33 @@
   - **Fix:** `load_config_and_repo(args.config)` → `run_dashboard(args.user_id, cfg, port=args.port, host=args.host)`
   - `setup_logging(cfg.log_file, args.verbose)` added for logging consistency
 - Error before fix: `TypeError: run_dashboard() missing 1 required positional argument: 'config'`
+
+### Added — Multi-functional Admin Panel (2026-05-22)
+
+**New API endpoints (7):**
+- `GET /api/characters` — list all entities with temperament, motivation, risk metrics, auto-generated labels
+- `GET /api/character/{entity_id}` — full character profile with psychology, patterns, contradictions, contact, promises, calls, portrait
+- `GET /api/contact/{contact_id}` — full contact profile with summary, linked entities, recent calls
+- `GET /api/analytics` — 10 distributions in one call (risk, calls/day, top contacts, temperaments, call types, directions, BS trends, status, promises)
+- `GET /api/tools/status` — queue status (pending/error/processed counts)
+- `POST /api/tools/{reprocess,rebuild-summaries,extract-names,rebuild-cards}` — admin actions from web
+- `GET /api/tools/history` — operation log
+
+**New source files:**
+- `dashboard/tools.py` — `DashboardTools` class: write-access admin actions
+
+**New tabbed UI (replaces single-page dashboard):**
+- Tab 1 «Лента» — existing live feed (SSE) with stats
+- Tab 2 «Персонажи» — searchable character list + detail panel with metrics, psychology, patterns, portrait, recent calls
+- Tab 3 «Аналитика» — 6 Chart.js charts (calls/day, risk distribution, top contacts, temperaments, call types)
+- Tab 4 «Инструменты» — queue status + action buttons + operation log
+
+**Auto-generated characteristics** (`_build_character_summary`, `_build_character_label`):
+- Rule-based summaries: risk level + temperament + motivation + trust + BS tendencies
+- Labels: "Холерик-достиженец", "Сангвиник-партнёр", etc.
+
+**Summary:** 1 page / 8 routes → 4 tabs / 22 routes. Zero new pip dependencies (Chart.js from CDN). 311 tests pass.
+
 
 ### Added + Fixed — Sprints 4-10: Contact Cards, Dashboard, Telegram, Graph, Quality (2026-05-21)
 
