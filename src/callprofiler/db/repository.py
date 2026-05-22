@@ -293,10 +293,10 @@ class Repository:
         guess_source: str,
         guess_call_id: int,
         guess_confidence: str,
-    ) -> None:
-        """Р—Р°РїРёСЃР°С‚СЊ СѓРіР°РґР°РЅРЅРѕРµ РёРјСЏ РєРѕРЅС‚Р°РєС‚Р° (РЅРµ РїРµСЂРµР·Р°РїРёСЃС‹РІР°РµС‚ РїРѕРґС‚РІРµСЂР¶РґС‘РЅРЅС‹Рµ)."""
+    ) -> bool:
+        """Записать угаданное имя контакта (не перезаписывает подтверждённые)."""
         conn = self._get_conn()
-        conn.execute(
+        row = conn.execute(
             """UPDATE contacts
                SET guessed_name=?, guess_source=?,
                    guess_call_id=?, guess_confidence=?
@@ -304,6 +304,7 @@ class Repository:
             (guessed_name, guess_source, guess_call_id, guess_confidence, contact_id),
         )
         conn.commit()
+        return row.rowcount > 0
 
     # ------------------------------------------------------------------
     # Calls

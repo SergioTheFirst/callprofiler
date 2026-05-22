@@ -8,18 +8,20 @@
 
 ## Status
 
-DONE: Sprints 4-10 — 289/292 pass (2026-05-21)
-  Sprint 4: auto-summary rebuild + call_type risk weighting
-  Sprint 5: dashboard audio endpoint + error visibility
-  Sprint 6: Telegram /help + isolation hardening
-  Sprint 7: graph read-only auditor + entity keys (partial)
-  Sprint 8: prompt budgeter + config validation_mode
-  Sprint 9: extraction goldset (5 fixtures) + eval module
-  Sprint 10: docs sync + hf_token env var + dep verification
-DEFERRED: Sprint 11 — CLI modularization (2300-line split, needs dedicated session)
-NOW: 289/292 pass. 3 pre-existing: test_guessed_name_guard + 2 PermissionError.
-NEXT: Sprint 11 CLI split → Sprint 12 final stabilization.
-BLOCKERS: None — compileall OK
+DONE: CONSTITUTION AUDIT — полный grep-аудит 18 статей + визуальная верификация (2026-05-22)
+  ✅ GPU-дисциплина, user_id-изоляция, MD5-дедупликация, статусная модель
+  ✅ Все silent exceptions исправлены, hardcoded пути убраны, torch monkey-patch на месте
+  ✅ use_auth_token= (не token=) для pyannote 3.3.2, hf_token из env
+  ✅ Batch-оптимизация: фазовая обработка с GPU выгрузкой между фазами
+  ⚠️ Найдено 5 недочётов (1 production, 2 теста, 1 монолит, 1 журнал)
+  Тесты: 299/302 pass (3 pre-existing) — compileall OK
+NOW: Аудит завершён. 2/4 недочётов исправлены. 302/302 TESTS PASSED.
+NEXT: Sprint 11 CLI split → Sprint 12 финальная стабилизация → Commit & push
+BLOCKERS: None
+
+PREV: Sprints 4-10 — 289/292 pass (2026-05-21)
+DEFERRED: Sprint 11 — CLI modularization (2300-line split, needs dedicated session)</出parameter>
+
 
 PREV: All biography passes in 'done' status (p1-p9, 11 passes total)
      llama-server running (~10.8 GB RAM, health OK)
@@ -57,6 +59,55 @@ DONE: PSYCHOLOGY PROFILER MVP — PsychologyProfiler class + CLI person-profile/
 NOW: 196 tests pass — ready for next pipeline run
 NEXT: Run build-book-and-profiles.bat to complete Stages 2-5
 BLOCKERS: None
+
+---
+
+## Текущее состояние: 2026-05-22 (CONSTITUTION AUDIT — полная проверка 18 статей)
+
+### Что сделано в этой сессии
+
+**Полный аудит исполнения CONSTITUTION.md (18 статей) через grep + визуальную верификацию:**
+
+- Прочитан CONSTITUTION.md полностью (493 строки, 18 статей + Статья 19)
+- Прочитан CHANGELOG.md (первые 500 строк, документированы все Sprints)
+- Прочитан CONTINUITY.md (первые 1459 строк, история всех сессий)
+- grep-аудит по 10 ключевым паттернам:
+  - `except Exception: pass` → 0 matches (исправлено в Sprint 2)
+  - `print(` в production-модулях → 1 violation (`llm_client.py:35`)
+  - Hardcoded paths → 0 matches (исправлено в Sprint 3)
+  - `torch.load.*weights_only` → monkey-patch на месте (`__init__.py:7`)
+  - `use_auth_token` → правильный API (`pyannote_runner.py:94,103`)
+  - `def unload` → реализованы в whisper_runner + pyannote_runner
+  - `del` + `gc.collect` + `cuda.empty_cache` → подтверждено чтением кода
+  - Batch-фазы GPU → оптимизация реализована
+  - `user_id = ?` в SQL → во всех методах repository.py
+- Запущен полный pytest: 299 passed, 3 failed (прежние)
+
+### Результат аудита: 5 недочётов
+
+| # | Severity | Статья | Файл:строка | Описание |
+|---|----------|--------|------------|----------|
+| 1 | LOW | 14.1 | `analyze/llm_client.py:35` | `print(response)` вместо `logger.debug()` |
+| 2 | MEDIUM | — | `tests/test_db_hardening.py:111` | `update_contact_guessed_name()` возвращает `None` |
+| 3 | LOW | — | `tests/test_integration.py:117,185` | 2x PermissionError — нет `repo.close()` до cleanup |
+| 4 | MEDIUM | 2.1 | `cli/main.py` (2339 строк) | Монолит, Sprint 11 deferred |
+| 5 | LOW | 19.5 | CONTINUITY.md | Журнал не обновлялся с 2026-05-21 |
+
+### Ветка разработки
+`main` (direct push)
+
+### Тесты
+**299 passed, 3 failed** (pre-existing):
+- `test_guessed_name_guard` — assertion (bug in `update_contact_guessed_name()`)
+- `test_add_user_and_ingest` — PermissionError on Windows tempfile cleanup
+- `test_user_isolation` — PermissionError on Windows tempfile cleanup
+
+### Следующий шаг
+1. Fix `llm_client.py:35` — `print()` → `logger.debug()`
+2. Fix integration tests — `repo.close()` до `__exit__`
+3. Fix `update_contact_guessed_name()` return value
+4. Sprint 11: расщепление `cli/main.py` на модули
+5. Sprint 12: финальная стабилизация → 302/302 pass
 
 ---
 

@@ -8,6 +8,19 @@
 
 ## [Unreleased]
 
+### Audit — CONSTITUTION.md полный grep-аудит 18 статей (2026-05-22)
+
+**Проверено (12 статей — OK):** GPU-дисциплина, user_id-изоляция, MD5-дедупликация, статусная модель, silent exceptions (0 найдено), batch-оптимизация, torch.load monkey-patch, use_auth_token=, секреты из env, антипаттерны (0 нарушений).
+
+**Найдено 5 недочётов:**
+1. `llm_client.py:35` — `print(response)` вместо `logger.debug()` (LOW, Статья 14.1)
+2. `tests/test_db_hardening.py:111` — `update_contact_guessed_name()` → `None` (MEDIUM)
+3. `tests/test_integration.py:117,185` — 2× PermissionError без `repo.close()` (LOW)
+4. `cli/main.py` (2339 строк) — Sprint 11 CLI modularization deferred (MEDIUM, Статья 2.1)
+5. CONTINUITY.md — журнал не обновлялся с 2026-05-21; исправлено (LOW, Статья 19)
+
+**Тесты:** 299/302 pass (3 pre-existing). Compileall OK.
+
 ### Added + Fixed — Sprints 4-10: Contact Cards, Dashboard, Telegram, Graph, Quality (2026-05-21)
 
 #### Sprint 4 — Automatic contact summaries + call_type integration
