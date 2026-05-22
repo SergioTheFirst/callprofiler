@@ -15,8 +15,8 @@ DONE: CONSTITUTION AUDIT — полный grep-аудит 18 статей + ви
   ✅ Batch-оптимизация: фазовая обработка с GPU выгрузкой между фазами
   ⚠️ Найдено 5 недочётов (1 production, 2 теста, 1 монолит, 1 журнал)
   Тесты: 299/302 pass (3 pre-existing) — compileall OK
-NOW: Аудит завершён. 2/4 недочётов исправлены. 302/302 TESTS PASSED.
-NEXT: Sprint 11 CLI split → Sprint 12 финальная стабилизация → Commit & push
+NOW: Sprint 11 — CLI modularization: 10 функций извлечены в commands/{admin,bulk}.py. 302/302 pass.
+NEXT: Извлечь оставшиеся 23 функции (graph, biography, query, contacts) → commit → push
 BLOCKERS: None
 
 PREV: Sprints 4-10 — 289/292 pass (2026-05-21)

@@ -22,181 +22,18 @@ import logging
 import sys
 from pathlib import Path
 
-
-def _setup_logging(log_file: str | None = None, verbose: bool = False) -> None:
-    """Настроить логирование: консоль + опционально файл."""
-    level = logging.DEBUG if verbose else logging.INFO
-    fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-
-    try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
-
-    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
-
-    if log_file:
-        log_path = Path(log_file)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        handlers.append(logging.FileHandler(log_file, encoding="utf-8"))
-
-    logging.basicConfig(level=level, format=fmt, handlers=handlers)
-
-
-def _load_config_and_repo(config_path: str):
-    """Загрузить конфиг и инициализировать репозиторий."""
-    from callprofiler.config import load_config
-    from callprofiler.db.repository import Repository
-
-    cfg = load_config(config_path)
-
-    db_path = Path(cfg.data_dir) / "db" / "callprofiler.db"
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-
-    repo = Repository(str(db_path))
-    repo.init_db()
-
-    return cfg, repo
+from callprofiler.cli.utils import setup_logging as _setup_logging
+from callprofiler.cli.utils import load_config_and_repo as _load_config_and_repo  # noqa: F811
 
 
 # ── Команды ────────────────────────────────────────────────────────────────
 
 
-def cmd_watch(args: argparse.Namespace) -> int:
-    """watch — запустить watchdog-цикл мониторинга папок."""
-    cfg, repo = _load_config_and_repo(args.config)
-    _setup_logging(cfg.log_file, args.verbose)
-
-    from callprofiler.ingest.ingester import Ingester
-    from callprofiler.pipeline.orchestrator import Orchestrator
-    from callprofiler.pipeline.watcher import FileWatcher
-
-    ingester = Ingester(repo, cfg)
-    orchestrator = Orchestrator(cfg, repo)
-    watcher = FileWatcher(cfg, repo, ingester, orchestrator)
-
-    logging.getLogger(__name__).info("Запуск watchdog-режима...")
-    watcher.run_loop()
-    return 0
-
-
-def cmd_process(args: argparse.Namespace) -> int:
-    """process <file> --user ID — обработать один файл."""
-    cfg, repo = _load_config_and_repo(args.config)
-    _setup_logging(cfg.log_file, args.verbose)
-
-    log = logging.getLogger(__name__)
-
-    # Проверить файл
-    filepath = Path(args.file)
-    if not filepath.exists():
-        log.error("Файл не найден: %s", filepath)
-        return 1
-
-    # Проверить пользователя
-    user = repo.get_user(args.user)
-    if not user:
-        log.error(
-            "Пользователь '%s' не найден. Сначала добавьте его: add-user",
-            args.user,
-        )
-        return 1
-
-    from callprofiler.ingest.ingester import Ingester
-    from callprofiler.pipeline.orchestrator import Orchestrator
-
-    ingester = Ingester(repo, cfg)
-    orchestrator = Orchestrator(cfg, repo)
-
-    # Зарегистрировать файл
-    call_id = ingester.ingest_file(args.user, str(filepath))
-    if call_id is None:
-        log.info("Файл уже был обработан ранее (дубликат): %s", filepath)
-        return 0
-
-    log.info("Зарегистрирован call_id=%d, запуск обработки...", call_id)
-
-    # Обработать
-    success = orchestrator.process_call(call_id)
-    if success:
-        log.info("✓ Файл обработан: %s", filepath)
-        return 0
-    else:
-        log.error("✗ Ошибка при обработке: %s", filepath)
-        return 1
-
-
-def cmd_reprocess(args: argparse.Namespace) -> int:
-    """reprocess — повторить звонки с ошибками."""
-    cfg, repo = _load_config_and_repo(args.config)
-    _setup_logging(cfg.log_file, args.verbose)
-
-    log = logging.getLogger(__name__)
-
-    errors = repo.get_error_calls(cfg.pipeline.max_retries)
-    if not errors:
-        log.info("Нет звонков для повторной обработки")
-        return 0
-
-    log.info("Повтор %d звонков с ошибками...", len(errors))
-
-    from callprofiler.pipeline.orchestrator import Orchestrator
-
-    orchestrator = Orchestrator(cfg, repo)
-    orchestrator.retry_errors()
-    return 0
-
-
-def cmd_add_user(args: argparse.Namespace) -> int:
-    """add-user ID ... — добавить нового пользователя."""
-    cfg, repo = _load_config_and_repo(args.config)
-    _setup_logging(cfg.log_file, args.verbose)
-
-    log = logging.getLogger(__name__)
-
-    # Проверить что пользователь не существует
-    existing = repo.get_user(args.user_id)
-    if existing:
-        log.error("Пользователь '%s' уже существует", args.user_id)
-        return 1
-
-    # Проверить пути
-    incoming = Path(args.incoming)
-    if not incoming.exists():
-        log.warning(
-            "incoming_dir не существует (будет создан): %s", incoming
-        )
-        incoming.mkdir(parents=True, exist_ok=True)
-
-    sync = Path(args.sync_dir)
-    if not sync.exists():
-        sync.mkdir(parents=True, exist_ok=True)
-
-    repo.add_user(
-        user_id=args.user_id,
-        display_name=args.display_name or args.user_id,
-        telegram_chat_id=args.telegram_chat_id,
-        incoming_dir=str(args.incoming),
-        sync_dir=str(args.sync_dir),
-        ref_audio=str(args.ref_audio),
-    )
-
-    log.info(
-        "✓ Пользователь '%s' добавлен\n"
-        "  display_name : %s\n"
-        "  incoming_dir : %s\n"
-        "  sync_dir     : %s\n"
-        "  ref_audio    : %s\n"
-        "  telegram     : %s",
-        args.user_id,
-        args.display_name or args.user_id,
-        args.incoming,
-        args.sync_dir,
-        args.ref_audio,
-        args.telegram_chat_id or "(не задан)",
-    )
-    return 0
+# ---- admin commands ----
+from callprofiler.cli.commands.admin import (  # noqa: E402
+    cmd_watch, cmd_process, cmd_reprocess, cmd_add_user,
+    cmd_status, cmd_dashboard, cmd_bot,
+)
 
 
 def cmd_digest(args: argparse.Namespace) -> int:
@@ -256,171 +93,13 @@ def cmd_digest(args: argparse.Namespace) -> int:
 
     return 0
 
-
-def cmd_extract_names(args: argparse.Namespace) -> int:
-    """extract-names --user ID [--dry-run] — угадать имена контактов из транскриптов."""
-    cfg, repo = _load_config_and_repo(args.config)
-    _setup_logging(None, args.verbose)
-
-    log = logging.getLogger(__name__)
-
-    user = repo.get_user(args.user_id)
-    if not user:
-        log.error("Пользователь '%s' не найден", args.user_id)
-        return 1
-
-    from callprofiler.bulk.name_extractor import NameExtractor
-
-    extractor = NameExtractor(repo)
-
-    if args.dry_run:
-        print(f"\n[dry-run] Угадываем имена для '{args.user_id}'...\n")
-
-    updated = extractor.apply_guesses(args.user_id, dry_run=args.dry_run)
-
-    if args.dry_run:
-        print(f"\nБудет обновлено контактов: {updated}")
-    else:
-        log.info("Обновлено контактов: %d", updated)
-        if updated == 0:
-            print("Нет контактов для обновления (все уже имеют имя или имена не найдены).")
-        else:
-            print(f"Угаданы имена для {updated} контакт(ов).")
-
-    return 0
+# ---- bulk commands ----
+from callprofiler.cli.commands.bulk import (  # noqa: E402
+    cmd_extract_names, cmd_bulk_load, cmd_bulk_enrich,
+)
 
 
-def cmd_bulk_load(args: argparse.Namespace) -> int:
-    """bulk-load <folder> --user ID — загрузить .txt транскрипты в БД."""
-    cfg, repo = _load_config_and_repo(args.config)
-    _setup_logging(cfg.log_file, args.verbose)
 
-    log = logging.getLogger(__name__)
-
-    # Проверить пользователя
-    user = repo.get_user(args.user_id)
-    if not user:
-        log.error("Пользователь '%s' не найден", args.user_id)
-        return 1
-
-    # Проверить папку
-    from pathlib import Path
-    folder = Path(args.folder)
-    if not folder.is_dir():
-        log.error("Папка не найдена: %s", args.folder)
-        return 1
-
-    from callprofiler.bulk.loader import bulk_load
-
-    db_path = Path(cfg.data_dir) / "db" / "callprofiler.db"
-
-    print(f"\n📂 Загрузка транскриптов из: {args.folder}")
-    print(f"👤 Пользователь: {args.user_id}")
-    print(f"💾 База данных: {db_path}\n")
-
-    stats = bulk_load(
-        txt_folder=args.folder,
-        user_id=args.user_id,
-        db_path=str(db_path),
-    )
-
-    print(
-        f"\n✅ Завершено!\n"
-        f"  Загружено файлов    : {stats['loaded']}\n"
-        f"  Пропущено (дубли)   : {stats['skipped']}\n"
-        f"  Ошибки парсинга     : {stats['errors']}\n"
-        f"  Уникальных контактов: {stats['unique_contacts']}\n"
-    )
-
-    return 0
-
-
-def cmd_bulk_enrich(args: argparse.Namespace) -> int:
-    """bulk-enrich --user ID [--limit N] — LLM анализ для всех звонков без анализа."""
-    cfg, repo = _load_config_and_repo(args.config)
-    _setup_logging(cfg.log_file, args.verbose)
-
-    log = logging.getLogger(__name__)
-
-    # Проверить пользователя
-    user = repo.get_user(args.user_id)
-    if not user:
-        log.error("Пользователь '%s' не найден", args.user_id)
-        return 1
-
-    from callprofiler.bulk.enricher import bulk_enrich
-
-    db_path = Path(cfg.data_dir) / "db" / "callprofiler.db"
-
-    print(f"\n🤖 LLM-анализ звонков")
-    print(f"👤 Пользователь: {args.user_id}")
-    print(f"📊 Лимит: {args.limit if args.limit > 0 else 'все файлы'}")
-    print(f"💾 База данных: {db_path}\n")
-
-    stats = bulk_enrich(
-        user_id=args.user_id,
-        db_path=str(db_path),
-        config_path=args.config,
-        limit=args.limit,
-    )
-
-    print(
-        f"\n✅ Завершено!\n"
-        f"  Обработано файлов: {stats['processed']}\n"
-        f"  Ошибок: {stats['failed']}\n"
-        f"  Пропущено: {stats['skipped']}\n"
-        f"  Всего: {stats['total']}\n"
-    )
-
-    return 0
-
-
-def cmd_status(args: argparse.Namespace) -> int:
-    """status — показать состояние очереди."""
-    cfg, repo = _load_config_and_repo(args.config)
-    _setup_logging(None, args.verbose)
-
-    pending = repo.get_pending_calls()
-    errors = repo.get_error_calls(cfg.pipeline.max_retries)
-    users = repo.get_all_users()
-
-    # Все звонки по статусу
-    conn = repo._get_conn()
-    rows = conn.execute(
-        "SELECT status, COUNT(*) as cnt FROM calls GROUP BY status ORDER BY cnt DESC"
-    ).fetchall()
-
-    print("\n⚙️  CallProfiler — статус очереди\n")
-    print(f"  Пользователей : {len(users)}")
-    print()
-
-    if rows:
-        print("  Статусы звонков:")
-        for row in rows:
-            print(f"    {row['status']:15s} : {row['cnt']}")
-    else:
-        print("  Звонков нет")
-
-    print()
-    print(f"  Новых (ожидают) : {len(pending)}")
-    print(f"  Ошибок (retry)  : {len(errors)}")
-
-    if pending:
-        print("\n  ⏳ Ожидают обработки:")
-        for call in pending[:5]:
-            contact = repo.get_contact(call["user_id"], call.get("contact_id")) if call.get("contact_id") else None
-            name = contact.get("display_name", "?") if contact else "?"
-            print(f"    call_id={call['call_id']} | {name} | user={call['user_id']}")
-
-    if errors:
-        print("\n  ❌ С ошибками:")
-        for call in errors[:5]:
-            retry = call.get("retry_count", 0)
-            err = (call.get("error_message") or "")[:60]
-            print(f"    call_id={call['call_id']} | попытка {retry} | {err}")
-
-    print()
-    return 0
 
 
 def cmd_rebuild_summaries(args: argparse.Namespace) -> int:
@@ -1037,52 +716,6 @@ def cmd_analytics(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_bot(args: argparse.Namespace) -> int:
-    """bot — запустить Telegram-бот (long polling)."""
-    cfg, repo = _load_config_and_repo(args.config)
-    _setup_logging(cfg.log_file, args.verbose)
-
-    log = logging.getLogger(__name__)
-
-    from callprofiler.deliver.telegram_bot import TelegramNotifier
-
-    notifier = TelegramNotifier(repo)
-
-    if not notifier.token:
-        log.error(
-            "TELEGRAM_BOT_TOKEN не установлен. "
-            "Установите переменную окружения: export TELEGRAM_BOT_TOKEN=<ваш_токен>"
-        )
-        return 1
-
-    # Получить список пользователей с chat_id для регистрации
-    users = repo.get_all_users()
-    registered_users = [u for u in users if u.get("telegram_chat_id")]
-
-    log.info("✓ Telegram-бот инициализирован")
-    log.info("  Зарегистрировано пользователей: %d", len(registered_users))
-
-    if len(registered_users) == 0:
-        log.warning(
-            "⚠️  Нет пользователей с telegram_chat_id. "
-            "Добавьте их с помощью: add-user --telegram-chat-id <id>"
-        )
-
-    for user in registered_users:
-        log.info("  • %s (chat_id=%s)", user.get("user_id"),
-                user.get("telegram_chat_id"))
-
-    log.info("Запуск Telegram-бота...")
-    notifier.run()
-
-    # Бот работает в фоновом потоке, вводим бесконечный цикл
-    try:
-        import time
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        log.info("Бот остановлен пользователем")
-        return 0
 
 
 # ── biography ──────────────────────────────────────────────────────────────
@@ -1596,11 +1229,6 @@ def cmd_graph_audit(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_dashboard(args: argparse.Namespace) -> int:
-    """Start real-time dashboard web server."""
-    from callprofiler.dashboard import run_dashboard
-    run_dashboard(args.user_id, port=args.port, host=args.host)
-    return 0
 
 
 def cmd_book_chapter(args: argparse.Namespace) -> int:
