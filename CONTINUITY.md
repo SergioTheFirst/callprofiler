@@ -15,7 +15,13 @@ DONE: CONSTITUTION AUDIT — полный grep-аудит 18 статей + ви
   ✅ Batch-оптимизация: фазовая обработка с GPU выгрузкой между фазами
   ⚠️ Найдено 5 недочётов (1 production, 2 теста, 1 монолит, 1 журнал)
   Тесты: 299/302 pass (3 pre-existing) — compileall OK
-NOW: Sprint 12 P0-003 regression tests — 3 new test files (35 tests), 346/346 pass (2026-05-23)
+NOW: Sprint 12 P0-003 — 6 new test files (66 tests), 377/377 pass (2026-05-23)
+    test_event_bus.py (6), test_dashboard_tools.py (13), test_llm_disambiguator.py (16)
+    test_events_init.py (2), test_role_assigner.py (12), test_dashboard_server.py (17)
+NEXT: P0-019 config split blocked by biography/prompts.py BUDGETS dict (9 pass builders)
+      telegram_bot.py + pyannote_runner.py tests deferred (need PTB token / GPU)
+BLOCKERS: BUDGETS dict in biography/prompts.py still used by 9 pass builders
+ — 3 new test files (35 tests), 346/346 pass (2026-05-23)
     test_event_bus.py (6/6), test_dashboard_tools.py (13/13), test_llm_disambiguator.py (16/16)
 NEXT: P0-003 remaining 0% targets (server.py, telegram_bot.py, pyannote_runner.py, role_assigner.py, events/__init__.py)
       Coverage measurement blocked by pytest-cov + torch conflict on Windows

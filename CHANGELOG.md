@@ -16,7 +16,15 @@
   - Fixed tests to match source API: attribute names, \get_status\ keys, mock targets, history order, shallow copy
 - \	ests/test_llm_disambiguator.py\ — 16 tests (in_gray_zone, _build_prompt, disambiguate_pair, _parse_response). 16/16 pass.
   - Rewritten: \disambiguate_pair(entity_a, entity_b, score, signals)\, OpenAI-compatible mock, template placeholders, gray zone validation
-- Full suite: **346/346 pass, 0 failures** (was 302)
+- Full suite: **377/377 pass, 0 failures** (was 302)
+
+### Added — P0-003 continued: events, role_assigner, dashboard server (2026-05-23)
+
+- \	ests/test_events_init.py\ — 2 tests (package imports, \__all__\ exports)
+- \	ests/test_role_assigner.py\ — 12 tests (empty inputs, overlap, no-overlap fallback, immutability)
+- \	ests/test_dashboard_server.py\ — 17 tests (core endpoints, tools, characters, contacts, analytics, uninitialized state)
+- Full suite: **377/377 pass, 0 failures** (was 346)
+- Deferred: \	elegram_bot.py\ (PTB token dependency), \pyannote_runner.py\ (GPU/model dependency) — need integration tests
 
 ### Added — README rewrite + backlog sync (2026-05-22)
 - README.md: full rewrite with actual project structure, 33 CLI commands, real stack, 302 tests
