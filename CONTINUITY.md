@@ -15,7 +15,13 @@ DONE: CONSTITUTION AUDIT — полный grep-аудит 18 статей + ви
   ✅ Batch-оптимизация: фазовая обработка с GPU выгрузкой между фазами
   ⚠️ Найдено 5 недочётов (1 production, 2 теста, 1 монолит, 1 журнал)
   Тесты: 299/302 pass (3 pre-existing) — compileall OK
-NOW: Sprint 12 P0-003 — 6 new test files (66 tests), 377/377 pass (2026-05-23)
+NOW: Sprint 12 — UI navigation audit fixed (4 orphan endpoints wired), 382/382 pass (2026-05-23)
+    Dashboard: all 17 API endpoints now reachable via tabs/buttons/links
+    Name pipeline: validation + expanded STOPWORDS applied (52 entries)
+NEXT: P0-019 config split blocked by biography/prompts.py BUDGETS dict (9 pass builders)
+      telegram_bot.py + pyannote_runner.py tests deferred (need integration env)
+BLOCKERS: BUDGETS dict migration still pending
+ (66 tests), 377/377 pass (2026-05-23)
     test_event_bus.py (6), test_dashboard_tools.py (13), test_llm_disambiguator.py (16)
     test_events_init.py (2), test_role_assigner.py (12), test_dashboard_server.py (17)
 NEXT: P0-019 config split blocked by biography/prompts.py BUDGETS dict (9 pass builders)

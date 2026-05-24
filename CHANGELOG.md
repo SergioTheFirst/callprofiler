@@ -18,6 +18,15 @@
   - Rewritten: \disambiguate_pair(entity_a, entity_b, score, signals)\, OpenAI-compatible mock, template placeholders, gray zone validation
 - Full suite: **377/377 pass, 0 failures** (was 302)
 
+### Fixed — UI navigation audit: 4 orphan endpoints wired (2026-05-23)
+
+- \pp.js:loadToolsStatus()\: was calling \/api/stats\ instead of \/api/tools/status\; now shows queue state (processed/pending/error/contacts_without_name)
+- \pp.js:loadToolsHistory()\: new — loads operation journal from \/api/tools/history\ on Tools tab open
+- \pp.js:_openContact()\: new — modal contact profile via \/api/contact/{id}\, linked from character profile contact section
+- \pp.js:_openEntity()\: new — navigates to Characters tab and opens entity profile
+- Character profile: added «View Contact» button linking to full contact profile
+- Full audit: all 17 dashboard API endpoints now reachable from UI navigation
+
 ### Added — P0-003 continued: events, role_assigner, dashboard server (2026-05-23)
 
 - \	ests/test_events_init.py\ — 2 tests (package imports, \__all__\ exports)

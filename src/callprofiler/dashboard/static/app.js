@@ -252,6 +252,8 @@
             html += '<div class="prof-section"><h4>Контакт</h4>';
             html += '<p>Телефон: ' + esh(p.contact.phone_e164 || '?') + ' | ';
             html += 'Имя: ' + esh(p.contact.display_name || p.contact.guessed_name || '?');
+            html += ' <button class="btn-link" onclick="window._openContact(' + p.contact.contact_id + ')"' +
+                    ' title="Открыть полный профиль контакта">&#8599;</button>';
             html += '</p></div>';
         }
 
@@ -387,16 +389,34 @@
     function loadToolsStatus() {
         var body = document.getElementById('tools-status-body');
         if (!body) return;
-        fetch('/api/stats').then(function(r) { return r.json(); }).then(function(s) {
+        fetch('/api/tools/status').then(function(r) { return r.json(); }).then(function(s) {
+            var byStatus = s.by_status || {};
             body.innerHTML =
                 '<table class="status-table">' +
-                '<tr><td>Всего звонков</td><td>' + fmt(s.total_calls) + '</td></tr>' +
-                '<tr><td>Персонажей</td><td>' + fmt(s.total_entities) + '</td></tr>' +
-                '<tr><td>Портретов</td><td>' + fmt(s.total_portraits) + '</td></tr>' +
-                '<tr><td>Средний риск</td><td>' + (s.avg_risk != null ? Math.round(s.avg_risk) + '%' : '?') + '</td></tr>' +
+                '<tr><td>Обработано</td><td>' + fmt(s.processed) + '</td></tr>' +
+                '<tr><td>В очереди</td><td>' + fmt(s.pending) + '</td></tr>' +
+                '<tr><td>Ошибок</td><td>' + fmt(s.error) + '</td></tr>' +
+                '<tr><td>Без имени</td><td>' + fmt(s.contacts_without_name) + '</td></tr>' +
                 '</table>';
         }).catch(function() {
             body.innerHTML = '<div class="nodata">Ошибка загрузки</div>';
+        });
+        loadToolsHistory();
+    }
+
+    function loadToolsHistory() {
+        var log = document.getElementById('tools-log-body');
+        if (!log || log.dataset.loaded === '1') return;
+        log.dataset.loaded = '1';
+        fetch('/api/tools/history').then(function(r) { return r.json(); }).then(function(entries) {
+            if (!entries || !entries.length) return;
+            log.innerHTML = '';
+            entries.forEach(function(e) {
+                log.innerHTML += '<div class="tool-msg">' +
+                    (e.ts || '') + ' · ' + esh(e.message || '?') + '</div>';
+            });
+        }).catch(function() {
+            log.innerHTML = '<div class="nodata">Загрузка истории...</div>';
         });
     }
 
@@ -473,6 +493,49 @@
         audio.onended = function() { el.textContent = '\u25b6\ufe0f \u041f\u0440\u043e\u0441\u043b\u0443\u0448\u0430\u0442\u044c'; };
         audio.play();
         el.textContent = '\u23f8\ufe0f ...';
+    };
+
+    // ── Contact Profile ───────────────────────────────────────────────────
+    window._openContact = function(contactId) {
+        document.getElementById('modal-name').textContent = 'Контакт #' + contactId;
+        document.getElementById('modal-overlay').style.display = 'flex';
+        document.getElementById('modal-body').innerHTML = '<div class="loading">loading...</div>';
+        fetch('/api/contact/' + contactId)
+            .then(function(r) { return r.json(); })
+            .then(function(c) {
+                var html = '<div class="prof">' +
+                    '<p><b>Имя:</b> ' + esh(c.display_name || c.guessed_name || '?') + '</p>' +
+                    '<p><b>Телефон:</b> ' + esh(c.phone_e164 || '?') + '</p>' +
+                    '<p><b>Звонков:</b> ' + (c.call_count || 0) + '</p>' +
+                    '<p><b>Последний:</b> ' + (c.last_call || '?').substring(0, 16) + '</p>';
+                if (c.linked_entities && c.linked_entities.length) {
+                    html += '<p><b>Связанные персонажи:</b> ';
+                    c.linked_entities.forEach(function(eid) {
+                        html += '<button class="btn-link" onclick="window._openEntity(' + eid + ')">#' + eid + '</button> ';
+                    });
+                    html += '</p>';
+                }
+                html += '</div>';
+                document.getElementById('modal-body').innerHTML = html;
+            })
+            .catch(function() {
+                document.getElementById('modal-body').innerHTML = '<div class="nodata">Ошибка загрузки</div>';
+            });
+    };
+
+    // ── Entity detail ──────────────────────────────────────────────────────
+    window._openEntity = function(entityId) {
+        window.location.hash = '#tab-characters';
+        document.getElementById('modal-overlay').style.display = 'none';
+        var tabs = document.querySelectorAll('#tab-nav .tab');
+        tabs.forEach(function(tb) { tb.classList.remove('active'); });
+        document.querySelector('[data-tab=\"characters\"]').classList.add('active');
+        var panels = document.querySelectorAll('.tab-panel');
+        panels.forEach(function(p) { p.classList.remove('active'); });
+        document.getElementById('tab-characters').classList.add('active');
+        loadCharacters().then ? loadCharacters().then(function() {
+            showCharacter(entityId, null);
+        }) : (loadCharacters(), setTimeout(function() { showCharacter(entityId, null); }, 500));
     };
 
     // ── Helpers ───────────────────────────────────────────────────────────
