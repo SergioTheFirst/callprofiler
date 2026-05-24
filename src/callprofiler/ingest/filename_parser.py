@@ -143,6 +143,33 @@ _FMT5_RE = re.compile(
 # Парсеры для каждого формата
 # ───────────────────────────────────────────────────────────────
 
+
+_VALID_NAME_RE = re.compile(r"[^\w\s\-]", re.UNICODE)
+
+
+def _clean_contact_name(raw: str) -> str | None:
+    if not raw:
+        return None
+    name = raw.strip()
+    if len(name) < 2:
+        return None
+    if name.lower().startswith("вызов@"):
+        name = name[6:]
+    if name.lower().startswith("звонок@"):
+        name = name[7:]
+    name = name.strip()
+    if len(name) < 2:
+        return None
+    if _VALID_NAME_RE.search(name):
+        return None
+    if not any(c.isalpha() for c in name):
+        return None
+    digits = sum(1 for c in name if c.isdigit())
+    if digits > len(name) * 0.3:
+        return None
+    return name
+
+
 def _parse_fmt1(stem: str) -> CallMetadata | None:
     """Формат 1: {номер_с_дефисами}({номер_чистый})_{YYYYMMDDHHMMSS}"""
     m = _FMT1_RE.match(stem)
@@ -228,7 +255,7 @@ def _parse_fmt4(stem: str) -> CallMetadata | None:
     except ValueError:
         dt = None
 
-    contact_name = name_raw.strip() if name_raw else None
+    contact_name = _clean_contact_name(name_raw)
     phone = normalize_phone(phone_raw)
 
     return CallMetadata(
@@ -253,7 +280,7 @@ def _parse_fmt5(stem: str) -> CallMetadata | None:
     except ValueError:
         dt = None
 
-    contact_name = name_raw.strip() if name_raw else None
+    contact_name = _clean_contact_name(name_raw)
 
     return CallMetadata(
         phone=None,  # Формат 5: телефон отсутствует

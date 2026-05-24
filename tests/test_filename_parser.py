@@ -291,8 +291,39 @@ class TestParseFilename:
         assert result.raw_filename == "file.wav"
 
 
+class TestCleanContactName:
+    def test_normal_name(self):
+        from callprofiler.ingest.filename_parser import _clean_contact_name
+        assert _clean_contact_name("Иванов") == "Иванов"
+        assert _clean_contact_name("  Петров  ") == "Петров"
+        assert _clean_contact_name("John Smith") == "John Smith"
+        assert _clean_contact_name("Анна-Мария") == "Анна-Мария"
+
+    def test_strips_vyzov_prefix(self):
+        from callprofiler.ingest.filename_parser import _clean_contact_name
+        assert _clean_contact_name("Вызов@Ира") == "Ира"
+
+    def test_rejects_junk(self):
+        from callprofiler.ingest.filename_parser import _clean_contact_name
+        assert _clean_contact_name("") is None
+        assert _clean_contact_name("A") is None
+        assert _clean_contact_name(None) is None
+        assert _clean_contact_name("12345") is None
+        assert _clean_contact_name("@#$%") is None
+        assert _clean_contact_name("abc123456") is None
+
+    def test_parse_fmt4_uses_validator(self):
+        from callprofiler.ingest.filename_parser import parse_filename
+        result = parse_filename("Вызов@Ира(0079252918595)_20180828123145.amr")
+        assert result.contact_name == "Ира"
+
+    def test_parse_fmt4_junk_name_rejected(self):
+        from callprofiler.ingest.filename_parser import parse_filename
+        result = parse_filename("12345(0079252475209)_20230925135064.amr")
+        assert result.contact_name is None
+
+
 if __name__ == "__main__":
-    # Можно запустить тесты простой командой
     import pytest
     pytest.main([__file__, "-v"])
 
