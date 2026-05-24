@@ -32,7 +32,7 @@ class LLMClient:
                 {"role": "user", "content": "Проанализируй..."}
             ]
         )
-        print(response)  # JSON строка или текст ответа
+        logger.debug(response)  # JSON строка или текст ответа
     """
 
     def __init__(self, base_url: str, timeout: int = 300) -> None:
