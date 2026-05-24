@@ -58,6 +58,56 @@ class EntityProfile(BaseModel):
     relationship: str | None = None
 
 
+class ContactProfile(BaseModel):
+    """Contact profile with summary, promises, and recent calls."""
+
+    contact_id: int
+    phone_e164: str | None = None
+    display_name: str | None = None
+    guessed_name: str | None = None
+    name_confirmed: bool = False
+    total_calls: int = 0
+    last_call_date: str | None = None
+    global_risk: float | None = None
+    avg_bs_score: float | None = None
+    top_hook: str | None = None
+    contact_role: str | None = None
+    advice: str | None = None
+    open_promises: list[dict[str, Any]] = Field(default_factory=list)
+    open_debts: list[dict[str, Any]] = Field(default_factory=list)
+    personal_facts: list[dict[str, Any]] = Field(default_factory=list)
+    recent_calls: list[CallHistoryItem] = Field(default_factory=list)
+
+
+class CharacterSummary(BaseModel):
+    """Brief character info for the list view."""
+
+    entity_id: int
+    canonical_name: str
+    entity_type: str
+    total_calls: int = 0
+    avg_risk: float | None = None
+    bs_index: float | None = None
+    temperament_type: str | None = None
+    motivation_primary: str | None = None
+    character_label: str = ""
+    has_portrait: bool = False
+    has_psychology: bool = False
+
+
+class CharacterProfile(EntityProfile):
+    """Full character profile extending entity data with contact, calls, patterns."""
+
+    character_summary: str = ""
+    patterns: list[dict[str, Any]] = Field(default_factory=list)
+    contact: dict[str, Any] | None = None
+    open_promises: list[dict[str, Any]] = Field(default_factory=list)
+    recent_calls: list[CallHistoryItem] = Field(default_factory=list)
+    contradictions: list[dict[str, Any]] = Field(default_factory=list)
+    temporal: dict[str, Any] | None = None
+    network: dict[str, Any] | None = None
+
+
 class DashboardStats(BaseModel):
     """Overall system statistics."""
 

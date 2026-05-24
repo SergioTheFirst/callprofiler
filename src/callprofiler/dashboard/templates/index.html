@@ -3,15 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CallProfiler Dashboard</title>
+    <title>CallProfiler Admin</title>
     <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
-    <!-- Header -->
     <header id="header">
         <div class="header-left">
             <h1>CallProfiler</h1>
-            <span class="subtitle">Pipeline Monitor</span>
+            <span class="subtitle">Admin Panel</span>
         </div>
         <div class="header-stats" id="header-stats">
             <div class="stat-box"><span class="stat-num" id="s-calls">--</span>звонков</div>
@@ -26,18 +26,22 @@
         </div>
     </header>
 
-    <!-- Main layout -->
-    <main>
-        <!-- LEFT: Live Feed -->
-        <section id="live-feed">
+    <nav id="tab-nav">
+        <button class="tab active" data-tab="live">📡 Лента</button>
+        <button class="tab" data-tab="characters">👤 Персонажи</button>
+        <button class="tab" data-tab="analytics">📊 Аналитика</button>
+        <button class="tab" data-tab="tools">⚙️ Инструменты</button>
+    </nav>
+
+    <!-- TAB 1: Live Feed -->
+    <main id="tab-live" class="tab-panel active">
+        <section id="live-feed" style="flex:1">
             <div class="section-header">
-                <h2>Живая лента</h2>
+                <h2>Live Feed</h2>
                 <span id="feed-count">0 событий</span>
             </div>
-            <div id="feed-container"></div>
+            <div id="feed-container"><div class="empty-feed">Ожидание событий...</div></div>
         </section>
-
-        <!-- RIGHT: Entity Profile -->
         <section id="entity-panel">
             <div class="section-header">
                 <h2>Профиль</h2>
@@ -48,7 +52,86 @@
         </section>
     </main>
 
-    <!-- Entity modal (click contact name) -->
+    <!-- TAB 2: Characters -->
+    <main id="tab-characters" class="tab-panel">
+        <section id="char-list-panel">
+            <div class="section-header">
+                <h2>Персонажи</h2>
+                <span id="char-count">загрузка...</span>
+            </div>
+            <div style="margin-bottom:8px">
+                <input id="char-search" type="text" placeholder="Поиск..." oninput="filterCharacters()" style="width:100%;padding:6px 10px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:12px">
+            </div>
+            <div id="char-list"></div>
+        </section>
+        <section id="char-profile-panel">
+            <div class="section-header">
+                <h2 id="char-profile-name">Выберите персонажа</h2>
+            </div>
+            <div id="char-profile-body">
+                <div style="text-align:center;color:var(--muted);margin-top:60px;font-size:13px">← Кликните на персонажа в списке слева</div>
+            </div>
+        </section>
+    </main>
+
+    <!-- TAB 3: Analytics -->
+    <main id="tab-analytics" class="tab-panel">
+        <div class="section-header" style="margin-bottom:16px">
+            <h2>Аналитика</h2>
+        </div>
+        <div class="chart-grid">
+            <div class="chart-box">
+                <h3>Звонки по дням</h3>
+                <canvas id="chart-calls-by-day"></canvas>
+            </div>
+            <div class="chart-box">
+                <h3>Распределение риска</h3>
+                <canvas id="chart-risk-dist"></canvas>
+            </div>
+            <div class="chart-box">
+                <h3>Топ-10 по звонкам</h3>
+                <canvas id="chart-top-calls"></canvas>
+            </div>
+            <div class="chart-box">
+                <h3>Топ-10 по риску</h3>
+                <canvas id="chart-top-risk"></canvas>
+            </div>
+            <div class="chart-box">
+                <h3>Темпераменты</h3>
+                <canvas id="chart-temperament"></canvas>
+            </div>
+            <div class="chart-box">
+                <h3>Типы звонков</h3>
+                <canvas id="chart-call-types"></canvas>
+            </div>
+        </div>
+    </main>
+
+    <!-- TAB 4: Tools -->
+    <main id="tab-tools" class="tab-panel">
+        <div class="section-header" style="margin-bottom:16px">
+            <h2>Инструменты</h2>
+        </div>
+        <div id="tools-status" class="tools-block">
+            <h3>Состояние очереди</h3>
+            <div id="tools-status-body">загрузка...</div>
+        </div>
+        <div class="tools-block">
+            <h3>Действия</h3>
+            <div class="tools-actions">
+                <button class="tool-btn" onclick="toolAction('/api/tools/reprocess')">🔄 Переобработать ошибки</button>
+                <button class="tool-btn" onclick="toolAction('/api/tools/rebuild-summaries')">📊 Перестроить сводки</button>
+                <button class="tool-btn" onclick="toolAction('/api/tools/extract-names')">🏷 Извлечь имена</button>
+                <button class="tool-btn" onclick="toolAction('/api/tools/rebuild-cards')">📇 Перегенерировать карточки</button>
+            </div>
+        </div>
+        <div id="tools-log" class="tools-block">
+            <h3>Журнал операций</h3>
+            <div id="tools-log-body">пока пусто</div>
+        </div>
+    </main>
+
+    <!-- Entity modal -->
     <div id="modal-overlay" style="display:none">
         <div id="modal">
             <div id="modal-header">

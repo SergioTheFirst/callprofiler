@@ -20,7 +20,11 @@ from fastapi.templating import Jinja2Templates
 
 from callprofiler.dashboard.config import POLL_INTERVAL_SEC, SSE_KEEPALIVE_SEC
 from callprofiler.dashboard.db_reader import DashboardDBReader
-from callprofiler.dashboard.models import CallHistoryItem, DashboardStats, EntityProfile
+from callprofiler.dashboard.models import (
+    CallHistoryItem, DashboardStats, EntityProfile,
+    CharacterSummary, CharacterProfile, ContactProfile,
+)
+from callprofiler.dashboard.tools import DashboardTools
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +32,7 @@ app = FastAPI(title="CallProfiler Dashboard", version="2.1.0")
 
 _USER_ID: str | None = None
 _DB_READER: DashboardDBReader | None = None
+_TOOLS: DashboardTools | None = None
 _sse_queue: asyncio.Queue = asyncio.Queue()
 _poller_running = False
 
@@ -37,10 +42,11 @@ app.mount("/static", StaticFiles(directory=str(DASHBOARD_DIR / "static")), name=
 
 
 def set_user_id(user_id: str, config=None):
-    global _USER_ID, _DB_READER
+    global _USER_ID, _DB_READER, _TOOLS
     _USER_ID = user_id
     db_path = Path(config.data_dir) / "db" / "callprofiler.db" if config else Path("C:/calls/data/db/callprofiler.db")
     _DB_READER = DashboardDBReader(str(db_path))
+    _TOOLS = DashboardTools(config, user_id)
     log.info("Dashboard initialized: user_id=%s", user_id)
 
 
@@ -159,6 +165,128 @@ async def get_stats() -> DashboardStats:
     stats = _DB_READER.get_stats(_USER_ID)
     return DashboardStats(**stats)
 
+
+
+@app.get("/api/characters")
+async def get_all_characters(request: Request) -> list[CharacterSummary]:
+    if not _DB_READER or not _USER_ID:
+        return []
+    try:
+        characters = _DB_READER.get_all_characters(_USER_ID)
+        return [CharacterSummary(**c) for c in characters]
+    except Exception as e:
+        log.error("Failed to load characters: %s", e)
+        return []
+
+
+@app.get("/api/character/{entity_id}")
+async def get_character(entity_id: int) -> CharacterProfile:
+    if not _DB_READER or not _USER_ID:
+        return CharacterProfile(
+            entity_id=entity_id, canonical_name="?", entity_type="?",
+            character_summary="Dashboard not initialized"
+        )
+    try:
+        profile = _DB_READER.get_character_profile(entity_id, _USER_ID)
+        if not profile:
+            return CharacterProfile(
+                entity_id=entity_id, canonical_name="?", entity_type="?",
+                character_summary="Character not found"
+            )
+        return CharacterProfile(**profile)
+    except Exception as e:
+        log.error("Failed to load character %d: %s", entity_id, e)
+        return CharacterProfile(
+            entity_id=entity_id, canonical_name="error", entity_type="?",
+            character_summary=str(e)
+        )
+
+
+@app.get("/api/contact/{contact_id}")
+async def get_contact(contact_id: int) -> ContactProfile:
+    if not _DB_READER or not _USER_ID:
+        return ContactProfile(contact_id=contact_id)
+    try:
+        profile = _DB_READER.get_contact_profile(contact_id, _USER_ID)
+        if not profile:
+            return ContactProfile(contact_id=contact_id)
+        return ContactProfile(**profile)
+    except Exception as e:
+        log.error("Failed to load contact %d: %s", contact_id, e)
+        return ContactProfile(contact_id=contact_id)
+
+
+@app.get("/api/analytics")
+async def get_analytics(request: Request):
+    if not _DB_READER or not _USER_ID:
+        return {}
+    try:
+        return _DB_READER.get_analytics(_USER_ID)
+    except Exception as e:
+        log.error("Failed to load analytics: %s", e)
+        return {}
+
+
+@app.get("/api/tools/status")
+async def tools_status():
+    if not _TOOLS:
+        return {"by_status": {}, "pending": 0, "error": 0, "processed": 0}
+    try:
+        return _TOOLS.get_status()
+    except Exception as e:
+        log.error("tools/status: %s", e)
+        return {"error": str(e)}
+
+
+@app.post("/api/tools/reprocess")
+async def tools_reprocess():
+    if not _TOOLS:
+        return {"status": "error", "message": "Not initialized"}
+    try:
+        return await _TOOLS.run_reprocess()
+    except Exception as e:
+        log.error("tools/reprocess: %s", e)
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/tools/rebuild-summaries")
+async def tools_rebuild_summaries():
+    if not _TOOLS:
+        return {"status": "error", "message": "Not initialized"}
+    try:
+        return await _TOOLS.run_rebuild_summaries()
+    except Exception as e:
+        log.error("tools/rebuild-summaries: %s", e)
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/tools/extract-names")
+async def tools_extract_names():
+    if not _TOOLS:
+        return {"status": "error", "message": "Not initialized"}
+    try:
+        return await _TOOLS.run_extract_names()
+    except Exception as e:
+        log.error("tools/extract-names: %s", e)
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/tools/rebuild-cards")
+async def tools_rebuild_cards():
+    if not _TOOLS:
+        return {"status": "error", "message": "Not initialized"}
+    try:
+        return await _TOOLS.run_rebuild_cards()
+    except Exception as e:
+        log.error("tools/rebuild-cards: %s", e)
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/tools/history")
+async def tools_history():
+    if not _TOOLS:
+        return []
+    return _TOOLS.get_history()
 
 @app.get("/api/shutdown")
 async def shutdown():
