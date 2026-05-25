@@ -8,6 +8,34 @@
 
 ## [Unreleased]
 
+### Added — Sprint 13: Cyrillic name validation + integration test stubs (2026-05-25)
+
+- `ingest/filename_parser.py` — Cyrillic dictionary-based name validation:
+  - `_KNOWN_RUSSIAN_FIRST_NAMES` — frozenset of ~100 common Russian given names (male + female)
+  - `_is_cyrillic_gibberish()` — detects keyboard smashing on ЙЦУКЕН layout:
+    - Vowel-to-consonant ratio check (must be 15%-70% vowels)
+    - Max consecutive consonant cluster check (must be <5)
+    - Max consecutive ЙЦУКЕН-adjacent-key run check (must be <7)
+    - Triple-same-character detection
+  - `_contains_known_name()` — checks if name contains any known Russian first name
+  - Integrated into `_clean_contact_name()`: if name has Cyrillic chars and fails both checks → rejected
+  - Tests: +5 tests in `test_filename_parser.py` (50 total, all pass)
+
+- `tests/test_telegram_bot.py` — 8 tests (TelegramNotifier: import, construction, method existence, token handling)
+- `tests/test_pyannote_runner.py` — 8 tests (PyannoteRunner: import, initial state, lifecycle methods, FileNotFoundError)
+- `tests/test_whisper_runner.py` — 7 tests (WhisperRunner: import, construction, lifecycle, transcribe guard)
+- Full suite: **412/412 pass, 0 failures** (was 387)
+
+### Fixed — Sprint 11 CLI state reconciled (2026-05-25)
+
+- CONTINUITY.md updated: Sprint 11 CLI split noted as DONE (commits `f493cdc`, `2bdcb88`; main.py: 512 lines, not 2339)
+- All 3 pre-existing test failures confirmed resolved (397→382→412 pass)
+
+### Fixed — CLI --help UnicodeEncodeError on cp1251 (2026-05-25)
+
+- `cli/main.py` line 215: replaced `≤512` → `<=512` (U+2264 not encodable in cp1251)
+- CLI `--help` now works on Windows cp1251 terminals
+
 ### Added — P0-003: Regression tests for 3 modules (2026-05-23)
 
 - \	ests/test_event_bus.py\ — 6 tests (subscribe, unsubscribe, emit_event_sync, broadcast, get_client_count, DashboardEvent). 6/6 pass.

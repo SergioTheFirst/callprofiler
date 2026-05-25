@@ -146,6 +146,96 @@ _FMT5_RE = re.compile(
 
 _VALID_NAME_RE = re.compile(r"[^\w\s\-]", re.UNICODE)
 
+_KNOWN_RUSSIAN_FIRST_NAMES: frozenset[str] = frozenset({
+    "александр", "алексей", "андрей", "артём", "артем", "борис",
+    "вадим", "валентин", "валерий", "василий", "виктор", "виталий",
+    "владимир", "владислав", "вячеслав", "геннадий", "георгий",
+    "григорий", "даниил", "данил", "денис", "дмитрий", "евгений",
+    "егор", "иван", "игорь", "илья", "кирилл", "константин",
+    "лев", "леонид", "максим", "марк", "матвей", "михаил",
+    "никита", "николай", "олег", "павел", "пётр", "петр",
+    "роман", "руслан", "сергей", "станислав", "степан", "тимофей",
+    "фёдор", "федор", "эдуард", "юрий", "ярослав",
+    "александра", "алёна", "алена", "алина", "алла", "анастасия",
+    "анжела", "анна", "валентина", "валерия", "вера", "виктория",
+    "галина", "дарья", "евгения", "екатерина", "елена", "елизавета",
+    "жанна", "инна", "ирина", "кристина", "ксения", "лариса",
+    "лидия", "любовь", "людмила", "маргарита", "марина", "мария",
+    "надежда", "наталия", "наталья", "николь", "нина", "оксана",
+    "ольга", "полина", "светлана", "софия", "софья", "таисия",
+    "тамара", "татьяна", "юлия", "яна",
+})
+_RUSSIAN_VOWELS = set("аеёиоуыэюя")
+_RUSSIAN_CONSONANTS = set("бвгджзйклмнпрстфхцчшщ")
+
+_ЙЦУКЕН_NEIGHBORS: dict[str, str] = {
+    "й": "фыцч", "ц": "уфйывк", "у": "кцыевг", "к": "еуцывгшн",
+    "е": "нкгышвпа", "н": "гкешщзро", "г": "шнкеропт",
+    "ш": "щгнеосьт", "щ": "зшнхось", "з": "хщнросбит",
+    "х": "ъщзрсби", "ъ": "хзосби", "ф": "ыйсячв", "ы": "фйцяс",
+    "в": "ыцаячтпа", "а": "свпролд", "п": "мавролдэ",
+    "р": "ототплеждб", "о": "щшгнертипмсльд", "л": "дшщзхъжэ",
+    "д": "жлорпмав", "ж": "эдлро", "э": "ёждлорп", "ё": "эжлро",
+    "я": "чсмаив", "ч": "сямав", "с": "мятчвкпуенгшщзхъ",
+    "м": "ьстчявапрол", "и": "тмьсчвапгш", "т": "ьимисчвапеш",
+    "ь": "ютисыфв", "б": "ютиыв", "ю": "бьтиывф",
+}
+
+
+def _is_cyrillic_gibberish(name: str) -> bool:
+    """Detect keyboard smashing on ЙЦУКЕН layout (e.g. 'Фывапролджэ')."""
+    name_lower = name.lower()
+    name_chars = [c for c in name_lower if c.isalpha()]
+    if len(name_chars) < 4:
+        return False
+    vowels = sum(1 for c in name_chars if c in _RUSSIAN_VOWELS)
+    consonants = len(name_chars) - vowels
+    if consonants == 0:
+        return True
+    vowel_ratio = vowels / len(name_chars)
+    if vowel_ratio < 0.15 or vowel_ratio > 0.70:
+        return True
+    max_adj_run = 0
+    current_adj_run = 0
+    for i in range(len(name_chars) - 1):
+        a, b = name_chars[i], name_chars[i + 1]
+        if a in _ЙЦУКЕН_NEIGHBORS and b in _ЙЦУКЕН_NEIGHBORS.get(a, ""):
+            current_adj_run += 1
+            max_adj_run = max(max_adj_run, current_adj_run)
+        else:
+            current_adj_run = 0
+    if max_adj_run >= 7:
+        return True
+    max_consecutive_consonants = 0
+    current_run = 0
+    for c in name_lower:
+        if c in _RUSSIAN_CONSONANTS:
+            current_run += 1
+            max_consecutive_consonants = max(max_consecutive_consonants, current_run)
+        else:
+            current_run = 0
+    if max_consecutive_consonants >= 5:
+        return True
+    if len(name_chars) >= 6:
+        for i in range(len(name_chars) - 2):
+            a, b, c3 = name_chars[i], name_chars[i + 1], name_chars[i + 2]
+            if a == b == c3:
+                return True
+    return False
+
+
+def _contains_known_name(name: str) -> bool:
+    """Check if any substring of the name matches a known Russian first name."""
+    name_lower = name.lower()
+    words = [w.strip(",-.") for w in name_lower.split()]
+    for word in words:
+        if len(word) >= 2 and word in _KNOWN_RUSSIAN_FIRST_NAMES:
+            return True
+        for known in _KNOWN_RUSSIAN_FIRST_NAMES:
+            if len(known) >= 4 and known in word:
+                return True
+    return False
+
 
 def _clean_contact_name(raw: str) -> str | None:
     if not raw:
@@ -167,6 +257,9 @@ def _clean_contact_name(raw: str) -> str | None:
     digits = sum(1 for c in name if c.isdigit())
     if digits > len(name) * 0.3:
         return None
+    if any("\u0400" <= c <= "\u04FF" for c in name):
+        if not _contains_known_name(name) and _is_cyrillic_gibberish(name):
+            return None
     return name
 
 

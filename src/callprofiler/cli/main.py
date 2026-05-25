@@ -212,7 +212,7 @@ def _build_parser() -> argparse.ArgumentParser:
     # ── rebuild-cards ──────────────────────────────────────────
     p_rebuild_cards = sub.add_parser(
         "rebuild-cards",
-        help="Пересоздать caller cards (≤512 байт) в sync_dir",
+        help="Пересоздать caller cards (<=512 байт) в sync_dir",
     )
     p_rebuild_cards.add_argument(
         "--user", dest="user_id", required=True, metavar="USER_ID",

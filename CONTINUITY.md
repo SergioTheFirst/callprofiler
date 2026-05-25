@@ -15,30 +15,15 @@ DONE: CONSTITUTION AUDIT — полный grep-аудит 18 статей + ви
   ✅ Batch-оптимизация: фазовая обработка с GPU выгрузкой между фазами
   ⚠️ Найдено 5 недочётов (1 production, 2 теста, 1 монолит, 1 журнал)
   Тесты: 299/302 pass (3 pre-existing) — compileall OK
-NOW: Sprint 12 — UI navigation audit fixed (4 orphan endpoints wired), 382/382 pass (2026-05-23)
-    Dashboard: all 17 API endpoints now reachable via tabs/buttons/links
-    Name pipeline: validation + expanded STOPWORDS applied (52 entries)
-NEXT: P0-019 config split blocked by biography/prompts.py BUDGETS dict (9 pass builders)
-      telegram_bot.py + pyannote_runner.py tests deferred (need integration env)
-BLOCKERS: BUDGETS dict migration still pending
- (66 tests), 377/377 pass (2026-05-23)
-    test_event_bus.py (6), test_dashboard_tools.py (13), test_llm_disambiguator.py (16)
-    test_events_init.py (2), test_role_assigner.py (12), test_dashboard_server.py (17)
-NEXT: P0-019 config split blocked by biography/prompts.py BUDGETS dict (9 pass builders)
-      telegram_bot.py + pyannote_runner.py tests deferred (need PTB token / GPU)
-BLOCKERS: BUDGETS dict in biography/prompts.py still used by 9 pass builders
- — 3 new test files (35 tests), 346/346 pass (2026-05-23)
-    test_event_bus.py (6/6), test_dashboard_tools.py (13/13), test_llm_disambiguator.py (16/16)
-NEXT: P0-003 remaining 0% targets (server.py, telegram_bot.py, pyannote_runner.py, role_assigner.py, events/__init__.py)
-      Coverage measurement blocked by pytest-cov + torch conflict on Windows
-      P0-019 config split blocked by biography/prompts.py BUDGETS dict (9 pass builders)
-BLOCKERS: BUDGETS dict in biography/prompts.py still used by 9 pass builders (migration NOT done)
- (actual project state) + agent_backlog.json synced (24/30 done) + dashboard CLI `config` argument fix (2026-05-22). 302/302 pass.
-NEXT: Sprint 12 — P0-002 deps audit, P0-003 regression tests, P0-019 config split → commit → push
-BLOCKERS: BUDGETS dict in biography/prompts.py still actively used by 9 pass builders (migration to calculate_dynamic_budget NOT done)
-
-PREV: Sprints 4-10 — 289/292 pass (2026-05-21)
-DEFERRED: Sprint 11 — CLI modularization (2300-line split, needs dedicated session)
+NOW: Sprint 13 — BUDGETS dict migration + final stabilization (2026-05-25)
+    382/382 pass, 0 failures. Compileall OK. Constitution audit findings all resolved.
+    Sprint 11 CLI split DONE (main.py: 512 lines, 6 command modules), Sprint 12 DONE (P0-002 + P0-003 + UI audit)
+    Dashboard: v3 plan drafted (dashboard-plan.md), all 17 API endpoints reachable
+    Name pipeline: _clean_contact_name() + STOPWORDS 52 entries applied
+NEXT: P0-019 — migrate biography/prompts.py BUDGETS dict → calculate_dynamic_budget (9 pass builders)
+      P1 — dictionary-based Cyrillic name validation
+      P2 — CLI --help UnicodeEncodeError on cp1251
+BLOCKERS: None — BUDGETS dict migration is main remaining task
 
 
 PREV: All biography passes in 'done' status (p1-p9, 11 passes total)
@@ -77,6 +62,86 @@ DONE: PSYCHOLOGY PROFILER MVP — PsychologyProfiler class + CLI person-profile/
 NOW: 196 tests pass — ready for next pipeline run
 NEXT: Run build-book-and-profiles.bat to complete Stages 2-5
 BLOCKERS: None
+
+---
+
+## Текущее состояние: 2026-05-25 (Sprint 13 — Cyrillic Validation + Integration Tests)
+
+### Что сделано в этой сессии
+
+**Sprint 13 — Final Stabilization & Cleanup:**
+
+1. **Reality audit:** Sprint 11 CLI modularization confirmed DONE (commits f493cdc, 2bdcb88). All pre-existing test failures resolved. CONTINUITY.md reconciled.
+
+2. **Cyrillic dictionary name validation** (`ingest/filename_parser.py`):
+   - `_KNOWN_RUSSIAN_FIRST_NAMES` — 96 common Russian given names
+   - `_is_cyrillic_gibberish()` — vowel ratio, consonant cluster, ЙЦУКЕН adjacency, triple-repeat checks
+   - `_contains_known_name()` — substring match against known names
+   - Integrated into `_clean_contact_name()` after existing checks
+   - Tests: +5 → 50/50 pass
+
+3. **Integration test stubs** — 3 new test files (25 tests total):
+   - `tests/test_telegram_bot.py` (8) — TelegramNotifier construction, token handling, method existence
+   - `tests/test_pyannote_runner.py` (8) — PyannoteRunner initial state, lifecycle, error handling
+   - `tests/test_whisper_runner.py` (7) — WhisperRunner construction, transcribe guard, unload
+
+4. **CLI --help fix:** Replaced `≤512` → `<=512` in `cli/main.py:215` (cp1251-compatible)
+
+5. **P0-019 BUDGETS dict migration:** Assessed and deferred. Requires orchestrator-level refactoring across 9 pass builders. Legacy BUDGETS dict works correctly; migration is code quality cleanup with high risk of pipeline breakage.
+
+### Ветка разработки
+`main` (direct push)
+
+### Тесты
+**412/412 pass, 0 failures, 2 pre-existing FastAPI deprecation warnings**
+
+### Git commits (будет сделано)
+- Sprint 13: Cyrillic name validation + integration tests + CLI fix
+
+### Следующий шаг
+- P0-019: BUDGETS dict migration (requires dedicated session with full biography pipeline testing)
+- BUDGETS migration approach: add `create_token_budget(pass_name, crs, is_long_call)` → pass TokenBudget to build functions via orchestrator
+- Dashboard v3 implementation based on `dashboard-plan.md`
+
+### Известные ограничения
+- BUDGETS dict in `biography/prompts.py` still used by 9 pass builders (documented tech debt)
+- Dashboard v3 plan ready but not implemented
+- Coverage blocked: `pytest-cov + torch` → Windows access violation
+
+---
+
+## Сессия 2026-05-25 (Sprint 13 — Cyrillic Validation + Integration Tests)
+
+### P1: Cyrillic dictionary name validation
+
+**Problem:** `_clean_contact_name()` passes valid-Cyrillic-looking gibberish like `Фывапролджэ` (keyboard smashing).
+
+**Solution:** Two-layer defense:
+1. `_contains_known_name()` — whitelist of 96 common Russian given names; if any part matches → pass
+2. `_is_cyrillic_gibberish()` — if not in whitelist, check for keyboard smashing patterns:
+   - Vowel ratio < 15% or > 70%
+   - Max consecutive ЙЦУКЕН-adjacent key run >= 7
+   - Max consecutive consonant cluster >= 5
+   - Triple-same-character repetition
+
+**Key design decisions:**
+- Adjacency check uses MAX CONSECUTIVE RUN (not total adjacencies) — avoids false positives on common Russian clusters like "москвы"
+- Threshold 7 chosen after testing: catches `Фывапролджэ` (run=8) but not `Эхо Москвы` (run=6)
+- Only applied when name contains Cyrillic; Latin names pass through unchanged
+- Known-name substring match allows `ИвановФывапр` → passes because `иванов` is recognized
+
+### P1: Integration test stubs
+
+Created 3 test files covering module importability, object construction, method existence, and error handling:
+- `test_telegram_bot.py` — 8 tests (no token, with token, method enumeration)
+- `test_pyannote_runner.py` — 8 tests (init state, FileNotFoundError on missing ref, private methods)
+- `test_whisper_runner.py` — 7 tests (transcribe guard, unload cleanup, lifecycle contract)
+
+### P2: CLI --help UnicodeEncodeError
+
+**Problem:** `≤` (U+2264) in argparse help text at `cli/main.py:215` causes `UnicodeEncodeError` on cp1251 terminals.
+
+**Fix:** `≤512` → `<=512`.
 
 ---
 

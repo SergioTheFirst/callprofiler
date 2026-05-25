@@ -322,6 +322,34 @@ class TestCleanContactName:
         result = parse_filename("12345(0079252475209)_20230925135064.amr")
         assert result.contact_name is None
 
+    def test_known_russian_names_pass(self):
+        from callprofiler.ingest.filename_parser import _clean_contact_name
+        assert _clean_contact_name("Иванов") == "Иванов"
+        assert _clean_contact_name("Анна") == "Анна"
+        assert _clean_contact_name("Сергей Петров") == "Сергей Петров"
+        assert _clean_contact_name("Мария Иванова") == "Мария Иванова"
+
+    def test_cyrillic_gibberish_rejected(self):
+        from callprofiler.ingest.filename_parser import _clean_contact_name
+        assert _clean_contact_name("Фывапролджэ") is None
+        assert _clean_contact_name("Йцукенгшщз") is None
+        assert _clean_contact_name("Апролджэячс") is None
+
+    def test_cyrillic_with_known_name_component_passes(self):
+        from callprofiler.ingest.filename_parser import _clean_contact_name
+        assert _clean_contact_name("ИвановФывапр") == "ИвановФывапр"
+
+    def test_latin_names_unaffected(self):
+        from callprofiler.ingest.filename_parser import _clean_contact_name
+        assert _clean_contact_name("John") == "John"
+        assert _clean_contact_name("Smith") == "Smith"
+        assert _clean_contact_name("John Smith") == "John Smith"
+
+    def test_cyrillic_borderline_valid(self):
+        from callprofiler.ingest.filename_parser import _clean_contact_name
+        assert _clean_contact_name("Эхо Москвы") is not None
+        assert _clean_contact_name("Радио") is not None
+
 
 if __name__ == "__main__":
     import pytest
