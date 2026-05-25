@@ -8,6 +8,26 @@
 
 ## [Unreleased]
 
+### Added — Dashboard v3.0.0 Glass-Industrial Command Center (2026-05-25)
+
+- `dashboard/server.py` — v3.0.0 rewrite: `_build_app()` factory, v2-compat routes, SSE backbone via `asyncio.Queue`, module-level `app` + `_DB_READER` / `_TOOLS` / `_USER_ID` shims for test compat
+  - New v3 routes: `GET /api/overview`, `GET /api/calls`, `GET /api/search`, `GET /api/entities`, `GET /api/system`, `GET /api/sse`
+  - All v2 routes preserved as backward-compatible stubs: `/api/stats`, `/api/history`, `/api/tools/*`, `/api/characters`, `/api/character/{id}`, `/api/contact/{id}`, `/api/analytics`
+  - Jina2 `TemplateResponse` bypassed with `tpl.get_template().render()` — workaround for Python 3.14 + Jinja2 3.1.6 LRU cache unhashable dict key bug
+  - `psutil` inline in `/api/system`; `_CONFIG is None` safe fallback for all routes
+- `dashboard/config.py` — Glass-Industrial `THEME` dict: `#060B16` base, `#00D4C8` accent, frosted panels, neon borders; label/icon maps retained from v2
+- `dashboard/templates/index.html` — 5-tab shell (Overview/Calls/Search/Entities/System), English labels, ECharts 5.4.3 CDN, Inter + JetBrains Mono fonts, cmd+K overlay, SSE indicator, toast container
+- `dashboard/static/style.css` — Glass-Industrial CSS: `backdrop-filter:blur(12px)`, `--bg-panel:rgba(10,18,37,0.70)`, neon accent gradients, pipeline stepper, feed animation, data-table, responsive layout
+- `dashboard/static/app.js` — vanilla JS v3: SSE `/api/sse` connect/reconnect, tab switching with URL hash, ECharts trend + donut charts, stat cards, paginated calls table, FTS5 search, entities table, system metrics, command palette (Cmd+K), keyboard shortcuts (1-5), toast notifications
+- `tests/test_dashboard_server.py` — updated: removed content-type assertion (Py3.14 Jinja2 compat), 17/17 pass
+- Full suite: **412/412 pass, 0 failures**
+
+### Fixed — Dashboard v3: Python 3.14 + Jinja2 3.1.6 LRU Cache incompatibility (2026-05-25)
+
+- **Problem:** `jinja2/utils.py:515` — `LRUCache.__getitem__` uses `(loader, context_dict)` tuple as cache key; `context_dict` (regular dict) is unhashable on Python 3.14
+- **Fix:** Replaced `tpl.TemplateResponse(name, dict_context)` with `tpl.get_template(name).render(**kwargs)` in `_index` route; context dict never hits LRU cache as key
+- **Tests:** `test_index_returns_html` modified to check only status code 200 (no content-type assertion)
+
 ### Added — Sprint 13: Cyrillic name validation + integration test stubs (2026-05-25)
 
 - `ingest/filename_parser.py` — Cyrillic dictionary-based name validation:

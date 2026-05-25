@@ -1,555 +1,483 @@
-// CallProfiler Admin Panel
+// CallProfiler Dashboard v3.0.0 — Glass-Industrial Command Center
 (function() {
-    // ── Tab switching ────────────────────────────────────────────────────
-    var tabs = document.querySelectorAll('#tab-nav .tab');
-    var panels = document.querySelectorAll('.tab-panel');
+    'use strict';
+
+    // ── State ──────────────────────────────────────────────────────────────
+    var state = {
+        activeTab: 'overview',
+        sseConnected: false,
+        callsPage: 0,
+        callsLimit: 50,
+        searchQuery: '',
+    };
+
+    // ── DOM refs ───────────────────────────────────────────────────────────
+    var $ = function(sel) { return document.querySelector(sel); };
+    var $$ = function(sel) { return document.querySelectorAll(sel); };
+
+    var tabs = $$('#tab-nav .tab');
+    var panels = $$('.tab-panel');
+    var sseDot = $('#sse-dot');
+    var clock = $('#clock');
+
+    // ── Tab Switching ──────────────────────────────────────────────────────
+    function switchTab(name) {
+        state.activeTab = name;
+        tabs.forEach(function(t) { t.classList.toggle('active', t.dataset.tab === name); });
+        panels.forEach(function(p) { p.classList.toggle('active', p.id === 'panel-' + name); });
+        location.hash = name;
+        if (name === 'overview') loadOverview();
+        else if (name === 'calls') loadCalls();
+        else if (name === 'entities') loadEntities();
+        else if (name === 'system') loadSystem();
+    }
 
     tabs.forEach(function(t) {
-        t.addEventListener('click', function() {
-            var tabName = this.dataset.tab;
-            tabs.forEach(function(tb) { tb.classList.remove('active'); });
-            this.classList.add('active');
-            panels.forEach(function(p) {
-                p.classList.remove('active');
-                if (p.id === 'tab-' + tabName) p.classList.add('active');
-            });
-            if (tabName === 'characters') loadCharacters();
-            if (tabName === 'analytics') loadAnalytics();
-            if (tabName === 'tools') loadToolsStatus();
-        });
+        t.addEventListener('click', function() { switchTab(this.dataset.tab); });
     });
 
-    // ── SSE / Live Feed ──────────────────────────────────────────────────
-    var MAX = 100;
-    var feed = document.getElementById('feed-container');
-    var countEl = document.getElementById('feed-count');
-    var connEl = document.getElementById('connection-dot');
-    var txtEl = document.getElementById('connection-text');
+    // Restore tab from URL hash
+    var hash = location.hash.replace('#', '');
+    if (hash && $('#panel-' + hash)) switchTab(hash);
 
-    var es = new EventSource('/events/stream');
-    es.addEventListener('open', function() {
-        connEl.className = 'dot connected';
-        txtEl.textContent = 'live';
-    });
-    es.addEventListener('error', function() {
-        connEl.className = 'dot disconnected';
-        txtEl.textContent = 'reconnecting...';
-    });
-    es.addEventListener('message', function(e) {
-        try {
-            var evt = JSON.parse(e.data);
-            if (evt.type === 'analysis') renderCard(evt);
-            if (evt.type === 'stats' && evt.data) updateStats(evt.data);
-            if (evt.type === 'heartbeat') updateHeartbeat(evt);
-        } catch(ex) { console.error(ex); }
-    });
-
-    var feedTitle = document.querySelector('#live-feed .section-header h2');
-    function updateHeartbeat(hb) {
-        if (feedTitle) feedTitle.textContent = 'Live Feed [' + (hb.last_id || 0) + ']';
+    // ── Clock ──────────────────────────────────────────────────────────────
+    function updateClock() {
+        var now = new Date();
+        var h = String(now.getHours()).padStart(2, '0');
+        var m = String(now.getMinutes()).padStart(2, '0');
+        var s = String(now.getSeconds()).padStart(2, '0');
+        clock.textContent = h + ':' + m + ':' + s;
     }
-    setInterval(function() {
-        if (countEl) {
-            var n = feed ? feed.querySelectorAll('.card').length : 0;
-            countEl.textContent = n + ' analyses';
-        }
-    }, 3000);
+    updateClock();
+    setInterval(updateClock, 1000);
 
-    function renderCard(a) {
-        var empty = feed.querySelector('.empty-feed');
-        if (empty) empty.remove();
-        var card = document.createElement('div');
-        card.className = 'card';
-        var statusIcon = a.parse_status === 'parsed_ok' ? 'OK' : (a.parse_status || '?');
-        var statusCls = a.parse_status === 'parsed_ok' ? 'ok' : 'partial';
-        var riskEmoji = a.risk_score >= 70 ? 'R' : a.risk_score >= 40 ? 'W' : 'G';
-        var riskCls = a.risk_score >= 70 ? 'risk-high' : a.risk_score >= 40 ? 'risk-med' : 'risk-low';
-        var dur = a.duration_sec ? (Math.floor(a.duration_sec/60)+'m'+a.duration_sec%60+'s') : '?';
-        var dir = a.direction === 'IN' ? 'IN' : a.direction === 'OUT' ? 'OUT' : '?';
-        var ts = a.created_at ? a.created_at.substring(11, 19) : '--:--:--';
-        var callDate = a.call_datetime ? a.call_datetime.substring(0, 10) : '?';
-        var model = (a.model || '').substring(0, 15) || 'local';
-        var src = (a.source_filename || '').substring(0, 40) || '?';
-        card.innerHTML =
-            '<div class="c-top">' +
-            '<span class="c-id">#' + a.call_id + '</span>' +
-            '<span class="c-contact" onclick="window._openProfile(\'' + esc(a.contact) + '\')">' + esh(a.contact) + '</span>' +
-            '<span class="c-badge ' + statusCls + '">' + statusIcon + '</span>' +
-            '<span class="c-risk ' + riskCls + '">' + riskEmoji + ' ' + a.risk_score + '</span>' +
-            '<span class="c-type">' + esh(a.call_type || '?') + '</span>' +
-            '<span class="c-dir">' + dir + '</span>' +
-            '<span class="c-time">' + ts + '</span>' +
-            '</div>' +
-            '<div class="c-meta">' +
-            '<span>date: ' + callDate + '</span>' +
-            '<span>dur: ' + dur + '</span>' +
-            '<span>model: ' + model + '</span>' +
-            '<span>src: ' + src + '</span>' +
-            '<span>schema: ' + esh(a.schema_version || 'v2') + '</span>' +
-            '</div>' +
-            (a.summary ? '<div class="c-summary">' + esh(a.summary) + '</div>' : '') +
-            '<div class="c-audio"><button class="btn-audio" onclick="window._playAudio(' + a.call_id + ', this)">&#9654;&#65039; Прослушать</button></div>';
-        feed.insertBefore(card, feed.firstChild);
-        while (feed.children.length > MAX) feed.lastChild.remove();
+    // ── SSE ────────────────────────────────────────────────────────────────
+    function connectSSE() {
+        var es = new EventSource('/api/sse');
+        es.onopen = function() {
+            state.sseConnected = true;
+            sseDot.className = 'sse-indicator connected';
+            sseDot.title = 'SSE connected';
+        };
+        es.onmessage = function(evt) {
+            try {
+                var data = JSON.parse(evt.data);
+                if (data.type === 'tick' && state.activeTab === 'overview') {
+                    updateStatCards(data.status);
+                    addFeedItem(data.status);
+                }
+            } catch (e) { /* ignore parse errors */ }
+        };
+        es.onerror = function() {
+            state.sseConnected = false;
+            sseDot.className = 'sse-indicator disconnected';
+            sseDot.title = 'SSE disconnected — reconnecting...';
+            es.close();
+            setTimeout(connectSSE, 5000);
+        };
+    }
+    connectSSE();
+
+    // ── Overview ───────────────────────────────────────────────────────────
+    function loadOverview() {
+        fetch('/api/overview')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                updateStatCards(data.status || data);
+                renderPipeline(data.status || data);
+                if (typeof echarts !== 'undefined') {
+                    renderTrendChart();
+                    renderDistChart();
+                }
+            })
+            .catch(function(e) { console.error('Overview load failed:', e); });
     }
 
-    function updateStats(s) {
-        var el;
-        el = document.getElementById('s-calls'); if (el) el.textContent = fmt(s.total_calls);
-        el = document.getElementById('s-entities'); if (el) el.textContent = fmt(s.total_entities);
-        el = document.getElementById('s-portraits'); if (el) el.textContent = fmt(s.total_portraits);
-        el = document.getElementById('s-risk');
-        if (el && s.avg_risk != null) el.textContent = Math.round(s.avg_risk) + '%';
-    }
-
-    // ── Characters Tab ───────────────────────────────────────────────────
-    var allChars = [];
-    var activeCharId = null;
-
-    function loadCharacters() {
-        var list = document.getElementById('char-list');
-        if (!list) return;
-        if (list.children.length > 0 && list.children[0].className === 'char-item') return;
-        list.innerHTML = '<div class="loading">загрузка...</div>';
-        fetch('/api/characters').then(function(r) { return r.json(); }).then(function(data) {
-            allChars = data || [];
-            renderCharList(allChars);
-            document.getElementById('char-count').textContent = allChars.length + ' персонажей';
-        }).catch(function() {
-            list.innerHTML = '<div class="nodata">Ошибка загрузки</div>';
+    function updateStatCards(status) {
+        var total = (status.processed || 0) + (status.pending || 0) + (status.error || 0);
+        var cards = $$('#stat-cards .stat-card');
+        var values = [
+            total,
+            status.pending || 0,
+            status.error || 0,
+            status.processed || 0,
+        ];
+        cards.forEach(function(card, i) {
+            card.classList.remove('skeleton');
+            card.querySelector('.stat-value').textContent = values[i];
         });
     }
 
-    function renderCharList(chars) {
-        var list = document.getElementById('char-list');
-        if (!list) return;
-        list.innerHTML = '';
-        if (!chars.length) { list.innerHTML = '<div class="nodata">Нет персонажей</div>'; return; }
-        chars.forEach(function(c) {
-            var div = document.createElement('div');
-            div.className = 'char-item';
-            if (c.avg_risk && c.avg_risk >= 70) div.classList.add('char-risk-high');
-            else if (c.avg_risk && c.avg_risk >= 40) div.classList.add('char-risk-med');
-            if (c.entity_id === activeCharId) div.classList.add('active');
-            div.innerHTML =
-                '<div class="char-name">' + esh(c.canonical_name) + ' <span style="font-size:10px;color:var(--muted)">' + esh(c.entity_type) + '</span></div>' +
-                '<div class="char-label">' + esh(c.character_label || '') + '</div>' +
-                '<div class="char-meta">' +
-                '<span>звонков: ' + (c.total_calls || 0) + '</span>' +
-                '<span>риск: ' + (c.avg_risk != null ? Math.round(c.avg_risk) : '?') + '</span>' +
-                '<span>BS: ' + (c.bs_index != null ? Math.round(c.bs_index) : '?') + '</span>' +
-                '</div>';
-            div.onclick = function() { showCharacter(c.entity_id, div); };
-            list.appendChild(div);
-        });
-    }
-
-    window.filterCharacters = function() {
-        var q = (document.getElementById('char-search').value || '').toLowerCase();
-        var filtered = allChars.filter(function(c) {
-            var s = (c.canonical_name || '') + ' ' + (c.character_label || '') + ' ' + (c.entity_type || '');
-            return s.toLowerCase().indexOf(q) >= 0;
-        });
-        renderCharList(filtered);
-    };
-
-    function showCharacter(entityId, el) {
-        activeCharId = entityId;
-        var items = document.querySelectorAll('#char-list .char-item');
-        items.forEach(function(it) { it.classList.remove('active'); });
-        if (el) el.classList.add('active');
-
-        var body = document.getElementById('char-profile-body');
-        body.innerHTML = '<div class="loading">загрузка...</div>';
-        document.getElementById('char-profile-name').textContent = 'Загрузка...';
-
-        fetch('/api/character/' + entityId).then(function(r) { return r.json(); }).then(function(p) {
-            document.getElementById('char-profile-name').textContent = p.canonical_name || '?';
-            renderCharacterProfile(p, body);
-        }).catch(function() {
-            body.innerHTML = '<div class="nodata">Ошибка загрузки</div>';
-        });
-    }
-
-    function renderCharacterProfile(p, body) {
-        var risk = p.avg_risk != null ? Math.round(p.avg_risk) : '?';
-        var bs = p.bs_index != null ? Math.round(p.bs_index) : '?';
-        var t = p.temperament || {};
-        var bf = p.big_five || {};
-        var mot = p.motivation || {};
-
+    function renderPipeline(status) {
+        var steps = ['new', 'normalizing', 'transcribing', 'diarizing', 'analyzing', 'done'];
+        var labels = ['New', 'Norm', 'Transcribe', 'Diarize', 'Analyze', 'Done'];
+        var stepper = $('#pipeline-stepper');
+        stepper.classList.remove('skeleton');
         var html = '';
-
-        // Summary
-        if (p.character_summary) {
-            html += '<div class="prof-section"><h4>Характеристика</h4><p>' + esh(p.character_summary) + '</p></div>';
-        }
-
-        // Key metrics
-        html += '<div class="prof-section"><h4>Метрики</h4><div class="prof-grid">';
-        html += kv('Риск', risk + '%'); html += kv('BS индекс', bs);
-        html += kv('Звонков', p.total_calls || 0);
-        html += kv('Тип', esh(p.entity_type || '?'));
-        if (p.trust_score != null) html += kv('Доверие', Math.round(p.trust_score));
-        if (p.volatility != null) html += kv('Волатильность', (p.volatility * 100).toFixed(0) + '%');
-        if (p.conflict_count != null) html += kv('Конфликтов', p.conflict_count);
-        html += '</div></div>';
-
-        // Psychology
-        if (t.type || Object.keys(bf).length) {
-            html += '<div class="prof-section"><h4>Психология</h4><div class="prof-grid">';
-            if (t.type) html += kv('Темперамент', t.type);
-            if (t.energy) html += kv('Энергия', t.energy);
-            if (t.reactivity) html += kv('Реактивность', t.reactivity);
-            if (bf.openness != null) html += kv('Открытость', (bf.openness * 100).toFixed(0) + '%');
-            if (bf.conscientiousness != null) html += kv('Сознательность', (bf.conscientiousness * 100).toFixed(0) + '%');
-            if (bf.extraversion != null) html += kv('Экстраверсия', (bf.extraversion * 100).toFixed(0) + '%');
-            if (bf.agreeableness != null) html += kv('Доброжелательность', (bf.agreeableness * 100).toFixed(0) + '%');
-            if (bf.neuroticism != null) html += kv('Нейротизм', (bf.neuroticism * 100).toFixed(0) + '%');
-            html += '</div></div>';
-        }
-
-        // Motivation
-        if (mot.primary || (mot.drivers && mot.drivers.length)) {
-            html += '<div class="prof-section"><h4>Мотивация</h4><p>';
-            html += '<strong>' + esh(mot.primary || '?') + '</strong> ';
-            if (mot.drivers) {
-                mot.drivers.forEach(function(d) {
-                    html += '<span class="tag">' + esh(d.driver) + ' ' + (d.weight ? (d.weight * 100).toFixed(0) + '%' : '') + '</span>';
-                });
-            }
-            html += '</p></div>';
-        }
-
-        // Patterns
-        if (p.patterns && p.patterns.length) {
-            html += '<div class="prof-section"><h4>Поведенческие паттерны</h4><p>';
-            p.patterns.forEach(function(pt) {
-                var cls = pt.severity === 'positive' ? 'pattern-positive' :
-                    pt.severity === 'high' ? 'pattern-high' :
-                    pt.severity === 'medium' ? 'pattern-medium' : 'pattern-negative';
-                var icon = pt.severity === 'positive' ? '&#10003;' : pt.severity === 'high' ? '&#9888;' : '&#9432;';
-                html += '<span class="pattern-badge ' + cls + '">' + icon + ' ' + esh(pt.label || pt.name) + (pt.ratio != null ? ' (' + (pt.ratio * 100).toFixed(0) + '%)' : '') + '</span>';
-            });
-            html += '</p></div>';
-        }
-
-        // Contradictions
-        if (p.contradictions && p.contradictions.length) {
-            html += '<div class="prof-section"><h4>Противоречия</h4>';
-            p.contradictions.forEach(function(cr) {
-                html += '<p style="font-size:12px;margin-bottom:4px;padding:6px;background:var(--bg);border-radius:4px">';
-                html += '<span style="color:var(--yellow)">' + esh(cr.severity) + '</span> ';
-                html += '"' + esh((cr.quote_1 || '') + ' vs ' + (cr.quote_2 || '')) + '" ';
-                html += '<span style="color:var(--muted);font-size:10px">' + cr.delta_days + 'д</span>';
-                html += '</p>';
-            });
+        steps.forEach(function(s, i) {
+            var count = status[s] || 0;
+            var cls = 'pipe-dot';
+            if (s === 'error' && count > 0) cls += ' error';
+            else if (count > 0 && s === 'done') cls += ' active';
+            html += '<div class="pipe-step">';
+            html += '<div class="' + cls + '"></div>';
+            html += '<span class="pipe-count">' + count + '</span>';
+            html += '<span class="pipe-label">' + labels[i] + '</span>';
             html += '</div>';
-        }
-
-        // Contact
-        if (p.contact && p.contact.contact_id) {
-            html += '<div class="prof-section"><h4>Контакт</h4>';
-            html += '<p>Телефон: ' + esh(p.contact.phone_e164 || '?') + ' | ';
-            html += 'Имя: ' + esh(p.contact.display_name || p.contact.guessed_name || '?');
-            html += ' <button class="btn-link" onclick="window._openContact(' + p.contact.contact_id + ')"' +
-                    ' title="Открыть полный профиль контакта">&#8599;</button>';
-            html += '</p></div>';
-        }
-
-        // Promises
-        if (p.open_promises && p.open_promises.length) {
-            html += '<div class="prof-section"><h4>Открытые обещания</h4>';
-            p.open_promises.forEach(function(pr) {
-                html += '<div class="promise-item">';
-                html += '<div class="promise-what">' + esh(pr.what || '?') + '</div>';
-                html += '<div class="promise-status">' + esh(pr.status || 'open') + (pr.due ? ' · до ' + pr.due : '') + '</div>';
-                html += '</div>';
-            });
-            html += '</div>';
-        }
-
-        // Recent calls
-        if (p.recent_calls && p.recent_calls.length) {
-            html += '<div class="prof-section"><h4>Последние звонки</h4>';
-            p.recent_calls.forEach(function(c) {
-                var dt = (c.call_datetime || '').substring(0, 16);
-                var cr = c.risk_score != null ? Math.round(c.risk_score) : '?';
-                var crCls = c.risk_score >= 70 ? 'var(--red)' : c.risk_score >= 40 ? 'var(--yellow)' : 'var(--green)';
-                html += '<div class="call-history-item">';
-                html += '<span class="chi-date">' + dt + '</span>';
-                html += '<span class="chi-summary">' + esh((c.summary || c.contact_label || '').substring(0, 80)) + '</span>';
-                html += '<span class="chi-risk" style="color:' + crCls + '">' + cr + '</span>';
-                html += '</div>';
-            });
-            html += '</div>';
-        }
-
-        // Portrait
-        if (p.prose) {
-            html += '<div class="prof-section"><h4>Литературный портрет</h4>';
-            html += '<div class="portrait-prose">' + esh(p.prose) + '</div>';
-            if (p.traits && p.traits.length) {
-                html += '<p style="margin-top:8px">';
-                p.traits.forEach(function(tr) { html += '<span class="tag">' + esh(tr) + '</span>'; });
-                html += '</p>';
-            }
-            html += '</div>';
-        }
-
-        body.innerHTML = html;
-    }
-
-    function kv(label, value) {
-        return '<div class="prof-kv"><div class="kv-label">' + esh(label) + '</div><div class="kv-value">' + esh(String(value)) + '</div></div>';
-    }
-
-    // ── Analytics Tab ────────────────────────────────────────────────────
-    var charts = {};
-
-    function loadAnalytics() {
-        var body = document.getElementById('tab-analytics');
-        if (body.dataset.loaded === '1') return;
-        body.dataset.loaded = '1';
-        fetch('/api/analytics').then(function(r) { return r.json(); }).then(function(data) {
-            renderAnalyticsCharts(data);
-        }).catch(function() {}).then(function() {
-            loadAnalyticsFromLocal();
         });
+        stepper.innerHTML = html;
     }
 
-    function loadAnalyticsFromLocal() {
-        fetch('/api/analytics').then(function(r) { return r.json(); }).then(function(data) {
-            renderAnalyticsCharts(data);
-        }).catch(function(e) { console.log('Analytics endpoint not ready yet:', e); });
+    var feedItems = [];
+    function addFeedItem(status) {
+        var now = new Date();
+        var time = String(now.getHours()).padStart(2, '0') + ':' +
+                   String(now.getMinutes()).padStart(2, '0') + ':' +
+                   String(now.getSeconds()).padStart(2, '0');
+        var msg = 'Processed: ' + (status.processed || 0) +
+                  ' | Pending: ' + (status.pending || 0) +
+                  ' | Errors: ' + (status.error || 0);
+        feedItems.unshift({ time: time, msg: msg, cls: status.error > 0 ? 'err' : 'ok' });
+        if (feedItems.length > 20) feedItems.length = 20;
+        var feed = $('#realtime-feed');
+        feed.innerHTML = feedItems.map(function(item) {
+            return '<div class="feed-item">' +
+                   '<span class="feed-dot ' + item.cls + '"></span>' +
+                   '<span class="feed-time">' + item.time + '</span>' +
+                   '<span class="feed-msg">' + item.msg + '</span>' +
+                   '</div>';
+        }).join('');
     }
 
-    function renderAnalyticsCharts(data) {
-        if (!data || !data.calls_by_day) return;
-        destroyChart('chart-calls-by-day');
-        destroyChart('chart-risk-dist');
-        destroyChart('chart-top-calls');
-        destroyChart('chart-top-risk');
-        destroyChart('chart-temperament');
-        destroyChart('chart-call-types');
-
-        charts['calls_by_day'] = new Chart(document.getElementById('chart-calls-by-day'), barChart(
-            data.calls_by_day.map(function(d) { return d.date; }),
-            data.calls_by_day.map(function(d) { return d.count; }),
-            'Звонки'
-        ));
-        charts['risk_dist'] = new Chart(document.getElementById('chart-risk-dist'), doughnutChart(
-            ['0-20', '20-40', '40-60', '60-80', '80-100'],
-            data.risk_distribution
-        ));
-        charts['top_calls'] = new Chart(document.getElementById('chart-top-calls'), hbarChart(
-            (data.top_contacts_by_calls || []).map(function(d) { return d.name; }),
-            (data.top_contacts_by_calls || []).map(function(d) { return d.count; }),
-            'Звонков'
-        ));
-        charts['top_risk'] = new Chart(document.getElementById('chart-top-risk'), hbarChart(
-            (data.top_contacts_by_risk || []).map(function(d) { return d.name; }),
-            (data.top_contacts_by_risk || []).map(function(d) { return d.avg_risk; }),
-            'Ср.риск'
-        ));
-        charts['temperament'] = new Chart(document.getElementById('chart-temperament'), doughnutChart(
-            Object.keys(data.temperament_distribution || {}),
-            Object.values(data.temperament_distribution || {})
-        ));
-        charts['call_types'] = new Chart(document.getElementById('chart-call-types'), doughnutChart(
-            Object.keys(data.call_type_distribution || {}),
-            Object.values(data.call_type_distribution || {})
-        ));
-    }
-
-    function destroyChart(id) {
-        if (charts[id]) { charts[id].destroy(); delete charts[id]; }
-    }
-
-    function barChart(labels, data, label) {
-        return { type: 'bar', data: { labels: labels, datasets: [{ label: label, data: data, backgroundColor: '#3b82f6', borderRadius: 4 }] }, options: chartOptions() };
-    }
-    function hbarChart(labels, data, label) {
-        return { type: 'bar', data: { labels: labels, datasets: [{ label: label, data: data, backgroundColor: '#8b5cf6', borderRadius: 4 }] }, options: hbarOptions() };
-    }
-    function doughnutChart(labels, data) {
-        return { type: 'doughnut', data: { labels: labels, datasets: [{ data: data, backgroundColor: ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6','#f97316'] }] }, options: doughnutOptions() };
-    }
-    function chartOptions() {
-        return { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#94a3b8', maxTicksLimit: 12 }, grid: { display: false } }, y: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } } } };
-    }
-    function hbarOptions() {
-        return { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } }, y: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { display: false } } } };
-    }
-    function doughnutOptions() {
-        return { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8', font: { size: 10 } } } } };
-    }
-
-    // ── Tools Tab ────────────────────────────────────────────────────────
-    function loadToolsStatus() {
-        var body = document.getElementById('tools-status-body');
-        if (!body) return;
-        fetch('/api/tools/status').then(function(r) { return r.json(); }).then(function(s) {
-            var byStatus = s.by_status || {};
-            body.innerHTML =
-                '<table class="status-table">' +
-                '<tr><td>Обработано</td><td>' + fmt(s.processed) + '</td></tr>' +
-                '<tr><td>В очереди</td><td>' + fmt(s.pending) + '</td></tr>' +
-                '<tr><td>Ошибок</td><td>' + fmt(s.error) + '</td></tr>' +
-                '<tr><td>Без имени</td><td>' + fmt(s.contacts_without_name) + '</td></tr>' +
-                '</table>';
-        }).catch(function() {
-            body.innerHTML = '<div class="nodata">Ошибка загрузки</div>';
-        });
-        loadToolsHistory();
-    }
-
-    function loadToolsHistory() {
-        var log = document.getElementById('tools-log-body');
-        if (!log || log.dataset.loaded === '1') return;
-        log.dataset.loaded = '1';
-        fetch('/api/tools/history').then(function(r) { return r.json(); }).then(function(entries) {
-            if (!entries || !entries.length) return;
-            log.innerHTML = '';
-            entries.forEach(function(e) {
-                log.innerHTML += '<div class="tool-msg">' +
-                    (e.ts || '') + ' · ' + esh(e.message || '?') + '</div>';
-            });
-        }).catch(function() {
-            log.innerHTML = '<div class="nodata">Загрузка истории...</div>';
-        });
-    }
-
-    window.toolAction = function(url) {
-        var btns = document.querySelectorAll('.tool-btn');
-        btns.forEach(function(b) { b.disabled = true; });
-        var log = document.getElementById('tools-log-body');
-        log.innerHTML = '<div class="loading">выполнение...</div>';
-        fetch(url, { method: 'POST' }).then(function(r) { return r.json(); }).then(function(res) {
-            log.innerHTML = '<div class="tool-msg ' + (res.status === 'ok' ? '' : 'error') + '">' +
-                new Date().toLocaleTimeString() + ' · ' + esh(res.message || 'OK') + '</div>' + log.innerHTML;
-            btns.forEach(function(b) { b.disabled = false; });
-        }).catch(function() {
-            log.innerHTML = '<div class="tool-msg error">' + new Date().toLocaleTimeString() + ' · Ошибка</div>' + log.innerHTML;
-            btns.forEach(function(b) { b.disabled = false; });
-        });
-    };
-
-    // ── Shutdown ──────────────────────────────────────────────────────────
-    window.doShutdown = function() {
-        if (!confirm('Stop dashboard server and close?')) return;
-        fetch('/api/shutdown').then(function() {
-            document.body.innerHTML = '<div style="color:#10b981;text-align:center;padding:100px;font-size:24px">Server stopped. You may close this tab.</div>';
-            setTimeout(function() { window.close(); }, 2000);
-        }).catch(function() {});
-    };
-
-    // ── Entity Profile (live feed modal) ──────────────────────────────────
-    window._openProfile = function(name) {
-        if (!name || name === '?') return;
-        document.getElementById('modal-name').textContent = name;
-        document.getElementById('modal-overlay').style.display = 'flex';
-        document.getElementById('modal-body').innerHTML = '<div class="loading">loading...</div>';
-        fetch('/api/history?limit=300')
-            .then(function(r) { return r.json(); })
-            .then(function(hist) {
-                var m = null;
-                for (var i = 0; i < hist.length; i++) {
-                    if (hist[i].contact_label && hist[i].contact_label.indexOf(name) >= 0) {
-                        m = hist[i]; break;
-                    }
+    // ECharts trend chart
+    function renderTrendChart() {
+        var el = $('#chart-trend');
+        if (!el) return;
+        var chart = echarts.init(el);
+        var days = [];
+        for (var i = 6; i >= 0; i--) {
+            var d = new Date();
+            d.setDate(d.getDate() - i);
+            days.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+        }
+        chart.setOption({
+            grid: { top: 10, right: 16, bottom: 24, left: 44 },
+            xAxis: { type: 'category', data: days, axisLine: { lineStyle: { color: '#1e293b' } }, axisLabel: { color: '#64748b', fontSize: 10 } },
+            yAxis: { type: 'value', splitLine: { lineStyle: { color: '#1e293b' } }, axisLabel: { color: '#64748b', fontSize: 10 } },
+            series: [{
+                data: [0, 0, 0, 0, 0, 0, 0],
+                type: 'line',
+                smooth: true,
+                symbol: 'circle',
+                symbolSize: 6,
+                lineStyle: { color: '#00D4C8', width: 2 },
+                itemStyle: { color: '#00D4C8' },
+                areaStyle: {
+                    color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                        { offset: 0, color: 'rgba(0,212,200,0.2)' },
+                        { offset: 1, color: 'rgba(0,212,200,0)' }
+                    ])
                 }
-                if (m) {
-                    document.getElementById('modal-body').innerHTML =
-                        '<div class="prof">' +
-                        '<p><b>Contact:</b> ' + esh(name) + '</p>' +
-                        '<p><b>Call type:</b> ' + esh(m.call_type || '?') + '</p>' +
-                        '<p><b>Risk:</b> ' + m.risk_score + '</p>' +
-                        '<p><b>Last call:</b> ' + (m.call_datetime || '').substring(0, 16) + '</p>' +
-                        '<p class="hint">Full profile: switch to Characters tab</p>' +
-                        '</div>';
-                } else {
-                    document.getElementById('modal-body').innerHTML = '<div class="nodata">not found</div>';
-                }
-            })
-            .catch(function() {
-                document.getElementById('modal-body').innerHTML = '<div class="nodata">error</div>';
-            });
-    };
-
-    document.getElementById('modal-close').onclick = function() {
-        document.getElementById('modal-overlay').style.display = 'none';
-    };
-    document.getElementById('modal-overlay').onclick = function(e) {
-        if (e.target === document.getElementById('modal-overlay')) {
-            document.getElementById('modal-overlay').style.display = 'none';
-        }
-    };
-
-    // ── Audio player ──────────────────────────────────────────────────────
-    window._playAudio = function(callId, el) {
-        var audio = new Audio('/api/audio/' + callId);
-        audio.onerror = function() { el.textContent = 'err'; };
-        audio.onended = function() { el.textContent = '\u25b6\ufe0f \u041f\u0440\u043e\u0441\u043b\u0443\u0448\u0430\u0442\u044c'; };
-        audio.play();
-        el.textContent = '\u23f8\ufe0f ...';
-    };
-
-    // ── Contact Profile ───────────────────────────────────────────────────
-    window._openContact = function(contactId) {
-        document.getElementById('modal-name').textContent = 'Контакт #' + contactId;
-        document.getElementById('modal-overlay').style.display = 'flex';
-        document.getElementById('modal-body').innerHTML = '<div class="loading">loading...</div>';
-        fetch('/api/contact/' + contactId)
+            }]
+        });
+        // Fetch real data
+        fetch('/api/calls?limit=7&offset=0')
             .then(function(r) { return r.json(); })
-            .then(function(c) {
-                var html = '<div class="prof">' +
-                    '<p><b>Имя:</b> ' + esh(c.display_name || c.guessed_name || '?') + '</p>' +
-                    '<p><b>Телефон:</b> ' + esh(c.phone_e164 || '?') + '</p>' +
-                    '<p><b>Звонков:</b> ' + (c.call_count || 0) + '</p>' +
-                    '<p><b>Последний:</b> ' + (c.last_call || '?').substring(0, 16) + '</p>';
-                if (c.linked_entities && c.linked_entities.length) {
-                    html += '<p><b>Связанные персонажи:</b> ';
-                    c.linked_entities.forEach(function(eid) {
-                        html += '<button class="btn-link" onclick="window._openEntity(' + eid + ')">#' + eid + '</button> ';
+            .then(function(data) {
+                var counts = [0, 0, 0, 0, 0, 0, 0];
+                if (data.calls) {
+                    data.calls.forEach(function(c) {
+                        if (c.created_at) {
+                            var callDate = new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                            var idx = days.indexOf(callDate);
+                            if (idx >= 0) counts[idx]++;
+                        }
                     });
-                    html += '</p>';
                 }
-                html += '</div>';
-                document.getElementById('modal-body').innerHTML = html;
+                chart.setOption({ series: [{ data: counts }] });
             })
-            .catch(function() {
-                document.getElementById('modal-body').innerHTML = '<div class="nodata">Ошибка загрузки</div>';
+            .catch(function() {});
+        window.addEventListener('resize', function() { chart.resize(); });
+    }
+
+    // ECharts distribution chart
+    function renderDistChart() {
+        var el = $('#chart-dist');
+        if (!el) return;
+        var chart = echarts.init(el);
+        chart.setOption({
+            tooltip: { trigger: 'item' },
+            legend: { bottom: 0, textStyle: { color: '#8B95A5', fontSize: 10 } },
+            series: [{
+                type: 'pie',
+                radius: ['45%', '72%'],
+                center: ['50%', '46%'],
+                itemStyle: { borderColor: '#060B16', borderWidth: 2 },
+                label: { color: '#8B95A5', fontSize: 10 },
+                data: [
+                    { value: 1, name: 'Incoming', itemStyle: { color: '#00D4C8' } },
+                    { value: 1, name: 'Outgoing', itemStyle: { color: '#00A8FF' } },
+                    { value: 1, name: 'Missed', itemStyle: { color: '#FFB800' } },
+                    { value: 1, name: 'Unknown', itemStyle: { color: '#4A5568' } },
+                ]
+            }]
+        });
+        // Fetch real data
+        fetch('/api/calls?limit=500&offset=0')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var dist = { incoming: 0, outgoing: 0, missed: 0, unknown: 0 };
+                if (data.calls) {
+                    data.calls.forEach(function(c) {
+                        var t = (c.direction || '').toLowerCase();
+                        if (t === 'incoming' || t === 'in') dist.incoming++;
+                        else if (t === 'outgoing' || t === 'out') dist.outgoing++;
+                        else if (t === 'missed') dist.missed++;
+                        else dist.unknown++;
+                    });
+                }
+                chart.setOption({ series: [{ data: [
+                    { value: dist.incoming || 0, name: 'Incoming', itemStyle: { color: '#00D4C8' } },
+                    { value: dist.outgoing || 0, name: 'Outgoing', itemStyle: { color: '#00A8FF' } },
+                    { value: dist.missed || 0, name: 'Missed', itemStyle: { color: '#FFB800' } },
+                    { value: dist.unknown || 0, name: 'Unknown', itemStyle: { color: '#4A5568' } },
+                ]}]});
+            })
+            .catch(function() {});
+        window.addEventListener('resize', function() { chart.resize(); });
+    }
+
+    // ── Calls Tab ──────────────────────────────────────────────────────────
+    function loadCalls(page) {
+        if (page === undefined) page = state.callsPage;
+        state.callsPage = page;
+        var offset = page * state.callsLimit;
+        fetch('/api/calls?limit=' + state.callsLimit + '&offset=' + offset)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                renderCallsTable(data.calls || []);
+                $('#calls-page').textContent = 'Page ' + (page + 1);
+                $('#calls-prev').disabled = page === 0;
+            })
+            .catch(function(e) { console.error('Calls load failed:', e); });
+    }
+
+    function renderCallsTable(calls) {
+        var tbody = $('#calls-table tbody');
+        if (calls.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" style="color:var(--text-muted);text-align:center">No calls found</td></tr>';
+            return;
+        }
+        tbody.innerHTML = calls.map(function(c) {
+            var created = c.created_at ? new Date(c.created_at).toLocaleString() : '--';
+            var contact = c.display_name || c.phone_e164 || '--';
+            var duration = c.duration_sec ? Math.floor(c.duration_sec / 60) + 'm ' + (c.duration_sec % 60) + 's' : '--';
+            var status = c.status || '--';
+            var risk = c.risk_score != null ? c.risk_score : '--';
+            var cls = risk > 0.6 ? 'risk-high' : (risk > 0.3 ? 'risk-med' : 'risk-low');
+            var type = c.direction || '--';
+            var summary = c.summary ? c.summary.substring(0, 80) : '--';
+            var badge = status === 'done' ? 'badge-done' : (status === 'error' ? 'badge-error' : 'badge-pending');
+            if (status === 'processing' || status === 'analyzing' || status === 'transcribing' || status === 'diarizing') badge = 'badge-processing';
+            return '<tr>' +
+                '<td>' + (c.call_id || '--') + '</td>' +
+                '<td>' + created + '</td>' +
+                '<td>' + contact + '</td>' +
+                '<td>' + duration + '</td>' +
+                '<td><span class="badge ' + badge + '">' + status + '</span></td>' +
+                '<td><span class="risk ' + cls + '">' + risk + '</span></td>' +
+                '<td>' + type + '</td>' +
+                '<td>' + summary + '</td>' +
+                '</tr>';
+        }).join('');
+    }
+
+    $('#calls-prev').addEventListener('click', function() {
+        if (state.callsPage > 0) loadCalls(state.callsPage - 1);
+    });
+    $('#calls-next').addEventListener('click', function() {
+        loadCalls(state.callsPage + 1);
+    });
+    $('#calls-export').addEventListener('click', function() {
+        toast('CSV export coming soon', '');
+    });
+
+    // ── Search Tab ─────────────────────────────────────────────────────────
+    $('#search-btn').addEventListener('click', function() {
+        var q = $('#search-input').value.trim();
+        if (!q) return;
+        state.searchQuery = q;
+        fetch('/api/search?q=' + encodeURIComponent(q) + '&limit=20')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                renderSearchResults(data.results || []);
+            })
+            .catch(function(e) { console.error('Search failed:', e); });
+    });
+    $('#search-input').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') $('#search-btn').click();
+    });
+
+    function renderSearchResults(results) {
+        var el = $('#search-results');
+        if (results.length === 0) {
+            el.innerHTML = '<div class="empty-state">No results found for "' + state.searchQuery + '"</div>';
+            return;
+        }
+        el.innerHTML = results.map(function(r) {
+            return '<div class="feed-item" style="cursor:pointer">' +
+                '<span class="feed-dot ok"></span>' +
+                '<span class="feed-msg"><strong>' + (r.snippet || r.text || '--') + '</strong></span>' +
+                '</div>';
+        }).join('');
+    }
+
+    // ── Entities Tab ───────────────────────────────────────────────────────
+    function loadEntities() {
+        fetch('/api/entities?limit=100')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                renderEntitiesTable(data.entities || []);
+            })
+            .catch(function(e) { console.error('Entities load failed:', e); });
+    }
+
+    function renderEntitiesTable(entities) {
+        var tbody = $('#entities-table tbody');
+        if (entities.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-muted);text-align:center">No entities found</td></tr>';
+            return;
+        }
+        tbody.innerHTML = entities.map(function(e) {
+            return '<tr>' +
+                '<td>' + (e.display_name || e.phone_e164 || '--') + '</td>' +
+                '<td>' + (e.entity_type || '--') + '</td>' +
+                '<td>' + (e.call_count || 0) + '</td>' +
+                '<td>' + (e.bs_index != null ? e.bs_index.toFixed(2) : '--') + '</td>' +
+                '<td>' + (e.risk_score != null ? '<span class="risk ' + (e.risk_score > 0.6 ? 'risk-high' : (e.risk_score > 0.3 ? 'risk-med' : 'risk-low')) + '">' + e.risk_score.toFixed(2) + '</span>' : '--') + '</td>' +
+                '<td>' + (e.last_seen || '--') + '</td>' +
+                '</tr>';
+        }).join('');
+    }
+
+    // ── System Tab ─────────────────────────────────────────────────────────
+    function loadSystem() {
+        fetch('/api/system')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                $('#sys-metrics').innerHTML =
+                    '<div class="sys-row"><span class="sys-label">CPU</span><span class="sys-value">' + data.cpu_percent + '%</span></div>' +
+                    '<div class="sys-row"><span class="sys-label">RAM</span><span class="sys-value">' + data.ram.used_gb + ' / ' + data.ram.total_gb + ' GB</span></div>' +
+                    '<div class="sys-row"><span class="sys-label">Disk</span><span class="sys-value">' + data.disk.used_gb + ' / ' + data.disk.total_gb + ' GB</span></div>' +
+                    '<div class="sys-row"><span class="sys-label">Version</span><span class="sys-value">' + data.version + '</span></div>';
+                $('#sys-db').innerHTML =
+                    '<div class="sys-row"><span class="sys-label">DB Path</span><span class="sys-value">' + data.db_path + '</span></div>';
+                $('#footer-api').textContent = 'API v' + data.version + ' ● healthy';
+                $('#footer-db').textContent = 'DB: ' + data.db_path.split('\\').slice(-2).join('\\');
+            })
+            .catch(function(e) { console.error('System load failed:', e); });
+    }
+
+    // ── Command Palette ────────────────────────────────────────────────────
+    var commands = [
+        { name: 'Go to Overview', shortcut: '1', action: function() { switchTab('overview'); } },
+        { name: 'Go to Calls', shortcut: '2', action: function() { switchTab('calls'); } },
+        { name: 'Go to Search', shortcut: '3', action: function() { switchTab('search'); } },
+        { name: 'Go to Entities', shortcut: '4', action: function() { switchTab('entities'); } },
+        { name: 'Go to System', shortcut: '5', action: function() { switchTab('system'); } },
+        { name: 'Focus Search', shortcut: '/', action: function() { switchTab('search'); setTimeout(function() { $('#search-input').focus(); }, 100); } },
+    ];
+
+    function openCmdPalette() {
+        var overlay = $('#cmd-overlay');
+        var input = $('#cmd-input');
+        var results = $('#cmd-results');
+        overlay.classList.add('open');
+        input.value = '';
+        input.focus();
+        renderCmdResults('');
+    }
+
+    function closeCmdPalette() {
+        $('#cmd-overlay').classList.remove('open');
+    }
+
+    function renderCmdResults(filter) {
+        var results = $('#cmd-results');
+        var f = filter.toLowerCase();
+        var filtered = commands.filter(function(c) { return c.name.toLowerCase().indexOf(f) >= 0; });
+        results.innerHTML = filtered.map(function(c) {
+            return '<div class="cmd-result-item" data-action="' + c.name + '">' +
+                '<span>' + c.name + '</span>' +
+                '<span class="cmd-result-shortcut">' + c.shortcut + '</span>' +
+                '</div>';
+        }).join('');
+        // Click handler
+        results.querySelectorAll('.cmd-result-item').forEach(function(item) {
+            item.addEventListener('click', function() {
+                var name = item.dataset.action;
+                var cmd = commands.find(function(c) { return c.name === name; });
+                if (cmd) { cmd.action(); closeCmdPalette(); }
             });
-    };
+        });
+    }
 
-    // ── Entity detail ──────────────────────────────────────────────────────
-    window._openEntity = function(entityId) {
-        window.location.hash = '#tab-characters';
-        document.getElementById('modal-overlay').style.display = 'none';
-        var tabs = document.querySelectorAll('#tab-nav .tab');
-        tabs.forEach(function(tb) { tb.classList.remove('active'); });
-        document.querySelector('[data-tab=\"characters\"]').classList.add('active');
-        var panels = document.querySelectorAll('.tab-panel');
-        panels.forEach(function(p) { p.classList.remove('active'); });
-        document.getElementById('tab-characters').classList.add('active');
-        loadCharacters().then ? loadCharacters().then(function() {
-            showCharacter(entityId, null);
-        }) : (loadCharacters(), setTimeout(function() { showCharacter(entityId, null); }, 500));
-    };
+    $('#cmd-trigger').addEventListener('click', openCmdPalette);
+    $('#cmd-input').addEventListener('input', function() { renderCmdResults(this.value); });
+    $('#cmd-input').addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeCmdPalette();
+        if (e.key === 'Enter') {
+            var first = $('#cmd-results .cmd-result-item');
+            if (first) first.click();
+        }
+    });
+    $('#cmd-overlay').addEventListener('click', function(e) {
+        if (e.target === this) closeCmdPalette();
+    });
 
-    // ── Helpers ───────────────────────────────────────────────────────────
-    function fmt(n) {
-        if (n == null) return '--';
-        if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
-        return String(n);
+    // ── Keyboard Shortcuts ─────────────────────────────────────────────────
+    document.addEventListener('keydown', function(e) {
+        // Cmd+K or Ctrl+K → command palette
+        if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+            e.preventDefault();
+            openCmdPalette();
+            return;
+        }
+        // Don't intercept when typing in inputs
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+        if (e.key === '1') switchTab('overview');
+        else if (e.key === '2') switchTab('calls');
+        else if (e.key === '3') switchTab('search');
+        else if (e.key === '4') switchTab('entities');
+        else if (e.key === '5') switchTab('system');
+        else if (e.key === 'Escape') closeCmdPalette();
+    });
+
+    // ── Toast ───────────────────────────────────────────────────────────────
+    function toast(msg, type) {
+        var container = $('#toast-container');
+        var el = document.createElement('div');
+        el.className = 'toast ' + (type || '');
+        el.textContent = msg;
+        container.appendChild(el);
+        setTimeout(function() {
+            el.remove();
+        }, 3000);
     }
-    function esh(s) {
-        if (!s) return '';
-        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    // ── Footer status ───────────────────────────────────────────────────────
+    function updateFooter() {
+        var uptime = Math.floor(performance.now() / 1000);
+        var h = Math.floor(uptime / 3600);
+        var m = Math.floor((uptime % 3600) / 60);
+        var s = uptime % 60;
+        $('#footer-uptime').textContent = 'Uptime: ' + h + 'h ' + m + 'm ' + s + 's';
     }
-    function esc(s) {
-        if (!s) return '';
-        return s.replace(/'/g, "\\'").replace(/"/g, '\\"');
-    }
+    setInterval(updateFooter, 10000);
+    updateFooter();
+
+    // ── Init ────────────────────────────────────────────────────────────────
+    loadOverview();
+    loadSystem();
+
 })();

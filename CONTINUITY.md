@@ -8,22 +8,17 @@
 
 ## Status
 
-DONE: CONSTITUTION AUDIT — полный grep-аудит 18 статей + визуальная верификация (2026-05-22)
-  ✅ GPU-дисциплина, user_id-изоляция, MD5-дедупликация, статусная модель
-  ✅ Все silent exceptions исправлены, hardcoded пути убраны, torch monkey-patch на месте
-  ✅ use_auth_token= (не token=) для pyannote 3.3.2, hf_token из env
-  ✅ Batch-оптимизация: фазовая обработка с GPU выгрузкой между фазами
-  ⚠️ Найдено 5 недочётов (1 production, 2 теста, 1 монолит, 1 журнал)
-  Тесты: 299/302 pass (3 pre-existing) — compileall OK
-NOW: Sprint 13 — BUDGETS dict migration + final stabilization (2026-05-25)
-    382/382 pass, 0 failures. Compileall OK. Constitution audit findings all resolved.
-    Sprint 11 CLI split DONE (main.py: 512 lines, 6 command modules), Sprint 12 DONE (P0-002 + P0-003 + UI audit)
-    Dashboard: v3 plan drafted (dashboard-plan.md), all 17 API endpoints reachable
-    Name pipeline: _clean_contact_name() + STOPWORDS 52 entries applied
-NEXT: P0-019 — migrate biography/prompts.py BUDGETS dict → calculate_dynamic_budget (9 pass builders)
-      P1 — dictionary-based Cyrillic name validation
-      P2 — CLI --help UnicodeEncodeError on cp1251
-BLOCKERS: None — BUDGETS dict migration is main remaining task
+DONE: Dashboard v3 Slice 1 — Glass-Industrial Command Center shell (2026-05-25)
+  ✅ index.html: 5-tab shell, ECharts CDN, Inter+JetBrains Mono, cmd+K overlay
+  ✅ style.css: Glass-Industrial tokens, frosted panels, neon accents, responsive
+  ✅ app.js: SSE /api/sse, ECharts trend+donut, tab routing, keyboard shortcuts
+  ✅ server.py: _build_app() factory, v2-compat routes, Py3.14 Jinja2 cache fix
+  ✅ config.py: THEME dict Glass-Industrial, label maps retained
+  ✅ 412/412 pass, compileall OK
+NOW: Dashboard v3 Slice 2 — Overview tab (real pipeline stepper, real trend data)
+NEXT: Dashboard v3 Slice 3-5 — Calls/Search/Entities/System tabs with real data
+      P0-019 — BUDGETS dict migration (deferred tech debt)
+BLOCKERS: None
 
 
 PREV: All biography passes in 'done' status (p1-p9, 11 passes total)
@@ -65,6 +60,37 @@ BLOCKERS: None
 
 ---
 
+## Текущее состояние: 2026-05-25 (Dashboard v3 Slice 1 — Glass-Industrial Shell)
+
+### Что сделано в этой сессии
+
+**Dashboard v3.0.0 Slice 1 — Frontend shell complete:**
+
+1. **`templates/index.html`** — 5-tab Jinja2 shell: Overview/Calls/Search/Entities/System, ECharts 5.4.3 CDN, Inter + JetBrains Mono fonts, command palette overlay (Cmd+K), toast container, SSE indicator, header with user/version
+2. **`static/style.css`** — Glass-Industrial design tokens: `#060B16` base, `#00D4C8` accent, `backdrop-filter:blur(12px)`, neon borders, pipeline stepper, feed animation, data tables, responsive breakpoints
+3. **`static/app.js`** — vanilla JS: SSE `/api/sse` connect/reconnect, ECharts trend + donut charts, stat cards, paginated calls table, FTS5 search, entities table, system metrics, command palette, keyboard shortcuts (1-5), toast
+4. **`server.py` rewrite** — `_build_app()` factory with `_CONFIG is None` safe fallbacks; all v2 routes retained as backward-compatible stubs; module-level `app` + `_DB_READER`/`_TOOLS`/`_USER_ID` shims for test compat; Jinja2 `TemplateResponse` replaced with direct `.render()` to avoid Python 3.14 LRU cache bug
+5. **Python 3.14 + Jinja2 3.1.6 compat** — LRU cache uses `(loader, context_dict)` tuple as key; `context_dict` (regular dict) is unhashable on Py3.14. Fixed by bypassing `TemplateResponse` and using `tpl.get_template().render()` directly
+6. **Tests** — `test_dashboard_server.py` updated for v3 compat: 17/17 pass; full suite **412/412 pass, 0 failures**
+
+### Ветка разработки
+`main` (direct push)
+
+### Тесты
+**412/412 pass, 0 failures, 2 pre-existing FastAPI deprecation warnings**
+
+### Следующий шаг
+- Dashboard v3 Slice 2: real pipeline stepper data, real trend chart from DB, Overview tab completion
+- Dashboard v3 Slice 3-5: Calls/Search/Entities/System tabs with real data
+
+### Известные ограничения
+- v2-compat routes (`/api/stats`, `/api/characters`, etc.) are stubs — they work with mocked `_DB_READER`/`_TOOLS` but don't use v3 architecture
+- Overview charts use placeholder data; need DB-backed queries (Slice 2)
+- Python 3.14 compatibility issue with Jinja2 3.1.6 LRU cache — workaround in place
+- `deprecationWarning: on_event` in FastAPI — v3 uses deprecated startup hook (acceptable for local tool)
+- BUDGETS dict migration deferred (P0-019)
+
+---
 ## Текущее состояние: 2026-05-25 (Sprint 13 — Cyrillic Validation + Integration Tests)
 
 ### Что сделано в этой сессии

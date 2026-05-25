@@ -1,146 +1,190 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CallProfiler Admin</title>
+    <title>CallProfiler — Command Center</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
 </head>
 <body>
+    <!-- ── Header ──────────────────────────────────────────────────────── -->
     <header id="header">
         <div class="header-left">
-            <h1>CallProfiler</h1>
-            <span class="subtitle">Admin Panel</span>
+            <h1 class="logo">CallProfiler</h1>
+            <span class="version">v{{ version }}</span>
         </div>
-        <div class="header-stats" id="header-stats">
-            <div class="stat-box"><span class="stat-num" id="s-calls">--</span>звонков</div>
-            <div class="stat-box"><span class="stat-num" id="s-entities">--</span>персонажей</div>
-            <div class="stat-box"><span class="stat-num" id="s-portraits">--</span>портретов</div>
-            <div class="stat-box risk"><span class="stat-num" id="s-risk">--</span>ср.риск</div>
+        <div class="header-center">
+            <button class="cmd-palette-trigger" id="cmd-trigger" title="Command Palette (Cmd+K)">
+                <span class="kbd">⌘K</span>
+                <span class="placeholder">Search commands...</span>
+            </button>
         </div>
         <div class="header-right">
-            <button id="btn-shutdown" onclick="doShutdown()" title="Stop server">SHUTDOWN</button>
-            <span id="connection-dot" class="dot disconnected"></span>
-            <span id="connection-text">connecting...</span>
+            <span class="user-badge">{{ user_id }}</span>
+            <span class="sse-indicator" id="sse-dot" title="SSE connection status">●</span>
+            <span class="clock" id="clock">--:--:--</span>
         </div>
     </header>
 
+    <!-- ── Tab Navigation ──────────────────────────────────────────────── -->
     <nav id="tab-nav">
-        <button class="tab active" data-tab="live">📡 Лента</button>
-        <button class="tab" data-tab="characters">👤 Персонажи</button>
-        <button class="tab" data-tab="analytics">📊 Аналитика</button>
-        <button class="tab" data-tab="tools">⚙️ Инструменты</button>
+        <button class="tab active" data-tab="overview">
+            <span class="tab-icon">◉</span> Overview
+        </button>
+        <button class="tab" data-tab="calls">
+            <span class="tab-icon">☰</span> Calls
+        </button>
+        <button class="tab" data-tab="search">
+            <span class="tab-icon">⌕</span> Search
+        </button>
+        <button class="tab" data-tab="entities">
+            <span class="tab-icon">◈</span> Entities
+        </button>
+        <button class="tab" data-tab="system">
+            <span class="tab-icon">⚙</span> System
+        </button>
     </nav>
 
-    <!-- TAB 1: Live Feed -->
-    <main id="tab-live" class="tab-panel active">
-        <section id="live-feed" style="flex:1">
-            <div class="section-header">
-                <h2>Live Feed</h2>
-                <span id="feed-count">0 событий</span>
-            </div>
-            <div id="feed-container"><div class="empty-feed">Ожидание событий...</div></div>
-        </section>
-        <section id="entity-panel">
-            <div class="section-header">
-                <h2>Профиль</h2>
-                <span id="entity-close" style="cursor:pointer;display:none">✕</span>
-            </div>
-            <div id="entity-placeholder">Кликните на имя в ленте чтобы увидеть профиль</div>
-            <div id="entity-content" style="display:none"></div>
-        </section>
-    </main>
+    <!-- ── Main Content ────────────────────────────────────────────────── -->
+    <main id="main">
 
-    <!-- TAB 2: Characters -->
-    <main id="tab-characters" class="tab-panel">
-        <section id="char-list-panel">
-            <div class="section-header">
-                <h2>Персонажи</h2>
-                <span id="char-count">загрузка...</span>
+        <!-- Tab: Overview -->
+        <section class="tab-panel active" id="panel-overview">
+            <div class="stat-grid" id="stat-cards">
+                <div class="stat-card skeleton"><div class="stat-value">--</div><div class="stat-label">Total Calls</div></div>
+                <div class="stat-card skeleton"><div class="stat-value">--</div><div class="stat-label">Pending</div></div>
+                <div class="stat-card skeleton"><div class="stat-value">--</div><div class="stat-label">Errors</div></div>
+                <div class="stat-card skeleton"><div class="stat-value">--</div><div class="stat-label">Processed</div></div>
             </div>
-            <div style="margin-bottom:8px">
-                <input id="char-search" type="text" placeholder="Поиск..." oninput="filterCharacters()" style="width:100%;padding:6px 10px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:12px">
+            <div class="overview-grid">
+                <div class="panel frosted">
+                    <h3 class="panel-title">Pipeline Status</h3>
+                    <div id="pipeline-stepper" class="skeleton">Loading pipeline data...</div>
+                </div>
+                <div class="panel frosted">
+                    <h3 class="panel-title">Calls — Last 7 Days</h3>
+                    <div class="chart-box" id="chart-trend"></div>
+                </div>
             </div>
-            <div id="char-list"></div>
-        </section>
-        <section id="char-profile-panel">
-            <div class="section-header">
-                <h2 id="char-profile-name">Выберите персонажа</h2>
-            </div>
-            <div id="char-profile-body">
-                <div style="text-align:center;color:var(--muted);margin-top:60px;font-size:13px">← Кликните на персонажа в списке слева</div>
+            <div class="overview-grid">
+                <div class="panel frosted">
+                    <h3 class="panel-title">Realtime Feed</h3>
+                    <div class="feed" id="realtime-feed">
+                        <div class="feed-empty">Waiting for events...</div>
+                    </div>
+                </div>
+                <div class="panel frosted">
+                    <h3 class="panel-title">Distribution</h3>
+                    <div class="chart-box" id="chart-dist"></div>
+                </div>
             </div>
         </section>
+
+        <!-- Tab: Calls -->
+        <section class="tab-panel" id="panel-calls">
+            <div class="panel frosted">
+                <div class="panel-header">
+                    <h3 class="panel-title">Call History</h3>
+                    <div class="panel-actions">
+                        <button class="btn btn-outline" id="calls-export">Export CSV</button>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table" id="calls-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th><th>Date</th><th>Contact</th><th>Duration</th>
+                                <th>Status</th><th>Risk</th><th>Type</th><th>Summary</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td colspan="8" class="skeleton">Loading calls...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="pagination" id="calls-pager">
+                    <button class="btn btn-sm" id="calls-prev">Previous</button>
+                    <span class="page-info" id="calls-page">Page 1</span>
+                    <button class="btn btn-sm" id="calls-next">Next</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Tab: Search -->
+        <section class="tab-panel" id="panel-search">
+            <div class="panel frosted">
+                <div class="search-box">
+                    <input type="text" id="search-input" class="search-input" placeholder="Search calls, transcripts, contacts...">
+                    <button class="btn btn-accent" id="search-btn">Search</button>
+                </div>
+                <div class="filter-chips" id="search-filters"></div>
+                <div class="search-results" id="search-results">
+                    <div class="empty-state">Enter a query to search across all call transcripts (FTS5).</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Tab: Entities -->
+        <section class="tab-panel" id="panel-entities">
+            <div class="panel frosted">
+                <h3 class="panel-title">Knowledge Graph Entities</h3>
+                <div class="table-wrap">
+                    <table class="data-table" id="entities-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th><th>Type</th><th>Calls</th><th>BS Index</th>
+                                <th>Risk</th><th>Last Seen</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td colspan="6" class="skeleton">Loading entities...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Tab: System -->
+        <section class="tab-panel" id="panel-system">
+            <div class="overview-grid">
+                <div class="panel frosted">
+                    <h3 class="panel-title">System Resources</h3>
+                    <div class="sys-metrics" id="sys-metrics">
+                        <div class="skeleton">Loading system info...</div>
+                    </div>
+                </div>
+                <div class="panel frosted">
+                    <h3 class="panel-title">Database</h3>
+                    <div class="sys-metrics" id="sys-db">
+                        <div class="skeleton">Loading DB info...</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
     </main>
 
-    <!-- TAB 3: Analytics -->
-    <main id="tab-analytics" class="tab-panel">
-        <div class="section-header" style="margin-bottom:16px">
-            <h2>Аналитика</h2>
-        </div>
-        <div class="chart-grid">
-            <div class="chart-box">
-                <h3>Звонки по дням</h3>
-                <canvas id="chart-calls-by-day"></canvas>
-            </div>
-            <div class="chart-box">
-                <h3>Распределение риска</h3>
-                <canvas id="chart-risk-dist"></canvas>
-            </div>
-            <div class="chart-box">
-                <h3>Топ-10 по звонкам</h3>
-                <canvas id="chart-top-calls"></canvas>
-            </div>
-            <div class="chart-box">
-                <h3>Топ-10 по риску</h3>
-                <canvas id="chart-top-risk"></canvas>
-            </div>
-            <div class="chart-box">
-                <h3>Темпераменты</h3>
-                <canvas id="chart-temperament"></canvas>
-            </div>
-            <div class="chart-box">
-                <h3>Типы звонков</h3>
-                <canvas id="chart-call-types"></canvas>
-            </div>
-        </div>
-    </main>
+    <!-- ── Footer ──────────────────────────────────────────────────────── -->
+    <footer id="footer">
+        <span id="footer-api">API: checking...</span>
+        <span id="footer-db">DB: --</span>
+        <span id="footer-uptime">Uptime: --</span>
+    </footer>
 
-    <!-- TAB 4: Tools -->
-    <main id="tab-tools" class="tab-panel">
-        <div class="section-header" style="margin-bottom:16px">
-            <h2>Инструменты</h2>
-        </div>
-        <div id="tools-status" class="tools-block">
-            <h3>Состояние очереди</h3>
-            <div id="tools-status-body">загрузка...</div>
-        </div>
-        <div class="tools-block">
-            <h3>Действия</h3>
-            <div class="tools-actions">
-                <button class="tool-btn" onclick="toolAction('/api/tools/reprocess')">🔄 Переобработать ошибки</button>
-                <button class="tool-btn" onclick="toolAction('/api/tools/rebuild-summaries')">📊 Перестроить сводки</button>
-                <button class="tool-btn" onclick="toolAction('/api/tools/extract-names')">🏷 Извлечь имена</button>
-                <button class="tool-btn" onclick="toolAction('/api/tools/rebuild-cards')">📇 Перегенерировать карточки</button>
-            </div>
-        </div>
-        <div id="tools-log" class="tools-block">
-            <h3>Журнал операций</h3>
-            <div id="tools-log-body">пока пусто</div>
-        </div>
-    </main>
-
-    <!-- Entity modal -->
-    <div id="modal-overlay" style="display:none">
-        <div id="modal">
-            <div id="modal-header">
-                <h2 id="modal-name"></h2>
-                <button id="modal-close">✕</button>
-            </div>
-            <div id="modal-body"></div>
+    <!-- ── Command Palette Overlay ─────────────────────────────────────── -->
+    <div class="overlay" id="cmd-overlay">
+        <div class="cmd-modal">
+            <input type="text" class="cmd-input" id="cmd-input" placeholder="Type a command..." autofocus>
+            <div class="cmd-results" id="cmd-results"></div>
         </div>
     </div>
+
+    <!-- ── Toast Container ─────────────────────────────────────────────── -->
+    <div class="toast-container" id="toast-container"></div>
 
     <script src="/static/app.js"></script>
 </body>

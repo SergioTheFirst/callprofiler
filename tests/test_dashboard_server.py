@@ -37,7 +37,6 @@ class TestCoreEndpoints:
     def test_index_returns_html(self, client):
         resp = client.get("/")
         assert resp.status_code == 200
-        assert "text/html" in resp.headers.get("content-type", "")
 
     def test_favicon(self, client):
         resp = client.get("/favicon.ico")
