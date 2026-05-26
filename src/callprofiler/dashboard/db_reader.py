@@ -690,6 +690,107 @@ class DashboardDBReader:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_call_detail(self, call_id: int, user_id: str) -> dict[str, Any] | None:
+        """Full call detail: metadata + analysis + transcript segments + contact + promises."""
+        self.connect()
+        row = self._conn.execute(
+            """SELECT c.call_id, c.call_datetime, c.direction, c.duration_sec,
+                      c.status, c.created_at, c.updated_at, c.source_filename,
+                      c.source_md5,
+                      COALESCE(ct.display_name, ct.phone_e164) AS contact_label,
+                      ct.contact_id, ct.display_name, ct.phone_e164, ct.guessed_name,
+                      a.analysis_id, a.call_type, a.risk_score, a.summary,
+                      a.flags, a.feedback, a.model, a.schema_version, a.prompt_version
+               FROM calls c
+               LEFT JOIN contacts ct ON ct.contact_id = c.contact_id AND ct.user_id = c.user_id
+               LEFT JOIN analyses a ON a.call_id = c.call_id
+               WHERE c.call_id = ? AND c.user_id = ?""",
+            (call_id, user_id),
+        ).fetchone()
+        if not row:
+            return None
+
+        detail = dict(row)
+
+        flags = {}
+        try:
+            flags = json.loads(detail.pop("flags") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            pass
+        detail["flags"] = flags
+
+        seg_rows = self._conn.execute(
+            """SELECT start_ms, end_ms, text, speaker
+               FROM transcripts
+               WHERE call_id = ? ORDER BY start_ms ASC""",
+            (call_id,),
+        ).fetchall()
+        detail["segments"] = [dict(r) for r in seg_rows]
+
+        promise_rows = self._conn.execute(
+            """SELECT what, who, due, status, created_at
+               FROM promises
+               WHERE call_id = ? AND user_id = ?
+               ORDER BY created_at DESC""",
+            (call_id, user_id),
+        ).fetchall()
+        detail["promises"] = [dict(r) for r in promise_rows]
+
+        return detail
+
+    def get_calls_filtered(self, user_id: str, limit: int = 50, offset: int = 0,
+                           status: str = "", days: int = 0) -> list[dict[str, Any]]:
+        """Get paginated calls with optional status/days filters."""
+        self.connect()
+        where = "WHERE c.user_id = ?"
+        params: list[Any] = [user_id]
+        if status:
+            where += " AND c.status = ?"
+            params.append(status)
+        if days > 0:
+            where += " AND COALESCE(c.call_datetime, c.created_at) >= DATE('now', ? || ' days')"
+            params.append(f"-{days}")
+        query = f"""SELECT c.call_id, c.call_datetime, c.direction, c.duration_sec,
+                            c.status, c.created_at, c.updated_at, c.source_filename,
+                            COALESCE(ct.display_name, ct.phone_e164) AS contact_label,
+                            ct.display_name, ct.phone_e164,
+                            a.risk_score, a.summary, a.call_type
+                     FROM calls c
+                     LEFT JOIN contacts ct ON ct.contact_id = c.contact_id AND ct.user_id = c.user_id
+                     LEFT JOIN analyses a ON a.call_id = c.call_id
+                     {where}
+                     ORDER BY COALESCE(c.call_datetime, c.created_at) DESC
+                     LIMIT ? OFFSET ?"""
+        params.extend([limit, offset])
+        rows = self._conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_db_stats(self, user_id: str) -> dict[str, Any]:
+        """Database-level statistics for the system tab."""
+        self.connect()
+        result: dict[str, Any] = {}
+        tables = [
+            "calls", "contacts", "entities", "entity_metrics", "analyses",
+            "transcripts", "promises", "events", "bio_portraits",
+        ]
+        for tbl in tables:
+            try:
+                cnt = self._conn.execute(
+                    f"SELECT COUNT(*) AS cnt FROM {tbl} WHERE user_id = ?", (user_id,)
+                ).fetchone()
+                result[tbl] = cnt["cnt"] if cnt else 0
+            except Exception:
+                result[tbl] = 0
+
+        db_size = 0
+        try:
+            db_size = Path(self.db_path).stat().st_size
+        except Exception:
+            pass
+        result["db_size_mb"] = round(db_size / (1024 * 1024), 2)
+        result["db_path"] = self.db_path
+        return result
+
     def read_logs(self, lines: int = 200, level: str = "") -> list[str]:
         """Read last N lines from the log file."""
         log_dir = Path(self.db_path).parent.parent / "logs"

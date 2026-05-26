@@ -8,6 +8,38 @@
 
 ## [Unreleased]
 
+### Added — Dashboard v3 Slice 3: Call detail, entity modal, search highlights, filters, DB stats (2026-05-26)
+
+- `dashboard/db_reader.py` — 3 new methods:
+  - `get_call_detail(call_id, user_id)` — full call: metadata + analysis (flags parsed as JSON) + transcript segments + promises. Returns None if call not found or wrong user_id
+  - `get_calls_filtered(user_id, limit, offset, status, days)` — extended `get_calls()` with optional `status` and `days` WHERE clauses
+  - `get_db_stats(user_id)` — per-table row counts for all dashboard tables + DB file size, for system tab
+- `dashboard/server.py`:
+  - `GET /api/calls/{call_id}` — call detail endpoint, returns 404 if not found
+  - `/api/calls` — added `status` and `days` query params for filtering
+  - `/api/system` — now includes `db_stats` (row counts per table + DB size)
+- `dashboard/static/app.js` — major additions:
+  - `loadCallDetail(callId)` → `renderCallDetail(data)` — full call detail slide-in panel (metadata, summary, flags, transcript segments with speaker labels, promises)
+  - `openEntityModal(entityId)` → `renderEntityTab(tab)` — 3-tab modal (Metrics/Psychology/Calls) for entity profiles, click-to-open on entities table rows
+  - `highlightMatch(text, query)` — wraps query words in `<mark>` for search snippets
+  - `renderSearchResults()` — redesigned with highlighted snippets, entity/call-type tags, click-to-detail
+  - `renderEntitiesTable()` — updates risk from `avg_risk` field, rows clickable → entity modal
+  - `loadSystem()` — DB stats grid with per-table counts and DB size
+  - `loadCalls()` — wired status/days filter selects
+  - `escapeHtml()` — XSS-safe rendering utility
+- `dashboard/templates/index.html`:
+  - Calls tab: left-right layout with slide-in `#call-detail-panel` sidebar; status + days filter dropdowns
+  - Entity profile modal: `#entity-overlay` with tabbed content (Metrics/Psychology/Calls)
+  - Search tab: removed unused filter-chips div
+- `dashboard/static/style.css` — ~120 new lines:
+  - `.calls-layout`, `.detail-panel`, `.detail-content` — slide-in panel with transcript segments
+  - `.filter-select` — dropdown filter styling
+  - `.modal`, `.entity-modal` — glass-morphism modal with tabs
+  - `.search-result`, `.sr-snippet mark`, `.sr-tag` — search highlight + entity tags
+  - `.db-stats`, `.db-stat-card` — system tab mini-stat cards
+  - Responsive: detail panel collapses to full-width, modal fills viewport
+- Full suite: **412/412 pass, 0 failures**, compileall clean
+
 ### Added — Dashboard v3 Slice 2: Overview tab real data wiring (2026-05-26)
 
 - `dashboard/db_reader.py` — 6 new methods:

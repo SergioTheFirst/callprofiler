@@ -8,15 +8,15 @@
 
 ## Status
 
-DONE: Dashboard v3 Slice 2 — Overview tab real data wiring (2026-05-26)
-  ✅ db_reader.py: get_calls_by_stage(), get_daily_counts(), get_calls(), search_calls(), get_contacts(), read_logs()
-  ✅ server.py: /api/overview with by_stage+daily_counts, fixed _poller(), _get_reader/_get_tools helpers, /api/system/logs, /api/tools/retry-failed
-  ✅ app.js: renderPipeline(by_stage), renderTrendChart(daily_counts), risk_score normalized 0-100, bindSystemActions(), loadLogs()
-  ✅ index.html: system action buttons + log viewer
+DONE: Dashboard v3 Slice 3 — Call detail panel, entity modal, search highlights, filters, DB stats (2026-05-26)
+  ✅ db_reader.py: get_call_detail(), get_calls_filtered(), get_db_stats()
+  ✅ server.py: GET /api/calls/{id}, /api/calls?status=&days=, /api/system with db_stats
+  ✅ app.js: loadCallDetail/renderCallDetail (slide-in), openEntityModal/renderEntityTab (3-tab modal), highlightMatch(), escapeHtml()
+  ✅ index.html: calls layout with detail sidebar, status/days filters, entity modal overlay
+  ✅ style.css: detail-panel, filter-select, .modal, .search-result, .db-stats
   ✅ 412/412 pass, compileall OK
-NOW: Dashboard v3 Slice 3 — Calls tab (call detail panel), Search tab (FTS5 highlight+tags), Entities tab (entity profile modal)
-NEXT: Dashboard v3 Slice 4 — System tab (DB stats, action buttons wired), SSE real events, URL state
-      P0-019 — BUDGETS dict migration (deferred tech debt)
+NOW: Dashboard v3 Slice 4 — SSE real events, URL state (?tab=calls&status=error), audio player stub, CSV export
+NEXT: P0-019 — BUDGETS dict migration (deferred tech debt)
 BLOCKERS: None
 
 
@@ -56,6 +56,41 @@ DONE: PSYCHOLOGY PROFILER MVP — PsychologyProfiler class + CLI person-profile/
 NOW: 196 tests pass — ready for next pipeline run
 NEXT: Run build-book-and-profiles.bat to complete Stages 2-5
 BLOCKERS: None
+
+---
+
+## Текущее состояние: 2026-05-26 (Dashboard v3 Slice 3 — Call Detail + Entity Modal + Search)
+
+### Что сделано в этой сессии
+
+1. **`db_reader.py`** — 3 new methods:
+   - `get_call_detail(call_id, user_id)` — full call: metadata, analysis with JSON flags, transcript segments, promises
+   - `get_calls_filtered(user_id, limit, offset, status, days)` — filtered pagination
+   - `get_db_stats(user_id)` — per-table row counts + DB file size
+
+2. **`server.py`**:
+   - `GET /api/calls/{call_id}` — returns 200 with detail or 404
+   - `/api/calls?status=error&days=7` — filter support
+   - `/api/system` now includes `db_stats`
+
+3. **`app.js`** — major features:
+   - Call detail slide-in panel: click row → loadCallDetail → renderCallDetail (metadata grid, flags, transcript segments with speaker coloring, promises list)
+   - Entity profile modal: click entity row → 3-tab modal (Metrics/Psychology/Calls)
+   - Search results: highlighted snippets with `<mark>`, entity tags, clickable
+   - Entities table: shows actual `avg_risk` from backend, rows clickable
+   - System tab: DB stats mini-cards grid
+   - CSV export stub (toast)
+   - `escapeHtml()` utility for XSS-safe rendering
+
+4. **`index.html`** — calls layout (`calls-layout` + `detail-panel`), filter selects, entity modal overlay, search tab cleanup
+
+5. **`style.css`** — call detail sidebar, filter selects, entity modal, search highlights, DB stat cards, responsive adjustments
+
+### Следующий шаг
+- SSE real call events (_on_status_change hook in orchestrator)
+- URL state (?tab=calls&status=error&days=7)
+- Audio player stub (segment click → play)
+- CSV export functionality
 
 ---
 

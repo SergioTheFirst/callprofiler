@@ -86,31 +86,60 @@
 
         <!-- Tab: Calls -->
         <section class="tab-panel" id="panel-calls">
-            <div class="panel frosted">
-                <div class="panel-header">
-                    <h3 class="panel-title">Call History</h3>
-                    <div class="panel-actions">
-                        <button class="btn btn-outline" id="calls-export">Export CSV</button>
+            <div class="calls-layout">
+                <div class="calls-main">
+                    <div class="panel frosted">
+                        <div class="panel-header">
+                            <h3 class="panel-title">Call History</h3>
+                            <div class="panel-actions">
+                                <select class="filter-select" id="calls-status-filter">
+                                    <option value="">All Statuses</option>
+                                    <option value="processed">Processed</option>
+                                    <option value="pending">Pending</option>
+                                    <option value="error">Error</option>
+                                    <option value="transcribing">Transcribing</option>
+                                    <option value="analyzing">Analyzing</option>
+                                </select>
+                                <select class="filter-select" id="calls-days-filter">
+                                    <option value="0">All Time</option>
+                                    <option value="7">Last 7 Days</option>
+                                    <option value="30">Last 30 Days</option>
+                                    <option value="90">Last 90 Days</option>
+                                </select>
+                                <button class="btn btn-outline" id="calls-export">Export CSV</button>
+                            </div>
+                        </div>
+                        <div class="table-wrap">
+                            <table class="data-table" id="calls-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th><th>Date</th><th>Contact</th><th>Duration</th>
+                                        <th>Status</th><th>Risk</th><th>Type</th><th>Summary</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="8" class="skeleton">Loading calls...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="pagination" id="calls-pager">
+                            <button class="btn btn-sm" id="calls-prev">Previous</button>
+                            <span class="page-info" id="calls-page">Page 1</span>
+                            <button class="btn btn-sm" id="calls-next">Next</button>
+                        </div>
                     </div>
                 </div>
-                <div class="table-wrap">
-                    <table class="data-table" id="calls-table">
-                        <thead>
-                            <tr>
-                                <th>ID</th><th>Date</th><th>Contact</th><th>Duration</th>
-                                <th>Status</th><th>Risk</th><th>Type</th><th>Summary</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr><td colspan="8" class="skeleton">Loading calls...</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-                <div class="pagination" id="calls-pager">
-                    <button class="btn btn-sm" id="calls-prev">Previous</button>
-                    <span class="page-info" id="calls-page">Page 1</span>
-                    <button class="btn btn-sm" id="calls-next">Next</button>
-                </div>
+                <aside class="detail-panel" id="call-detail-panel">
+                    <div class="panel frosted">
+                        <div class="panel-header">
+                            <h3 class="panel-title">Call Detail</h3>
+                            <button class="btn btn-sm btn-icon" id="detail-close">&times;</button>
+                        </div>
+                        <div class="detail-content" id="detail-content">
+                            <div class="empty-state">Select a call to view details</div>
+                        </div>
+                    </div>
+                </aside>
             </div>
         </section>
 
@@ -121,7 +150,6 @@
                     <input type="text" id="search-input" class="search-input" placeholder="Search calls, transcripts, contacts...">
                     <button class="btn btn-accent" id="search-btn">Search</button>
                 </div>
-                <div class="filter-chips" id="search-filters"></div>
                 <div class="search-results" id="search-results">
                     <div class="empty-state">Enter a query to search across all call transcripts (FTS5).</div>
                 </div>
@@ -189,6 +217,24 @@
         <span id="footer-db">DB: --</span>
         <span id="footer-uptime">Uptime: --</span>
     </footer>
+
+    <!-- ── Entity Profile Modal ──────────────────────────────────────── -->
+    <div class="overlay" id="entity-overlay">
+        <div class="modal entity-modal">
+            <div class="modal-header">
+                <h3 class="modal-title" id="entity-modal-title">Entity Profile</h3>
+                <button class="btn btn-sm btn-icon" id="entity-modal-close">&times;</button>
+            </div>
+            <div class="modal-tabs" id="entity-modal-tabs">
+                <button class="modal-tab active" data-etab="metrics">Metrics</button>
+                <button class="modal-tab" data-etab="psychology">Psychology</button>
+                <button class="modal-tab" data-etab="calls">Calls</button>
+            </div>
+            <div class="modal-body" id="entity-modal-body">
+                <div class="skeleton">Loading entity...</div>
+            </div>
+        </div>
+    </div>
 
     <!-- ── Command Palette Overlay ─────────────────────────────────────── -->
     <div class="overlay" id="cmd-overlay">
