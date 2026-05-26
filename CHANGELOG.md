@@ -8,6 +8,36 @@
 
 ## [Unreleased]
 
+### Added — Dashboard v3 Slice 2: Overview tab real data wiring (2026-05-26)
+
+- `dashboard/db_reader.py` — 6 new methods:
+  - `get_calls_by_stage(user_id)` — maps DB statuses (`pending/error/processed`) to pipeline stages (`new/normalizing/transcribing/diarizing/analyzing/done/error`) via `STAGE_MAP`
+  - `get_daily_counts(user_id, days=7)` — `GROUP BY date(call_datetime)` for trend chart
+  - `get_calls(user_id, limit, offset)` — paginated calls with LEFT JOIN contacts + analyses
+  - `search_calls(user_id, q, limit)` — FTS5 with `MATCH` fallback to `LIKE`
+  - `get_contacts(user_id, limit)` — contacts with `COUNT(calls)`, `AVG(risk)`, `MAX(datetime)`; for entities tab
+  - `read_logs(lines, level)` — reads last N lines from `logs/callprofiler*.log` with optional level filter
+- `dashboard/server.py` — real data wiring:
+  - `/api/overview` — fixed broken `DashboardTools.get_status(reader, _USER_ID)` call; now returns `by_stage` + `daily_counts`
+  - `_poller()` — fixed same broken call; broadcasts `by_stage` with each SSE tick
+  - `_get_reader()` / `_get_tools()` helpers — `_DB_READER` shim for tests, falls back to inline construction
+  - v2-compat routes — all rewired with `_get_reader()` / `_get_tools()` + `_USER_ID` passthrough
+  - `await` vs sync guards: `asyncio.iscoroutine()` check in POST tools routes (test compat)
+  - `GET /api/system/logs?lines=200&level=INFO` — log viewer endpoint
+  - `POST /api/tools/retry-failed` — retry failed calls
+- `dashboard/static/app.js`:
+  - `renderPipeline(by_stage)` — uses `by_stage` keys (`new/normalizing/.../error`) instead of raw `status` dict
+  - `renderTrendChart(daily_counts)` — wired to `daily_counts` from overview; removes stale `/api/calls?limit=7` fetch
+  - `risk_score` display — normalized from DB scale 0-100 (was comparing int against float 0.6)
+  - `bindSystemActions()` / `loadLogs()` — system tab action buttons + log viewer
+- `dashboard/templates/index.html` — system tab: action buttons (Retry Errors, Extract Names, Rebuild Cards) + log viewer with filter
+- Full suite: **412/412 pass, 0 failures**, compileall clean
+
+### Fixed — Dashboard v3: Broken `DashboardTools.get_status(reader, _USER_ID)` call (2026-05-26)
+
+- **Problem:** `_overview` and `_poller()` called `DashboardTools.get_status(reader, _USER_ID)` as a static method, but it's an instance method (`self` only). Caused `TypeError` at runtime.
+- **Fix:** Create `DashboardTools(_CONFIG, _USER_ID)` instance, call `.get_status()` on it. Same pattern applied to all v2-compat tool routes.
+
 ### Added — Dashboard v3.0.0 Glass-Industrial Command Center (2026-05-25)
 
 - `dashboard/server.py` — v3.0.0 rewrite: `_build_app()` factory, v2-compat routes, SSE backbone via `asyncio.Queue`, module-level `app` + `_DB_READER` / `_TOOLS` / `_USER_ID` shims for test compat

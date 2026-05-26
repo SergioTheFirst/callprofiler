@@ -8,15 +8,14 @@
 
 ## Status
 
-DONE: Dashboard v3 Slice 1 — Glass-Industrial Command Center shell (2026-05-25)
-  ✅ index.html: 5-tab shell, ECharts CDN, Inter+JetBrains Mono, cmd+K overlay
-  ✅ style.css: Glass-Industrial tokens, frosted panels, neon accents, responsive
-  ✅ app.js: SSE /api/sse, ECharts trend+donut, tab routing, keyboard shortcuts
-  ✅ server.py: _build_app() factory, v2-compat routes, Py3.14 Jinja2 cache fix
-  ✅ config.py: THEME dict Glass-Industrial, label maps retained
+DONE: Dashboard v3 Slice 2 — Overview tab real data wiring (2026-05-26)
+  ✅ db_reader.py: get_calls_by_stage(), get_daily_counts(), get_calls(), search_calls(), get_contacts(), read_logs()
+  ✅ server.py: /api/overview with by_stage+daily_counts, fixed _poller(), _get_reader/_get_tools helpers, /api/system/logs, /api/tools/retry-failed
+  ✅ app.js: renderPipeline(by_stage), renderTrendChart(daily_counts), risk_score normalized 0-100, bindSystemActions(), loadLogs()
+  ✅ index.html: system action buttons + log viewer
   ✅ 412/412 pass, compileall OK
-NOW: Dashboard v3 Slice 2 — Overview tab (real pipeline stepper, real trend data)
-NEXT: Dashboard v3 Slice 3-5 — Calls/Search/Entities/System tabs with real data
+NOW: Dashboard v3 Slice 3 — Calls tab (call detail panel), Search tab (FTS5 highlight+tags), Entities tab (entity profile modal)
+NEXT: Dashboard v3 Slice 4 — System tab (DB stats, action buttons wired), SSE real events, URL state
       P0-019 — BUDGETS dict migration (deferred tech debt)
 BLOCKERS: None
 
@@ -57,6 +56,58 @@ DONE: PSYCHOLOGY PROFILER MVP — PsychologyProfiler class + CLI person-profile/
 NOW: 196 tests pass — ready for next pipeline run
 NEXT: Run build-book-and-profiles.bat to complete Stages 2-5
 BLOCKERS: None
+
+---
+
+## Текущее состояние: 2026-05-26 (Dashboard v3 Slice 2 — Overview Tab Real Data)
+
+### Ветка разработки
+`main` (direct push)
+
+### Последний коммит
+(not committed yet — this session's changes)
+
+### Что сделано в этой сессии
+
+**Dashboard v3 Slice 2: Overview tab real data wiring:**
+
+1. **`db_reader.py`** — 6 new methods:
+   - `get_calls_by_stage(user_id)` — maps DB statuses (`pending/error/processed`) to pipeline stages via `STAGE_MAP`
+   - `get_daily_counts(user_id, days=7)` — `GROUP BY date()` for trend chart
+   - `get_calls(user_id, limit, offset)` — paginated with contacts+analyses JOIN
+   - `search_calls(user_id, q, limit)` — FTS5 MATCH with LIKE fallback
+   - `get_contacts(user_id, limit)` — contacts with call_count, avg_risk, last_seen
+   - `read_logs(lines, level)` — reads last N lines from log file with level filter
+
+2. **`server.py`** — fixes + new endpoints:
+   - Fixed `_poller()` — broken `DashboardTools.get_status(reader, _USER_ID)` → proper instance construction
+   - Fixed `/api/overview` — same bug; now returns `by_stage` + `daily_counts`
+   - Added `_get_reader()` / `_get_tools()` helpers — test shim fallback for `_DB_READER`/`_TOOLS`
+   - All v2-compat routes rewired with helpers + `_USER_ID`
+   - `await` vs sync: `asyncio.iscoroutine()` guard in POST tools routes
+   - `GET /api/system/logs?lines=200&level=` — log viewer endpoint
+   - `POST /api/tools/retry-failed` — retry failed calls
+
+3. **`app.js`** — pipeline + trend + risk fixes:
+   - `renderPipeline(by_stage)` — uses `by_stage` object (new/normalizing/.../error)
+   - `renderTrendChart(daily_counts)` — wired to overview data, removed stale fetch
+   - `risk_score` — normalized from DB 0-100 scale (was comparing int vs float 0.6)
+   - `bindSystemActions()` — system tab action buttons (reprocess/extract/rebuild)
+   - `loadLogs(level)` — log viewer with level filter
+
+4. **`index.html`** — system tab: action buttons + log viewer with filter input
+
+5. **Tests** — 412/412 pass, compileall clean
+
+### Следующий шаг
+Slice 3: Call detail panel (click on row → slide-in with summary, segments, audio timeline;
+3.2 in the plan). Also P1 tasks: entity profile modal (5.2), remaining system action buttons (6.3).
+
+### Известные ограничения / долги
+- SSE still broadcasts only `tick` events (status + by_stage); real call events need orchestrator hook
+- `renderDistChart()` still fetches from `/api/calls?limit=500` — should use analytics endpoint
+- System action buttons (`sys-action-btn` → `POST /api/tools/{action}`) — `extract-names` and `rebuild-cards` need `POST` handlers (currently wired, but `extract-names` maps to `POST /api/tools/extract-names` which is `run_extract_names`)
+- `btn.textContent` reset after action is fragile (splits on space)
 
 ---
 

@@ -60,8 +60,13 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
                 continue
             try:
                 reader = DashboardDBReader(_CONFIG.data_dir)
-                status = DashboardTools.get_status(reader, _USER_ID)
-                payload = json.dumps({"type": "tick", "status": status}, ensure_ascii=False)
+                tools = DashboardTools(_CONFIG, _USER_ID)
+                status = tools.get_status()
+                by_stage = reader.get_calls_by_stage(_USER_ID)
+                payload = json.dumps(
+                    {"type": "tick", "status": status, "by_stage": by_stage},
+                    ensure_ascii=False,
+                )
                 await _broadcast(payload)
             except Exception:
                 logger.warning("Dashboard poller error", exc_info=True)
@@ -80,14 +85,22 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
     @fa.get("/api/overview")
     async def _overview() -> JSONResponse:
         if _CONFIG is None:
-            return JSONResponse({"version": VERSION, "status": {}, "calls_total": 0, "pending": 0, "error": 0, "processed": 0})
+            return JSONResponse({
+                "version": VERSION, "status": {}, "by_stage": {},
+                "calls_total": 0, "pending": 0, "error": 0, "processed": 0,
+                "daily_counts": [],
+            })
         reader = DashboardDBReader(_CONFIG.data_dir)
-        status = DashboardTools.get_status(reader, _USER_ID)
+        tools = DashboardTools(_CONFIG, _USER_ID)
+        status = tools.get_status()
+        by_stage = reader.get_calls_by_stage(_USER_ID)
+        daily_counts = reader.get_daily_counts(_USER_ID, days=7)
         return JSONResponse({
-            "version": VERSION, "status": status,
+            "version": VERSION, "status": status, "by_stage": by_stage,
             "calls_total": status.get("processed", 0) + status.get("pending", 0) + status.get("error", 0),
             "pending": status.get("pending", 0), "error": status.get("error", 0),
             "processed": status.get("processed", 0),
+            "daily_counts": daily_counts,
         })
 
     @fa.get("/api/calls")
@@ -146,6 +159,22 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
                 _SSE_SUBSCRIBERS.discard(q)
         return StreamingResponse(_stream(), media_type="text/event-stream")
 
+    @fa.get("/api/system/logs")
+    async def _system_logs(lines: int = Query(200, ge=10, le=2000), level: str = Query("")) -> JSONResponse:
+        if _CONFIG is None:
+            return JSONResponse({"lines": [], "count": 0})
+        reader = DashboardDBReader(_CONFIG.data_dir)
+        log_lines = reader.read_logs(lines=lines, level=level)
+        return JSONResponse({"lines": log_lines, "count": len(log_lines)})
+
+    @fa.post("/api/tools/retry-failed")
+    async def _tools_retry_failed() -> JSONResponse:
+        if _CONFIG is None:
+            return JSONResponse({"status": "ok", "count": 0})
+        tools = DashboardTools(_CONFIG, _USER_ID)
+        result = await tools.run_reprocess()
+        return JSONResponse(result)
+
     # ── v2-compat routes ───────────────────────────────────────────────
     @fa.get("/favicon.ico")
     async def _favicon() -> JSONResponse:
@@ -153,83 +182,108 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
 
     @fa.get("/api/stats")
     async def _stats() -> JSONResponse:
-        dbr = _DB_READER
-        if dbr is not None and hasattr(dbr, "get_stats"):
-            return JSONResponse(dbr.get_stats())
+        if _DB_READER is not None and hasattr(_DB_READER, "get_stats"):
+            return JSONResponse(_DB_READER.get_stats())
+        if _CONFIG is not None:
+            reader = DashboardDBReader(_CONFIG.data_dir)
+            return JSONResponse(reader.get_stats(_USER_ID))
         return JSONResponse({"total_calls": 0})
+
+    def _get_reader() -> DashboardDBReader | None:
+        if _DB_READER is not None:
+            return _DB_READER
+        if _CONFIG is not None:
+            return DashboardDBReader(_CONFIG.data_dir)
+        return None
+
+    def _get_tools() -> DashboardTools | None:
+        if _TOOLS is not None:
+            return _TOOLS
+        if _CONFIG is not None:
+            return DashboardTools(_CONFIG, _USER_ID)
+        return None
 
     @fa.get("/api/history")
     async def _history(limit: int = Query(50, ge=1, le=100)) -> JSONResponse:
-        dbr = _DB_READER
+        dbr = _get_reader()
         if dbr is not None and hasattr(dbr, "get_recent_calls"):
-            return JSONResponse(dbr.get_recent_calls(limit=limit))
+            return JSONResponse(dbr.get_recent_calls(_USER_ID, limit=limit))
         return JSONResponse([])
 
     @fa.get("/api/tools/status")
     async def _tools_status() -> JSONResponse:
-        tools = _TOOLS
+        tools = _get_tools()
         if tools is not None and hasattr(tools, "get_status"):
             return JSONResponse(tools.get_status())
         return JSONResponse({"status": "ok"})
 
     @fa.get("/api/tools/history")
     async def _tools_history() -> JSONResponse:
-        tools = _TOOLS
+        tools = _get_tools()
         if tools is not None and hasattr(tools, "get_history"):
             return JSONResponse(tools.get_history())
         return JSONResponse([])
 
     @fa.post("/api/tools/reprocess")
     async def _tools_reprocess() -> JSONResponse:
-        tools = _TOOLS
+        tools = _get_tools()
         if tools is not None and hasattr(tools, "run_reprocess"):
-            return JSONResponse(tools.run_reprocess())
+            result = tools.run_reprocess()
+            if asyncio.iscoroutine(result):
+                result = await result
+            return JSONResponse(result)
         return JSONResponse({"status": "ok"})
 
     @fa.post("/api/tools/extract-names")
     async def _tools_extract_names() -> JSONResponse:
-        tools = _TOOLS
+        tools = _get_tools()
         if tools is not None and hasattr(tools, "run_extract_names"):
-            return JSONResponse(tools.run_extract_names())
+            result = tools.run_extract_names()
+            if asyncio.iscoroutine(result):
+                result = await result
+            return JSONResponse(result)
         return JSONResponse({"status": "ok"})
 
     @fa.post("/api/tools/rebuild-cards")
     async def _tools_rebuild_cards() -> JSONResponse:
-        tools = _TOOLS
+        tools = _get_tools()
         if tools is not None and hasattr(tools, "run_rebuild_cards"):
-            return JSONResponse(tools.run_rebuild_cards())
+            result = tools.run_rebuild_cards()
+            if asyncio.iscoroutine(result):
+                result = await result
+            return JSONResponse(result)
         return JSONResponse({"status": "ok"})
 
     @fa.get("/api/characters")
     async def _characters() -> JSONResponse:
-        dbr = _DB_READER
+        dbr = _get_reader()
         if dbr is not None and hasattr(dbr, "get_all_characters"):
-            return JSONResponse(dbr.get_all_characters())
+            return JSONResponse(dbr.get_all_characters(_USER_ID))
         return JSONResponse([])
 
     @fa.get("/api/character/{entity_id}")
     async def _character(entity_id: int) -> JSONResponse:
-        dbr = _DB_READER
+        dbr = _get_reader()
         if dbr is not None and hasattr(dbr, "get_character_profile"):
-            profile = dbr.get_character_profile(entity_id)
+            profile = dbr.get_character_profile(entity_id, _USER_ID)
             if profile is not None:
                 return JSONResponse(profile)
         return JSONResponse({"entity_id": entity_id, "canonical_name": "?"})
 
     @fa.get("/api/contact/{contact_id}")
     async def _contact(contact_id: int) -> JSONResponse:
-        dbr = _DB_READER
+        dbr = _get_reader()
         if dbr is not None and hasattr(dbr, "get_contact_profile"):
-            profile = dbr.get_contact_profile(contact_id)
+            profile = dbr.get_contact_profile(contact_id, _USER_ID)
             if profile is not None:
                 return JSONResponse(profile)
         return JSONResponse({"contact_id": contact_id, "not_found": True})
 
     @fa.get("/api/analytics")
     async def _analytics() -> JSONResponse:
-        dbr = _DB_READER
+        dbr = _get_reader()
         if dbr is not None and hasattr(dbr, "get_analytics"):
-            return JSONResponse(dbr.get_analytics())
+            return JSONResponse(dbr.get_analytics(_USER_ID))
         return JSONResponse({})
 
     _APP = fa

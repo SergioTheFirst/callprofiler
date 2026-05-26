@@ -162,7 +162,22 @@
                     <div class="sys-metrics" id="sys-db">
                         <div class="skeleton">Loading DB info...</div>
                     </div>
+                    <div class="sys-actions">
+                        <button class="btn btn-outline sys-action-btn" data-action="reprocess">Retry Errors</button>
+                        <button class="btn btn-outline sys-action-btn" data-action="extract-names">Extract Names</button>
+                        <button class="btn btn-outline sys-action-btn" data-action="rebuild-cards">Rebuild Cards</button>
+                    </div>
                 </div>
+            </div>
+            <div class="panel frosted" style="margin-top:1rem">
+                <div class="panel-header">
+                    <h3 class="panel-title">Application Logs</h3>
+                    <div class="panel-actions">
+                        <input type="text" class="log-filter" id="log-filter" placeholder="Filter level (ERROR, WARNING, INFO)...">
+                        <button class="btn btn-outline" id="logs-reload">Reload</button>
+                    </div>
+                </div>
+                <pre class="log-viewer" id="log-viewer">Loading logs...</pre>
             </div>
         </section>
 

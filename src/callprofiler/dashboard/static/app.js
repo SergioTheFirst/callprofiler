@@ -83,10 +83,10 @@
         fetch('/api/overview')
             .then(function(r) { return r.json(); })
             .then(function(data) {
-                updateStatCards(data.status || data);
-                renderPipeline(data.status || data);
+                updateStatCards(data);
+                renderPipeline(data.by_stage || {});
                 if (typeof echarts !== 'undefined') {
-                    renderTrendChart();
+                    renderTrendChart(data.daily_counts || []);
                     renderDistChart();
                 }
             })
@@ -108,17 +108,17 @@
         });
     }
 
-    function renderPipeline(status) {
-        var steps = ['new', 'normalizing', 'transcribing', 'diarizing', 'analyzing', 'done'];
-        var labels = ['New', 'Norm', 'Transcribe', 'Diarize', 'Analyze', 'Done'];
+    function renderPipeline(by_stage) {
+        var steps = ['new', 'normalizing', 'transcribing', 'diarizing', 'analyzing', 'done', 'error'];
+        var labels = ['New', 'Norm', 'Transcribe', 'Diarize', 'Analyze', 'Done', 'Errors'];
         var stepper = $('#pipeline-stepper');
         stepper.classList.remove('skeleton');
         var html = '';
         steps.forEach(function(s, i) {
-            var count = status[s] || 0;
+            var count = by_stage[s] || 0;
             var cls = 'pipe-dot';
             if (s === 'error' && count > 0) cls += ' error';
-            else if (count > 0 && s === 'done') cls += ' active';
+            else if (count > 0 && (s === 'done' || s === 'analyzing')) cls += ' active';
             html += '<div class="pipe-step">';
             html += '<div class="' + cls + '"></div>';
             html += '<span class="pipe-count">' + count + '</span>';
@@ -150,22 +150,31 @@
     }
 
     // ECharts trend chart
-    function renderTrendChart() {
+    function renderTrendChart(daily_counts) {
         var el = $('#chart-trend');
         if (!el) return;
         var chart = echarts.init(el);
         var days = [];
+        var date_map = {};
         for (var i = 6; i >= 0; i--) {
             var d = new Date();
             d.setDate(d.getDate() - i);
-            days.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+            var key = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            days.push(key);
+            date_map[d.toISOString().slice(0, 10)] = i;
         }
+        var counts = [0, 0, 0, 0, 0, 0, 0];
+        daily_counts.forEach(function(dc) {
+            if (dc.date && date_map[dc.date] !== undefined) {
+                counts[date_map[dc.date]] = dc.count || 0;
+            }
+        });
         chart.setOption({
             grid: { top: 10, right: 16, bottom: 24, left: 44 },
             xAxis: { type: 'category', data: days, axisLine: { lineStyle: { color: '#1e293b' } }, axisLabel: { color: '#64748b', fontSize: 10 } },
             yAxis: { type: 'value', splitLine: { lineStyle: { color: '#1e293b' } }, axisLabel: { color: '#64748b', fontSize: 10 } },
             series: [{
-                data: [0, 0, 0, 0, 0, 0, 0],
+                data: counts,
                 type: 'line',
                 smooth: true,
                 symbol: 'circle',
@@ -180,23 +189,6 @@
                 }
             }]
         });
-        // Fetch real data
-        fetch('/api/calls?limit=7&offset=0')
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                var counts = [0, 0, 0, 0, 0, 0, 0];
-                if (data.calls) {
-                    data.calls.forEach(function(c) {
-                        if (c.created_at) {
-                            var callDate = new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                            var idx = days.indexOf(callDate);
-                            if (idx >= 0) counts[idx]++;
-                        }
-                    });
-                }
-                chart.setOption({ series: [{ data: counts }] });
-            })
-            .catch(function() {});
         window.addEventListener('resize', function() { chart.resize(); });
     }
 
@@ -273,8 +265,9 @@
             var contact = c.display_name || c.phone_e164 || '--';
             var duration = c.duration_sec ? Math.floor(c.duration_sec / 60) + 'm ' + (c.duration_sec % 60) + 's' : '--';
             var status = c.status || '--';
-            var risk = c.risk_score != null ? c.risk_score : '--';
-            var cls = risk > 0.6 ? 'risk-high' : (risk > 0.3 ? 'risk-med' : 'risk-low');
+            var rawRisk = c.risk_score != null ? c.risk_score : null;
+            var risk = rawRisk !== null ? rawRisk : '--';
+            var cls = rawRisk !== null ? (rawRisk >= 60 ? 'risk-high' : (rawRisk >= 30 ? 'risk-med' : 'risk-low')) : '';
             var type = c.direction || '--';
             var summary = c.summary ? c.summary.substring(0, 80) : '--';
             var badge = status === 'done' ? 'badge-done' : (status === 'error' ? 'badge-error' : 'badge-pending');
@@ -349,12 +342,15 @@
             return;
         }
         tbody.innerHTML = entities.map(function(e) {
+            var rawRisk = e.risk_score != null ? e.risk_score : null;
+            var riskDisp = rawRisk !== null ? rawRisk : '--';
+            var riskCls = rawRisk !== null ? (rawRisk >= 60 ? 'risk-high' : (rawRisk >= 30 ? 'risk-med' : 'risk-low')) : '';
             return '<tr>' +
                 '<td>' + (e.display_name || e.phone_e164 || '--') + '</td>' +
                 '<td>' + (e.entity_type || '--') + '</td>' +
                 '<td>' + (e.call_count || 0) + '</td>' +
-                '<td>' + (e.bs_index != null ? e.bs_index.toFixed(2) : '--') + '</td>' +
-                '<td>' + (e.risk_score != null ? '<span class="risk ' + (e.risk_score > 0.6 ? 'risk-high' : (e.risk_score > 0.3 ? 'risk-med' : 'risk-low')) + '">' + e.risk_score.toFixed(2) + '</span>' : '--') + '</td>' +
+                '<td>' + (e.bs_index != null ? Number(e.bs_index).toFixed(2) : '--') + '</td>' +
+                '<td>' + (rawRisk !== null ? '<span class="risk ' + riskCls + '">' + riskDisp + '</span>' : '--') + '</td>' +
                 '<td>' + (e.last_seen || '--') + '</td>' +
                 '</tr>';
         }).join('');
@@ -377,6 +373,48 @@
             })
             .catch(function(e) { console.error('System load failed:', e); });
     }
+
+    // System action buttons
+    function bindSystemActions() {
+        $$('.sys-action-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var action = this.dataset.action;
+                var endpoint = '/api/tools/' + action;
+                btn.disabled = true;
+                btn.textContent = 'Running...';
+                fetch(endpoint, { method: 'POST' })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        toast(data.message || (action + ' completed'), 'ok');
+                        btn.disabled = false;
+                        btn.textContent = btn.textContent.replace('Running...', btn.textContent.split(' ')[0]);
+                        loadSystem();
+                    })
+                    .catch(function(e) {
+                        toast(action + ' failed: ' + e.message, 'error');
+                        btn.disabled = false;
+                        btn.textContent = btn.textContent.replace('Running...', btn.textContent.split(' ')[0]);
+                    });
+            });
+        });
+    }
+
+    function loadLogs(level) {
+        var url = '/api/system/logs?lines=200';
+        if (level) url += '&level=' + encodeURIComponent(level);
+        fetch(url)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var viewer = $('#log-viewer');
+                viewer.textContent = data.lines.join('\n') || '(no log entries)';
+            })
+            .catch(function(e) { console.error('Logs load failed:', e); });
+    }
+
+    $('#logs-reload').addEventListener('click', function() { loadLogs($('#log-filter').value); });
+    $('#log-filter').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') loadLogs(this.value);
+    });
 
     // ── Command Palette ────────────────────────────────────────────────────
     var commands = [
@@ -479,5 +517,7 @@
     // ── Init ────────────────────────────────────────────────────────────────
     loadOverview();
     loadSystem();
+    bindSystemActions();
+    loadLogs('');
 
 })();

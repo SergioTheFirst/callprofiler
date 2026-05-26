@@ -584,3 +584,133 @@ class DashboardDBReader:
             (user_id, since_id, limit),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def get_calls_by_stage(self, user_id: str) -> dict[str, int]:
+        """Get call counts mapped to pipeline stages for the stepper."""
+        self.connect()
+        rows = self._conn.execute(
+            "SELECT status, COUNT(*) AS cnt FROM calls WHERE user_id = ? GROUP BY status",
+            (user_id,),
+        ).fetchall()
+        db_counts = {r["status"]: r["cnt"] for r in rows}
+
+        STAGE_MAP = {
+            "new": ["pending"],
+            "normalizing": ["normalizing"],
+            "transcribing": ["transcribing"],
+            "diarizing": ["diarizing"],
+            "analyzing": ["analyzing"],
+            "done": ["processed", "done"],
+            "error": ["error"],
+        }
+        result: dict[str, int] = {}
+        for stage, statuses in STAGE_MAP.items():
+            result[stage] = sum(db_counts.get(s, 0) for s in statuses)
+        return result
+
+    def get_daily_counts(self, user_id: str, days: int = 7) -> list[dict[str, Any]]:
+        """Get daily call counts for the trend chart."""
+        self.connect()
+        rows = self._conn.execute(
+            """SELECT DATE(COALESCE(call_datetime, created_at)) AS dt, COUNT(*) AS cnt
+               FROM calls
+               WHERE user_id = ? AND dt >= DATE('now', ? || ' days')
+               GROUP BY dt ORDER BY dt ASC""",
+            (user_id, f"-{days}"),
+        ).fetchall()
+        return [{"date": r["dt"], "count": r["cnt"]} for r in rows]
+
+    def get_calls(self, user_id: str, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+        """Get paginated calls for the calls table."""
+        self.connect()
+        rows = self._conn.execute(
+            """SELECT c.call_id, c.call_datetime, c.direction, c.duration_sec,
+                      c.status, c.created_at, c.updated_at, c.source_filename,
+                      COALESCE(ct.display_name, ct.phone_e164) AS contact_label,
+                      ct.display_name, ct.phone_e164,
+                      a.risk_score, a.summary, a.call_type
+               FROM calls c
+               LEFT JOIN contacts ct ON ct.contact_id = c.contact_id AND ct.user_id = c.user_id
+               LEFT JOIN analyses a ON a.call_id = c.call_id
+               WHERE c.user_id = ?
+               ORDER BY COALESCE(c.call_datetime, c.created_at) DESC
+               LIMIT ? OFFSET ?""",
+            (user_id, limit, offset),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def search_calls(self, user_id: str, q: str, limit: int = 20) -> list[dict[str, Any]]:
+        """FTS5 search across transcripts + contact names."""
+        self.connect()
+        try:
+            rows = self._conn.execute(
+                """SELECT t.call_id, t.text AS snippet, t.start_ms,
+                          COALESCE(ct.display_name, ct.phone_e164) AS contact_name,
+                          c.call_datetime, c.direction
+                   FROM transcripts_fts fts
+                   JOIN transcripts t ON t.rowid = fts.rowid
+                   JOIN calls c ON c.call_id = t.call_id
+                   LEFT JOIN contacts ct ON ct.contact_id = c.contact_id AND ct.user_id = c.user_id
+                   WHERE c.user_id = ? AND transcripts_fts MATCH ?
+                   ORDER BY rank LIMIT ?""",
+                (user_id, q, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
+        except Exception:
+            rows = self._conn.execute(
+                """SELECT t.call_id, t.text AS snippet, t.start_ms,
+                          COALESCE(ct.display_name, ct.phone_e164) AS contact_name,
+                          c.call_datetime, c.direction
+                   FROM transcripts t
+                   JOIN calls c ON c.call_id = t.call_id
+                   LEFT JOIN contacts ct ON ct.contact_id = c.contact_id AND ct.user_id = c.user_id
+                   WHERE c.user_id = ? AND t.text LIKE ?
+                   ORDER BY c.call_datetime DESC LIMIT ?""",
+                (user_id, f"%{q}%", limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_contacts(self, user_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        """Get contacts with call counts for the entities tab."""
+        self.connect()
+        rows = self._conn.execute(
+            """SELECT ct.contact_id, ct.phone_e164, ct.display_name, ct.guessed_name,
+                      ct.name_confirmed,
+                      COUNT(c.call_id) AS call_count,
+                      AVG(a.risk_score) AS avg_risk,
+                      MAX(COALESCE(c.call_datetime, c.created_at)) AS last_seen
+               FROM contacts ct
+               LEFT JOIN calls c ON c.contact_id = ct.contact_id AND c.user_id = ct.user_id
+               LEFT JOIN analyses a ON a.call_id = c.call_id
+               WHERE ct.user_id = ?
+               GROUP BY ct.contact_id
+               ORDER BY call_count DESC
+               LIMIT ?""",
+            (user_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def read_logs(self, lines: int = 200, level: str = "") -> list[str]:
+        """Read last N lines from the log file."""
+        log_dir = Path(self.db_path).parent.parent / "logs"
+        log_files = sorted(log_dir.glob("callprofiler*.log"), reverse=True)
+        if not log_files:
+            return [f"[no log files found in {log_dir}]"]
+        result: list[str] = []
+        for lf in log_files:
+            try:
+                with open(lf, "r", encoding="utf-8") as fh:
+                    file_lines = fh.readlines()
+                break
+            except Exception:
+                continue
+        else:
+            return [f"[cannot read log files in {log_dir}]"]
+
+        recent = file_lines[-lines:]
+        for line in recent:
+            line = line.rstrip("\n\r")
+            if level and level.upper() not in line:
+                continue
+            result.append(line)
+        return result if result else recent[:lines]
