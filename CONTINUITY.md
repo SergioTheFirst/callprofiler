@@ -32,7 +32,7 @@ Done:
 - Auth-surface mapped (2 Explore subagents): no traditional auth (Ст.8.3) — surface = secrets/tokens + user_id isolation + telegram chat_id whitelist + dashboard ro/127.0.0.1.
 
 Now:
-- Finalizing: commit Step 4 + config to main. Strategy A (Steps 1–3) + B.1 shipped; 419/419.
+- Idle. All shipped to main (HEAD `21858d1`): Steps 1–4 + config + auth map. 419/419. Awaiting next direction.
 
 Next:
 - Deferred: P0-019 BUDGETS migration; year/month audio storage (B.4); pipeline crash-resume (D.2); reconcile CONSTITUTION Ст.19 wording to ledger format.
@@ -45,4 +45,4 @@ Next:
 - Step 4 (persona facade) likely files: `dashboard/db_reader.py` (`get_character_profile`/`get_entity_profile` already exist — consolidate into one Persona read-model), `biography/psychology_profiler.py`, `graph/repository.py`, `aggregate/summary_builder.py`.
 - Tests: `tests/test_dashboard_server.py`, `test_dashboard_tools.py`, `test_psychology_profiler.py`.
 - Run tests: `$env:PYTHONPATH="C:\pro\callprofiler\src"; python -m pytest tests/ -q`
-- Last commit: `702ec13` (main); Step 3 commit pending.
+- Last commit: `21858d1` (main); all session work pushed.
