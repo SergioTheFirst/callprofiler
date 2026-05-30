@@ -35,7 +35,7 @@ Now:
 - Idle. All shipped to main (HEAD `21858d1`): Steps 1–4 + config + auth map. 419/419. Awaiting next direction.
 
 Next:
-- Deferred: P0-019 BUDGETS migration; year/month audio storage (B.4); pipeline crash-resume (D.2); reconcile CONSTITUTION Ст.19 wording to ledger format.
+- Full forward plan in `ROADMAP.md`. Top priority = Фаза 1 (reliability): verify `${HF_TOKEN}` expansion; pipeline crash-resume (D.2); LLM retry/backoff; remove dead `event_bus`. Then Фаза 2 storage (B.4), Фаза 3 tech-debt (P0-019 BUDGETS, graph-health pre-flight, Ст.19 reconcile).
 
 **Open questions (UNCONFIRMED):**
 - Does anything expand `${HF_TOKEN}` from `configs/base.yaml`? `config.py` loads it literally (no `expandvars`) → HF/pyannote auth may receive the literal placeholder unless models are pre-cached. (Telegram token IS read from env correctly.) Found during auth-surface mapping.

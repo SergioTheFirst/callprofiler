@@ -8,6 +8,10 @@
 
 ## [Unreleased]
 
+### Added — Forward strategic roadmap (2026-05-30)
+
+- `ROADMAP.md` — phased forward plan: Фаза 1 reliability (HF_TOKEN check, pipeline crash-resume, LLM retry/backoff, remove dead event_bus) → Фаза 2 storage hygiene (year/month audio, DB indexes) → Фаза 3 tech-debt (BUDGETS, graph-health pre-flight, Ст.19) → Фаза 4 admin/UX (persona detail, audio player, book export, Telegram) → Фаза 5 tests (E2E pipeline, coverage, extraction eval) → Фаза 6 measured strategic bets (GigaAM ASR, vector search). Complements `ARCHITECTURE_v5.md`.
+
 ### Fixed — Entities tab is now persona-centric (B.1 facade) (2026-05-30)
 
 - `dashboard/server.py` — `/api/entities` now lists **graph personas** via `get_all_characters` (entity_id space) instead of contacts (contact_id). The entity modal calls `/api/character/{entity_id}` → `get_character_profile`; previously the list returned `contact_id`, so clicking an entity row looked up the wrong/empty record. Uses `_get_reader()` (test-shim friendly) + `[:limit]`.
