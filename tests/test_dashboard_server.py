@@ -177,3 +177,116 @@ class TestUninitialized:
             assert resp.status_code == 200
         finally:
             server_mod._TOOLS = saved
+
+
+# ── Dashboard v3 Slice 4: CSV export + audio endpoints (real DB) ───────────
+import sqlite3
+import tempfile
+from pathlib import Path
+from types import SimpleNamespace
+
+
+@pytest.fixture
+def real_client():
+    """TestClient backed by a real temp SQLite DB (for export/audio routes)."""
+    import callprofiler.dashboard.server as server_mod
+
+    tmpdir = tempfile.mkdtemp()
+    db_dir = Path(tmpdir) / "db"
+    db_dir.mkdir()
+    db_path = db_dir / "callprofiler.db"
+
+    schema_path = (
+        Path(__file__).parents[1] / "src" / "callprofiler" / "db" / "schema.sql"
+    )
+    audio_file = Path(tmpdir) / "call1.wav"
+    audio_file.write_bytes(b"RIFF\x00\x00\x00\x00WAVEfmt ")  # tiny stub
+
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(schema_path.read_text(encoding="utf-8"))
+        # schema_version & graph columns are added by this migration at runtime.
+        from callprofiler.graph.repository import apply_graph_schema
+        apply_graph_schema(conn)
+        # FK enforcement is off by default in sqlite3, so no users row needed.
+        # Call 1: has an audio file on disk
+        conn.execute(
+            """INSERT INTO calls (call_id, user_id, direction, source_filename,
+                   source_md5, audio_path, norm_path, duration_sec, status,
+                   updated_at)
+               VALUES (1,'test_user','incoming','call1.m4a','md5-1',?,?,90,'done',
+                   '2026-05-30 10:00:00')""",
+            (str(audio_file), str(audio_file)),
+        )
+        # Call 2: norm_path points to a missing file
+        conn.execute(
+            """INSERT INTO calls (call_id, user_id, direction, source_filename,
+                   source_md5, norm_path, status, updated_at)
+               VALUES (2,'test_user','outgoing','call2.m4a','md5-2',
+                   '/no/such/file.wav','done','2026-05-30 11:00:00')""",
+        )
+        conn.execute(
+            """INSERT INTO analyses (call_id, risk_score, summary, call_type, flags)
+               VALUES (1,42,'Test summary','business','{}')"""
+        )
+        conn.execute(
+            """INSERT INTO transcripts (call_id, start_ms, end_ms, text, speaker)
+               VALUES (1,1000,2000,'hello there','OWNER')"""
+        )
+        conn.commit()
+
+    saved_cfg = server_mod._CONFIG
+    saved_user = server_mod._USER_ID
+    server_mod._CONFIG = SimpleNamespace(data_dir=str(db_path))
+    server_mod._USER_ID = "test_user"
+
+    with TestClient(server_mod.app) as tc:
+        yield tc
+
+    server_mod._CONFIG = saved_cfg
+    server_mod._USER_ID = saved_user
+
+
+class TestSlice4Export:
+    def test_export_returns_csv(self, real_client):
+        resp = real_client.get("/api/calls/export")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/csv")
+        assert "attachment" in resp.headers.get("content-disposition", "")
+        body = resp.text
+        assert "call_id" in body  # header row
+        assert "Test summary" in body  # data row
+
+    def test_export_status_filter(self, real_client):
+        resp = real_client.get("/api/calls/export?status=error")
+        assert resp.status_code == 200
+        # No error-status calls seeded → only the header row remains
+        lines = [ln for ln in resp.text.splitlines() if ln.strip()]
+        assert len(lines) == 1
+
+    def test_export_no_config(self, client):
+        # mocked `client` fixture leaves _CONFIG = None
+        resp = client.get("/api/calls/export")
+        assert resp.status_code == 200
+        assert resp.json() == {"calls": []}
+
+
+class TestSlice4Audio:
+    def test_audio_served_when_file_exists(self, real_client):
+        resp = real_client.get("/api/calls/1/audio")
+        assert resp.status_code == 200
+        assert resp.content.startswith(b"RIFF")
+
+    def test_audio_404_when_file_missing(self, real_client):
+        resp = real_client.get("/api/calls/2/audio")
+        assert resp.status_code == 404
+
+    def test_audio_404_when_call_missing(self, real_client):
+        resp = real_client.get("/api/calls/999/audio")
+        assert resp.status_code == 404
+
+    def test_detail_does_not_leak_paths(self, real_client):
+        resp = real_client.get("/api/calls/1")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "norm_path" not in data
+        assert "audio_path" not in data

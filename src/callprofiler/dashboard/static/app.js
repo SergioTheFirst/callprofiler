@@ -26,12 +26,34 @@
     var sseDot = $('#sse-dot');
     var clock = $('#clock');
 
+    // ── URL State (deep-linking: ?tab=calls&status=error&days=7) ───────────
+    function readUrlState() {
+        var params = new URLSearchParams(location.search);
+        return {
+            tab: params.get('tab') || location.hash.replace('#', '') || 'overview',
+            status: params.get('status') || '',
+            days: params.get('days') || '0',
+        };
+    }
+
+    function writeUrlState() {
+        var params = new URLSearchParams();
+        params.set('tab', state.activeTab);
+        if (state.activeTab === 'calls') {
+            var sf = ($('#calls-status-filter') || {}).value || '';
+            var df = ($('#calls-days-filter') || {}).value || '0';
+            if (sf) params.set('status', sf);
+            if (df && df !== '0') params.set('days', df);
+        }
+        history.replaceState(null, '', location.pathname + '?' + params.toString());
+    }
+
     // ── Tab Switching ──────────────────────────────────────────────────────
     function switchTab(name) {
         state.activeTab = name;
         tabs.forEach(function(t) { t.classList.toggle('active', t.dataset.tab === name); });
         panels.forEach(function(p) { p.classList.toggle('active', p.id === 'panel-' + name); });
-        location.hash = name;
+        writeUrlState();
         if (name === 'overview') loadOverview();
         else if (name === 'calls') loadCalls();
         else if (name === 'entities') loadEntities();
@@ -42,9 +64,11 @@
         t.addEventListener('click', function() { switchTab(this.dataset.tab); });
     });
 
-    // Restore tab from URL hash
-    var hash = location.hash.replace('#', '');
-    if (hash && $('#panel-' + hash)) switchTab(hash);
+    // Restore tab + filters from URL (query params take precedence over hash)
+    var initUrl = readUrlState();
+    if ($('#calls-status-filter') && initUrl.status) $('#calls-status-filter').value = initUrl.status;
+    if ($('#calls-days-filter') && initUrl.days && initUrl.days !== '0') $('#calls-days-filter').value = initUrl.days;
+    if (initUrl.tab && $('#panel-' + initUrl.tab)) switchTab(initUrl.tab);
 
     // ── Clock ──────────────────────────────────────────────────────────────
     function updateClock() {
@@ -71,6 +95,11 @@
                 if (data.type === 'tick' && state.activeTab === 'overview') {
                     updateStatCards(data.status);
                     addFeedItem(data.status);
+                } else if (data.type === 'calls_changed') {
+                    // Pipeline wrote new/updated calls — refresh live if visible.
+                    if (state.activeTab === 'calls') loadCalls(state.callsPage);
+                    else if (state.activeTab === 'overview') loadOverview();
+                    toast('Pipeline activity — calls updated', 'ok');
                 }
             } catch (e) { /* ignore parse errors */ }
         };
@@ -252,6 +281,7 @@
         var offset = page * state.callsLimit;
         var statusFilter = ($('#calls-status-filter') || {}).value || '';
         var daysFilter = parseInt(($('#calls-days-filter') || {}).value || '0');
+        if (state.activeTab === 'calls') writeUrlState();
         var url = '/api/calls?limit=' + state.callsLimit + '&offset=' + offset;
         if (statusFilter) url += '&status=' + encodeURIComponent(statusFilter);
         if (daysFilter > 0) url += '&days=' + daysFilter;
@@ -337,6 +367,11 @@
             flagsHtml += '</div>';
         }
 
+        var audioHtml = '<div class="detail-section"><h4>Audio</h4>' +
+            '<audio id="call-audio" class="call-audio" controls preload="none" ' +
+            'src="/api/calls/' + d.call_id + '/audio"></audio>' +
+            '<div class="audio-hint">Click a transcript line to seek</div></div>';
+
         var segsHtml = '<div class="detail-section"><h4>Transcript (' + d.segments.length + ' segments)</h4><div class="segment-list">';
         if (d.segments.length === 0) {
             segsHtml += '<span class="detail-empty">No transcript available</span>';
@@ -385,7 +420,18 @@
             '<dt>Model</dt><dd>' + escapeHtml(d.model || '--') + '</dd>' +
             '</dl></div>' +
             '<div class="detail-section"><h4>Summary</h4><p style="font-size:13px;color:var(--text-secondary);line-height:1.6">' + escapeHtml(summary) + '</p></div>' +
-            flagsHtml + segsHtml + promHtml;
+            flagsHtml + audioHtml + segsHtml + promHtml;
+
+        // Click a transcript segment → seek the audio player to its start.
+        document.querySelectorAll('#detail-content .segment-item').forEach(function(seg) {
+            seg.addEventListener('click', function() {
+                var audio = document.getElementById('call-audio');
+                if (!audio) return;
+                var ms = parseInt(this.dataset.start || '0', 10);
+                audio.currentTime = ms / 1000;
+                audio.play().catch(function() { /* autoplay/blocked or no file */ });
+            });
+        });
     }
 
     $('#detail-close').addEventListener('click', function() {
@@ -401,7 +447,14 @@
     $('#calls-status-filter').addEventListener('change', function() { loadCalls(0); });
     $('#calls-days-filter').addEventListener('change', function() { loadCalls(0); });
     $('#calls-export').addEventListener('click', function() {
-        toast('CSV export coming soon', '');
+        var sf = ($('#calls-status-filter') || {}).value || '';
+        var df = parseInt(($('#calls-days-filter') || {}).value || '0', 10);
+        var parts = [];
+        if (sf) parts.push('status=' + encodeURIComponent(sf));
+        if (df > 0) parts.push('days=' + df);
+        var url = '/api/calls/export' + (parts.length ? '?' + parts.join('&') : '');
+        window.location.href = url;
+        toast('Exporting CSV…', 'ok');
     });
 
     // ── Search Tab ─────────────────────────────────────────────────────────

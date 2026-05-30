@@ -8,6 +8,17 @@
 
 ## Status
 
+DONE: Dashboard v3 Slice 4 — SSE call-change events, URL deep-linking, audio player, CSV export (2026-05-30)
+  ✅ server.py: poll-based change detection in _poller (calls_changed event via MAX(updated_at)); GET /api/calls/export (CSV); GET /api/calls/{id}/audio (FileResponse); detail strips audio/norm paths
+  ✅ db_reader.py: get_call_detail() now SELECTs audio_path + norm_path
+  ✅ app.js: readUrlState/writeUrlState (?tab=&status=&days=), SSE calls_changed handler, audio player + click-to-seek segments, real CSV download
+  ✅ style.css: .call-audio, .audio-hint
+  ✅ 37/37 dashboard tests pass (8 new Slice-4 tests), JS --check OK, compileall OK
+  ⚠ Branch: claude/festive-mayer-GBbcv (session-mandated; CLAUDE.md says main)
+NOW: Slice 4 complete — change detection is cross-process safe (SQLite timestamp = event source, per decisions.md)
+NEXT: P0-019 — BUDGETS dict migration (deferred tech debt)
+BLOCKERS: None
+
 DONE: Dashboard v3 Slice 3 — Call detail panel, entity modal, search highlights, filters, DB stats (2026-05-26)
   ✅ db_reader.py: get_call_detail(), get_calls_filtered(), get_db_stats()
   ✅ server.py: GET /api/calls/{id}, /api/calls?status=&days=, /api/system with db_stats
@@ -15,9 +26,6 @@ DONE: Dashboard v3 Slice 3 — Call detail panel, entity modal, search highlight
   ✅ index.html: calls layout with detail sidebar, status/days filters, entity modal overlay
   ✅ style.css: detail-panel, filter-select, .modal, .search-result, .db-stats
   ✅ 412/412 pass, compileall OK
-NOW: Dashboard v3 Slice 4 — SSE real events, URL state (?tab=calls&status=error), audio player stub, CSV export
-NEXT: P0-019 — BUDGETS dict migration (deferred tech debt)
-BLOCKERS: None
 
 
 PREV: All biography passes in 'done' status (p1-p9, 11 passes total)
@@ -56,6 +64,51 @@ DONE: PSYCHOLOGY PROFILER MVP — PsychologyProfiler class + CLI person-profile/
 NOW: 196 tests pass — ready for next pipeline run
 NEXT: Run build-book-and-profiles.bat to complete Stages 2-5
 BLOCKERS: None
+
+---
+
+## Текущее состояние: 2026-05-30 (Dashboard v3 Slice 4 — Live events, URL state, audio, CSV)
+
+### Что сделано в этой сессии
+
+1. **`server.py`**:
+   - `_poller()` теперь делает change-detection: сравнивает `get_latest_timestamp()`
+     с `_LAST_TS` и при изменении броадкастит SSE-событие `calls_changed`
+     (с топ-10 недавних звонков). Первое наблюдение пропускается, чтобы свежее
+     подключение дашборда не дёргало refresh. **Кросс-процессно** — конвейер
+     пишет в БД, дашборд опрашивает (SQLite timestamp = источник событий,
+     согласно decisions.md; никаких message queue).
+   - `GET /api/calls/export?status=&days=` — реальный CSV (StreamingResponse,
+     Content-Disposition attachment). Зарегистрирован **до** `/api/calls/{id}`,
+     иначе "export" парсился бы как int.
+   - `GET /api/calls/{id}/audio` — FileResponse из `norm_path`||`audio_path`;
+     404 если звонка нет или файл отсутствует.
+   - `/api/calls/{id}` теперь вырезает `audio_path`/`norm_path` из JSON
+     (не светим абсолютные серверные пути клиенту).
+
+2. **`db_reader.py`**: `get_call_detail()` дополнительно SELECT `audio_path, norm_path`.
+
+3. **`app.js`**:
+   - URL deep-linking: `readUrlState()`/`writeUrlState()` → `?tab=calls&status=error&days=7`.
+     `switchTab()` и `loadCalls()` синхронизируют URL; на старте фильтры
+     восстанавливаются из query-params (приоритет над hash).
+   - SSE: обработчик `calls_changed` → если активна вкладка calls/overview,
+     перезагружает; тост «Pipeline activity».
+   - Аудиоплеер в `renderCallDetail()`: `<audio src="/api/calls/{id}/audio">`,
+     клик по сегменту транскрипта → seek (`audio.currentTime = start_ms/1000`).
+   - Реальный CSV-экспорт: кнопка → `window.location.href` на `/api/calls/export`
+     с текущими фильтрами.
+
+4. **`style.css`**: `.call-audio`, `.audio-hint`.
+
+5. **Тесты** (`test_dashboard_server.py`): +8 — `TestSlice4Export` (CSV content-type,
+   status-filter, no-config) и `TestSlice4Audio` (файл есть/нет, звонка нет,
+   detail не светит пути). Фикстура `real_client` поднимает temp SQLite со схемой
+   + `apply_graph_schema`. **37/37 dashboard-тестов зелёные.**
+
+### Следующий шаг
+- P0-019 — BUDGETS dict migration (отложенный техдолг)
+- Опционально: debounce тоста calls_changed; URL state для search/entity deep-links
 
 ---
 

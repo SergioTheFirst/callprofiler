@@ -12,7 +12,12 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -26,6 +31,7 @@ _APP: FastAPI | None = None
 _USER_ID: str | None = None
 _CONFIG: Any = None
 _SSE_SUBSCRIBERS: set[asyncio.Queue[str]] = set()
+_LAST_TS: str | None = None  # last MAX(updated_at) seen by the poller (change detection)
 
 VERSION = "3.0.0"
 
@@ -54,6 +60,7 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
         _SSE_SUBSCRIBERS.difference_update(dead)
 
     async def _poller() -> None:
+        global _LAST_TS
         while True:
             await asyncio.sleep(POLL_INTERVAL_SEC)
             if _CONFIG is None:
@@ -68,6 +75,27 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
                     ensure_ascii=False,
                 )
                 await _broadcast(payload)
+
+                # Change detection: SQLite MAX(updated_at) is the event source.
+                # Cross-process safe (pipeline writes DB, dashboard polls it).
+                latest = reader.get_latest_timestamp(_USER_ID)
+                if latest and latest != _LAST_TS:
+                    # Skip the very first observation so a fresh dashboard
+                    # connection does not fire a spurious "changed" event.
+                    if _LAST_TS is not None:
+                        recent = reader.get_calls_filtered(
+                            _USER_ID, limit=10, offset=0
+                        )
+                        change_payload = json.dumps(
+                            {
+                                "type": "calls_changed",
+                                "latest": latest,
+                                "calls": recent,
+                            },
+                            ensure_ascii=False,
+                        )
+                        await _broadcast(change_payload)
+                    _LAST_TS = latest
             except Exception:
                 logger.warning("Dashboard poller error", exc_info=True)
 
@@ -113,6 +141,35 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
                                          status=status, days=days)
         return JSONResponse({"calls": rows, "limit": limit, "offset": offset})
 
+    @fa.get("/api/calls/export")
+    async def _calls_export(status: str = Query(""),
+                            days: int = Query(0, ge=0, le=365)) -> Any:
+        if _CONFIG is None:
+            return JSONResponse({"calls": []})
+        reader = DashboardDBReader(_CONFIG.data_dir)
+        rows = reader.get_calls_filtered(
+            _USER_ID, limit=10000, offset=0, status=status, days=days
+        )
+        import csv
+        import io
+
+        fieldnames = [
+            "call_id", "call_datetime", "contact_label", "direction",
+            "duration_sec", "status", "risk_score", "call_type", "summary",
+        ]
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        for r in rows:
+            writer.writerow({k: r.get(k, "") for k in fieldnames})
+        return StreamingResponse(
+            iter([buf.getvalue()]),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": "attachment; filename=calls_export.csv"
+            },
+        )
+
     @fa.get("/api/calls/{call_id}")
     async def _call_detail(call_id: int) -> JSONResponse:
         if _CONFIG is None:
@@ -121,7 +178,24 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
         detail = reader.get_call_detail(call_id, _USER_ID)
         if detail is None:
             return JSONResponse({"call_id": call_id, "error": "not found"}, status_code=404)
+        # Don't leak absolute server filesystem paths to the client; the audio
+        # endpoint resolves them server-side instead.
+        detail.pop("audio_path", None)
+        detail.pop("norm_path", None)
         return JSONResponse(detail)
+
+    @fa.get("/api/calls/{call_id}/audio")
+    async def _call_audio(call_id: int) -> Any:
+        if _CONFIG is None:
+            return JSONResponse({"error": "no config"}, status_code=404)
+        reader = DashboardDBReader(_CONFIG.data_dir)
+        detail = reader.get_call_detail(call_id, _USER_ID)
+        if detail is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        path = detail.get("norm_path") or detail.get("audio_path")
+        if not path or not Path(path).exists():
+            return JSONResponse({"error": "audio unavailable"}, status_code=404)
+        return FileResponse(path)
 
     @fa.get("/api/search")
     async def _search(q: str = Query(..., min_length=1), limit: int = Query(20, ge=1, le=100)) -> JSONResponse:

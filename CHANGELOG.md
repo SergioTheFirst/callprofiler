@@ -8,6 +8,41 @@
 
 ## [Unreleased]
 
+### Added — Dashboard v3 Slice 4: Live call events, URL deep-linking, audio player, CSV export (2026-05-30)
+
+- `dashboard/server.py`:
+  - `_poller()` change detection — compares `get_latest_timestamp()` against a
+    module-level `_LAST_TS`; on change, broadcasts an SSE `calls_changed` event
+    carrying the latest 10 calls. First observation is skipped so a fresh
+    dashboard connection does not trigger a spurious refresh. Cross-process safe
+    (pipeline writes the DB, dashboard polls it — SQLite timestamp is the event
+    source, no message queue, per `decisions.md`).
+  - `GET /api/calls/export?status=&days=` — streams a CSV (`text/csv`,
+    `Content-Disposition: attachment`) honoring the active status/days filters.
+    Registered **before** `/api/calls/{call_id}` so the literal `export` path is
+    not parsed as an integer id.
+  - `GET /api/calls/{call_id}/audio` — `FileResponse` from `norm_path` (fallback
+    `audio_path`); 404 when the call is missing or the file is absent.
+  - `GET /api/calls/{call_id}` now strips `audio_path`/`norm_path` from the JSON
+    so absolute server paths are never leaked to the client.
+- `dashboard/db_reader.py` — `get_call_detail()` additionally selects
+  `audio_path` and `norm_path` (consumed server-side by the audio endpoint).
+- `dashboard/static/app.js`:
+  - URL deep-linking — `readUrlState()`/`writeUrlState()` keep
+    `?tab=calls&status=error&days=7` in sync via `history.replaceState`;
+    `switchTab()` and `loadCalls()` update it, and filters are restored from the
+    URL on load (query params take precedence over the legacy hash).
+  - SSE `calls_changed` handler — live-refreshes the calls/overview view and
+    shows a toast when the pipeline writes new data.
+  - Audio player in `renderCallDetail()` — `<audio src="/api/calls/{id}/audio">`;
+    clicking a transcript segment seeks playback to its `start_ms`.
+  - Real CSV export — the Export button navigates to `/api/calls/export` with the
+    current filters (replaces the "coming soon" stub).
+- `dashboard/static/style.css` — `.call-audio`, `.audio-hint`.
+- `tests/test_dashboard_server.py` — +8 tests (`TestSlice4Export`,
+  `TestSlice4Audio`) with a real temp-SQLite `real_client` fixture (schema +
+  `apply_graph_schema`). 37/37 dashboard tests pass.
+
 ### Added — Dashboard v3 Slice 3: Call detail, entity modal, search highlights, filters, DB stats (2026-05-26)
 
 - `dashboard/db_reader.py` — 3 new methods:
