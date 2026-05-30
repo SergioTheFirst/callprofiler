@@ -207,3 +207,33 @@ class TestExport:
             assert "call_id" in resp.text  # header still emitted
         finally:
             server_mod._DB_READER = saved
+
+
+class TestEntitiesPersona:
+    def test_entities_returns_personas_with_entity_id(self, client):
+        """B.1: /api/entities lists graph personas (entity_id space) so the
+        entity modal's /api/character/{entity_id} resolves to the same record."""
+        import callprofiler.dashboard.server as server_mod
+        server_mod._DB_READER.get_all_characters.return_value = [
+            {"entity_id": 7, "canonical_name": "Пётр", "entity_type": "person",
+             "total_calls": 12, "avg_risk": 55, "bs_index": 33.3,
+             "character_label": "Холерик-достиженец", "has_psychology": True},
+        ]
+        resp = client.get("/api/entities?limit=50")
+        assert resp.status_code == 200
+        ents = resp.json()["entities"]
+        assert len(ents) == 1
+        assert ents[0]["entity_id"] == 7          # entity_id space (modal-compatible)
+        assert ents[0]["canonical_name"] == "Пётр"
+        assert "contact_id" not in ents[0]        # not contact-space anymore
+
+    def test_entities_empty_when_no_reader(self, client):
+        import callprofiler.dashboard.server as server_mod
+        saved = server_mod._DB_READER
+        server_mod._DB_READER = None
+        try:
+            resp = client.get("/api/entities")
+            assert resp.status_code == 200
+            assert resp.json()["entities"] == []
+        finally:
+            server_mod._DB_READER = saved

@@ -8,6 +8,18 @@
 
 ## [Unreleased]
 
+### Fixed — Entities tab is now persona-centric (B.1 facade) (2026-05-30)
+
+- `dashboard/server.py` — `/api/entities` now lists **graph personas** via `get_all_characters` (entity_id space) instead of contacts (contact_id). The entity modal calls `/api/character/{entity_id}` → `get_character_profile`; previously the list returned `contact_id`, so clicking an entity row looked up the wrong/empty record. Uses `_get_reader()` (test-shim friendly) + `[:limit]`.
+- `dashboard/static/app.js` — `renderEntitiesTable` renders persona fields (`canonical_name`, `total_calls`, `bs_index`, `avg_risk`, `character_label`) and uses `entity_id` for the modal (contact fallbacks kept).
+- `dashboard/templates/index.html` — entities table header "Last Seen" → "Character".
+- Tests: +2 (`test_dashboard_server.py::TestEntitiesPersona`). Full suite **419/419**.
+
+### Changed — Context hygiene: .claudeignore + CLAUDE.md task rules (2026-05-30)
+
+- `.claudeignore` — added `node_modules/`, `.next/`, `coverage/`, `*.min.js` (merged; existing DB/audio/secret/historical excludes preserved).
+- `CLAUDE.md` — new "Before Starting Any Task" section (respect .claudeignore; prefer src/app/lib/packages; minimize context; Explore agent for search; Sonnet for implementation; Opus for planning/architecture; use subagents).
+
 ### Added — Dashboard last-mile (Step 3): change-driven SSE, CSV export, reprocess fix (2026-05-30)
 
 - `dashboard/server.py`:

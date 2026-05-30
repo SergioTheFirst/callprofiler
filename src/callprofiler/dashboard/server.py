@@ -146,11 +146,15 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
 
     @fa.get("/api/entities")
     async def _entities(limit: int = Query(100, ge=1, le=1000)) -> JSONResponse:
-        if _CONFIG is None:
+        # Persona-centric (B.1): list graph entities (entity_id) so the entity
+        # modal's /api/character/{entity_id} resolves in the SAME id-space.
+        # Previously this returned contacts (contact_id) → modal looked up the
+        # wrong record. get_all_characters joins metrics + psychology label.
+        reader = _get_reader()
+        if reader is None or not hasattr(reader, "get_all_characters"):
             return JSONResponse({"entities": []})
-        reader = DashboardDBReader(_CONFIG.data_dir)
-        rows = reader.get_contacts(_USER_ID, limit=limit)
-        return JSONResponse({"entities": rows})
+        rows = reader.get_all_characters(_USER_ID)
+        return JSONResponse({"entities": rows[:limit]})
 
     @fa.get("/api/system")
     async def _system() -> JSONResponse:

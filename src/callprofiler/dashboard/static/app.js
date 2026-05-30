@@ -647,14 +647,16 @@
             var rawRisk = e.avg_risk != null ? e.avg_risk : (e.risk_score != null ? e.risk_score : null);
             var riskDisp = rawRisk !== null ? Number(rawRisk).toFixed(0) : '--';
             var riskCls = rawRisk !== null ? (Number(rawRisk) >= 60 ? 'risk-high' : (Number(rawRisk) >= 30 ? 'risk-med' : 'risk-low')) : '';
-            var entityId = e.contact_id || e.entity_id;
+            // Persona id-space: prefer graph entity_id (modal calls /api/character/{entity_id}).
+            var entityId = e.entity_id != null ? e.entity_id : e.contact_id;
+            var calls = e.total_calls != null ? e.total_calls : (e.call_count || 0);
             return '<tr class="call-row" data-entity-id="' + entityId + '" title="Click for profile">' +
-                '<td>' + escapeHtml(e.display_name || e.phone_e164 || '--') + '</td>' +
+                '<td>' + escapeHtml(e.canonical_name || e.display_name || e.phone_e164 || '--') + '</td>' +
                 '<td>' + escapeHtml(e.entity_type || 'person') + '</td>' +
-                '<td>' + (e.call_count || 0) + '</td>' +
+                '<td>' + calls + '</td>' +
                 '<td>' + (e.bs_index != null ? Number(e.bs_index).toFixed(2) : '--') + '</td>' +
                 '<td>' + (rawRisk !== null ? '<span class="risk ' + riskCls + '">' + riskDisp + '</span>' : '--') + '</td>' +
-                '<td>' + (e.last_seen || '--') + '</td>' +
+                '<td>' + escapeHtml(e.character_label || '--') + '</td>' +
                 '</tr>';
         }).join('');
         document.querySelectorAll('#entities-table tbody tr[data-entity-id]').forEach(function(row) {

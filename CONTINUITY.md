@@ -26,16 +26,20 @@
 Done:
 - Step 1 — docs reconciliation v5 (pushed `702ec13`).
 - Step 2 (A.1) — diarization graceful degradation + normalizer call-time ffmpeg check (pushed `702ec13`).
-- Step 3 (A.3) dashboard last-mile — change-driven SSE (`_poller` via `get_latest_timestamp`), reprocess config-bug fix (Retry-failed now works), CSV export endpoint + `export_calls()` + frontend wire; 417/417; code-review addressed.
+- Step 3 (A.3) dashboard last-mile — change-driven SSE (`_poller` via `get_latest_timestamp`), reprocess config-bug fix (Retry-failed now works), CSV export endpoint + `export_calls()` + frontend wire; 417/417; code-review addressed (pushed `154f469`).
+- Step 4 (B.1) persona facade — `/api/entities` lists graph personas (entity_id), fixing entities-tab↔modal id-space mismatch; persona render + header "Character"; +2 tests; 419/419.
+- Config — `.claudeignore` merged (+node/.next/coverage/*.min.js; kept DB/audio/secret/historical excludes); CLAUDE.md "Before Starting Any Task" (8 rules).
+- Auth-surface mapped (2 Explore subagents): no traditional auth (Ст.8.3) — surface = secrets/tokens + user_id isolation + telegram chat_id whitelist + dashboard ro/127.0.0.1.
 
 Now:
-- Commit/push Step 3 → then Step 4 (B.1) persona read-facade: one "character" read-model over graph entities + `bio_portraits` + `psychology_profiler` + `contact_summaries`.
+- Finalizing: commit Step 4 + config to main. Strategy A (Steps 1–3) + B.1 shipped; 419/419.
 
 Next:
 - Deferred: P0-019 BUDGETS migration; year/month audio storage (B.4); pipeline crash-resume (D.2); reconcile CONSTITUTION Ст.19 wording to ledger format.
 
 **Open questions (UNCONFIRMED):**
-- None blocking. Resolved: `DashboardTools.run_*` ARE real logic (`_reprocess_sync` had a config bug, now fixed). `events.event_bus` is disconnected from the SSE endpoint AND cross-process — so DB-poll change-detection (implemented in `_poller`) is the correct event source; the in-memory bus stays unused/dead (candidate for later removal).
+- Does anything expand `${HF_TOKEN}` from `configs/base.yaml`? `config.py` loads it literally (no `expandvars`) → HF/pyannote auth may receive the literal placeholder unless models are pre-cached. (Telegram token IS read from env correctly.) Found during auth-surface mapping.
+- Resolved: `DashboardTools.run_*` ARE real logic (`_reprocess_sync` config bug fixed). `events.event_bus` is disconnected + cross-process — DB-poll change-detection in `_poller` is the correct source; in-memory bus stays dead (later removal candidate).
 
 **Working set (files/ids/commands):**
 - Step 4 (persona facade) likely files: `dashboard/db_reader.py` (`get_character_profile`/`get_entity_profile` already exist — consolidate into one Persona read-model), `biography/psychology_profiler.py`, `graph/repository.py`, `aggregate/summary_builder.py`.
