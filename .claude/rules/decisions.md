@@ -127,8 +127,17 @@
 
 ## Future Flexibility
 
-- **Model swap:** Ollama model can change (Llama, Mistral, etc)
+- **Model swap:** llama-server model can change (Qwen, Llama, Mistral, etc)
 - **Database migration:** Could move to PostgreSQL if needed
 - **Multi-user:** Can add user_id branching logic later
 - **Cloud option:** Could add cloud fallback if needed
 - **Telegram alternative:** Could add Discord/Slack later
+
+## Doc Reconciliation v5 (2026-05-29)
+
+### Why ARCHITECTURE_v5 + factual corrections?
+- 5-module code audit found docs drifted hard from code: Knowledge Graph + Biography + Dashboard (~60% of the codebase) were undocumented at architecture level; docs said "Ollama" (code uses llama-server) and "D:\calls" (config is `C:\calls\data`).
+- **Decision:** code + `configs/*.yaml` are the source of truth. `ARCHITECTURE_v5.md` documents the 4 real layers; `ARCHITECTURE_v4/v3.md`, `STRATEGIC_PLAN_v4.md`, `memory/roadmap.md` are historical for factual state.
+- Constitution **principles** are unchanged — Ст.16 (architecture revision) NOT invoked. Only factual labels were corrected, which Ст.19.1 (continuity of truth) requires.
+- **Source-of-truth precedence:** code → CONTINUITY.md + git → ARCHITECTURE_v5 → CONSTITUTION (principles) → historical docs.
+- Trade-off: keeping v4/v3 as history (not deleting) costs a little clutter but preserves the decision trail.

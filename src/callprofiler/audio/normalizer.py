@@ -24,13 +24,19 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# ── Проверка зависимостей при импорте модуля ──────────────────────────────────
-_MISSING = [tool for tool in ("ffmpeg", "ffprobe") if not shutil.which(tool)]
-if _MISSING:
-    raise EnvironmentError(
-        f"Не найдены в PATH: {', '.join(_MISSING)}. "
-        "Установите ffmpeg (https://ffmpeg.org/download.html)."
-    )
+# ── Проверка зависимостей (call-time, НЕ при импорте) ─────────────────────────
+# Раньше проверка стояла на уровне модуля и роняла import всего пакета
+# (orchestrator / dashboard / CLI / тесты) на машинах без ffmpeg. Перенесена в
+# функции, которые реально вызывают ffmpeg. Стартовый fail-fast по-прежнему
+# обеспечивает config._validate() (проверяет ffmpeg при загрузке конфига).
+def _require_ffmpeg() -> None:
+    """Убедиться, что ffmpeg и ffprobe доступны в PATH (вызов перед запуском)."""
+    missing = [tool for tool in ("ffmpeg", "ffprobe") if not shutil.which(tool)]
+    if missing:
+        raise EnvironmentError(
+            f"Не найдены в PATH: {', '.join(missing)}. "
+            "Установите ffmpeg (https://ffmpeg.org/download.html)."
+        )
 
 # ── Константы EBU R128 ────────────────────────────────────────────────────────
 _TARGET_LUFS = -16.0   # интегральная громкость речи
@@ -62,6 +68,8 @@ def normalize(
         FileNotFoundError  — если src_path не существует или слишком мал
         RuntimeError       — если ffmpeg завершился с ошибкой
     """
+    _require_ffmpeg()
+
     src = Path(src_path)
     if not src.exists():
         raise FileNotFoundError(f"Файл не найден: {src_path}")
@@ -87,6 +95,7 @@ def get_duration_sec(wav_path: str) -> int:
     Raises:
         RuntimeError — если ffprobe не смог прочитать файл
     """
+    _require_ffmpeg()
     try:
         result = subprocess.run(
             [

@@ -2,6 +2,12 @@
 
 **Статус:** merge-blocking. Код, архитектура или практика, противоречащие этому документу, не принимаются.
 
+> **Факт-сверка 2026-05-29:** этот документ задаёт **принципы** (они в силе). Фактическое
+> состояние слоёв системы — в `ARCHITECTURE_v5.md` (источник истины — код). Исправлены
+> устаревшие факт-метки: LLM-движок — **llama-server (llama.cpp)**, не Ollama; корень
+> данных — **`C:\calls\data`** (`configs/base.yaml`). Это не изменение архитектуры
+> (Ст.16), а приведение текста в соответствие коду (Ст.19.1).
+
 ---
 
 ## Статья 1. Назначение системы
@@ -48,7 +54,7 @@ RTX 3060 12GB. Две модели одновременно в VRAM запрещ
 - Принимает аудиозаписи телефонных звонков от нескольких пользователей.
 - Транскрибирует русскую речь (faster-whisper large-v3).
 - Разделяет на двух спикеров (pyannote + ref embedding → OWNER / OTHER).
-- Анализирует локальной LLM (Ollama): саммари, priority, risk, action items, обещания.
+- Анализирует локальной LLM (llama-server, llama.cpp): саммари, priority, risk, action items, обещания.
 - Генерирует caller cards ({phone}.txt) для overlay на Android.
 - Отправляет дайджест в Telegram.
 - Хранит всё в SQLite с полнотекстовым поиском.
@@ -85,7 +91,7 @@ RTX 3060 12GB. Две модели одновременно в VRAM запрещ
 |-----------|---------|----------------------|
 | ASR | faster-whisper large-v3 | WER > 25% на реальных звонках |
 | Диаризация | pyannote 3.3.2 + ref embedding | Ошибка ролей > 15% |
-| LLM | Ollama + Qwen3.5-9B.Q8_0 | Качество JSON < 70% |
+| LLM | llama-server (llama.cpp) + Qwen3.5-9B.Q8_0 | Качество JSON < 70% |
 | БД | SQLite + FTS5 | Contention при > 100K записей |
 | Бот | python-telegram-bot | — |
 | Overlay | MacroDroid + FolderSync + .txt | Не работает на целевом Android |
@@ -136,7 +142,8 @@ data/
 ```
 
 Правила:
-- `data/` — в `.gitignore`.
+- Конкретный корень: `data_dir = C:\calls\data` (`configs/base.yaml`); аудио — `data/users/{user_id}/audio/{originals,normalized}/`.
+- `data/` (локальный) — в `.gitignore`.
 - Одна БД, изоляция через `user_id` в каждой таблице.
 - Cleanup аудио — только ручной, по решению оператора.
 
@@ -170,7 +177,7 @@ data/
 2. Normalize  — ffmpeg → WAV 16kHz mono
 3. Transcribe — faster-whisper (GPU)
 4. Diarize    — pyannote + ref embedding (GPU) → OWNER/OTHER
-5. Analyze    — Ollama LLM (GPU, после выгрузки Whisper+pyannote)
+5. Analyze    — llama-server LLM (GPU, после выгрузки Whisper+pyannote)
 6. Deliver    — карточка + Telegram
 ```
 
@@ -182,7 +189,7 @@ data/
 
 ```
 Whisper (~3GB) + pyannote (~1.5GB) = ~4.5GB  → помещаются вместе → OK
-Ollama Qwen3.5-9B.Q8_0 (~10GB)                    → только один → выгрузить остальное
+llama-server Qwen3.5-9B.Q8_0 (~10GB)                    → только один → выгрузить остальное
 ```
 
 Перед загрузкой LLM обязательно:

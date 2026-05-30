@@ -8,6 +8,21 @@
 
 ## [Unreleased]
 
+### Fixed — Diarization failure no longer loses transcript or leaks VRAM (2026-05-30)
+
+- `pipeline/orchestrator.py` — extracted `Orchestrator._diarize_segments()` (used by both `process_call` and `process_batch`; the diarize logic was duplicated). On any pyannote `load()`/`diarize()` exception it now logs a warning, leaves segments `speaker=UNKNOWN`, and **continues** (transcript still saved) per `.claude/rules/pipeline.md`. `pyannote_runner.unload()` runs in a `finally`, so VRAM is always freed before the LLM phase (CONSTITUTION Ст.9.3). Previously a diarize exception skipped **both** `save_transcripts()` (transcript lost) and `unload()` (VRAM leak → OOM risk).
+- `audio/normalizer.py` — moved the ffmpeg/ffprobe presence check from **import time** to **call time** (`_require_ffmpeg()`, invoked by `normalize()` and `get_duration_sec()`). The import-time `raise` made the whole package (orchestrator/dashboard/CLI/tests) unimportable without ffmpeg; `config._validate()` still fail-fasts at startup. This unblocked the first orchestrator-level unit test.
+- `tests/test_regressions.py` — 2 regression tests (diarization exception keeps transcript + frees GPU; diarization-disabled path). Full suite **414/414 pass**; code-review clean (0 findings).
+
+### Changed — Documentation reconciliation v5: code = source of truth (2026-05-29)
+
+- `ARCHITECTURE_v5.md` — **NEW** canonical architecture. Documents the 4 real layers (Core Pipeline / Knowledge Graph / Biography / Delivery+Admin), mermaid layer-map, concrete storage paths, known gaps from the 2026-05-29 audit, and source-of-truth precedence.
+- `ARCHITECTURE_v4.md` — marked **SUPERSEDED** (historical, ≤Фаза 4).
+- `CONSTITUTION.md` — corrected stale factual labels per Ст.19.1 (not an Ст.16 architecture change): LLM "Ollama" → "llama-server (llama.cpp)" in Ст.3 / Ст.5 / Ст.9; added concrete storage root `C:\calls\data` in Ст.7; added factual-correction banner under Статус.
+- `CLAUDE.md` — Key Paths `D:\calls` → `C:\calls\data` (per `configs/base.yaml` + 2026-04-20 migration); Progressive Disclosure now points to `ARCHITECTURE_v5.md` (v4 kept as historical).
+- `.claude/rules/decisions.md` — added "Doc Reconciliation v5" ADR; fixed a stale "Ollama" mention.
+- **Rationale:** a 5-module read-only audit found ~60% of the code (graph + biography + dashboard) undocumented at architecture level, and `STRATEGIC_PLAN_v4` / `roadmap.md` / `v4` describing a system two layers behind reality. No code changed in this entry — docs only.
+
 ### Added — Dashboard v3 Slice 3: Call detail, entity modal, search highlights, filters, DB stats (2026-05-26)
 
 - `dashboard/db_reader.py` — 3 new methods:

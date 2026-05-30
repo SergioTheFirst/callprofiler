@@ -89,6 +89,14 @@ None currently identified.
 
 ## Recent Fixes (Closed)
 
+✅ **Diarization exception lost transcript + leaked VRAM** (2026-05-30)
+- **Issue:** In `orchestrator.py` (`process_call` & `process_batch`), if `pyannote.diarize()`/`load()` threw, `save_transcripts()` was skipped (Whisper transcript lost) AND `pyannote_runner.unload()` was skipped (VRAM leaked before the ~10GB LLM phase → OOM risk). Violated `.claude/rules/pipeline.md` (continue with speaker=UNKNOWN) + CONSTITUTION Ст.9.3.
+- **Found by:** strategic audit (2026-05-29), verified by reading `orchestrator.py:294-305`.
+- **Fix:** extracted `Orchestrator._diarize_segments()` — try/except → return UNKNOWN segments on failure, `finally: unload()`. Both call sites rewired (de-duplicated). Transcript always saved; GPU always freed.
+- **Companion fix:** `normalizer.py` ffmpeg/ffprobe presence check moved from import-time to call-time (`_require_ffmpeg()`), so the package is importable without ffmpeg (`config._validate()` still fail-fasts at startup). Unblocked the first orchestrator-level unit test.
+- **Regression tests:** `tests/test_regressions.py::test_diarization_failure_keeps_transcript_and_frees_gpu`, `::test_diarization_disabled_returns_segments_without_loading`. Suite 414/414. Code-review: clean.
+- **Status:** RESOLVED (2026-05-30)
+
 ✅ **BOM in .bat files** (2026-04-14)
 - Removed UTF-8 BOM from all batch files
 - Converted to ASCII encoding for Windows compatibility
@@ -108,7 +116,7 @@ None currently identified.
 | Category | Count |
 |----------|-------|
 | Active Bugs | 3 |
-| Resolved | 3 |
+| Resolved | 4 |
 | Ideas/Backlog | 5 |
 | Future Phase Items | 3 |
 | **Total** | **14** |

@@ -148,21 +148,7 @@ class Orchestrator:
             self.repo.update_call_status(call_id, "diarizing")
             user = self.repo.get_user(user_id)
             ref_audio = user.get("ref_audio", "") if user else ""
-
-            if not self.config.features.enable_diarization:
-                logger.info("Diarization disabled by feature flag; speakers=UNKNOWN")
-            elif ref_audio and Path(ref_audio).exists():
-                self.pyannote_runner.load(ref_audio)
-                diarization = self.pyannote_runner.diarize(norm_path)
-                segments = assign_speakers(segments, diarization)
-                self.pyannote_runner.unload()
-                logger.info(
-                    "Диаризация: call_id=%d, %d интервалов", call_id, len(diarization)
-                )
-            else:
-                logger.warning(
-                    "Нет ref_audio для user_id=%s, пропуск диаризации", user_id
-                )
+            segments = self._diarize_segments(call_id, norm_path, segments, ref_audio)
 
             # Сохранить транскрипт
             self.repo.save_transcripts(call_id, segments)
@@ -275,7 +261,7 @@ class Orchestrator:
 
         self.whisper_runner.unload()
 
-        # Diarize
+        # Diarize (сбой pyannote → сегменты остаются UNKNOWN, pipeline продолжается)
         for call in calls_data:
             call_id = call["call_id"]
             if call_id not in segments_map:
@@ -283,25 +269,14 @@ class Orchestrator:
 
             try:
                 self.repo.update_call_status(call_id, "diarizing")
-                user_id = call["user_id"]
-                user = users_cache.get(user_id)
+                user = users_cache.get(call["user_id"])
                 ref_audio = user.get("ref_audio", "") if user else ""
-
-                if not self.config.features.enable_diarization:
-                    logger.info(
-                        "Diarization disabled by feature flag (call_id=%d)", call_id
-                    )
-                elif ref_audio and Path(ref_audio).exists():
-                    self.pyannote_runner.load(ref_audio)
-                    diarization = self.pyannote_runner.diarize(call["_norm_path"])
-                    segments_map[call_id] = assign_speakers(
-                        segments_map[call_id], diarization
-                    )
-                    self.pyannote_runner.unload()
-
+                segments_map[call_id] = self._diarize_segments(
+                    call_id, call["_norm_path"], segments_map[call_id], ref_audio
+                )
                 self.repo.save_transcripts(call_id, segments_map[call_id])
             except Exception as exc:
-                logger.error("Ошибка диаризации call_id=%d: %s", call_id, exc)
+                logger.error("Ошибка сохранения транскрипта call_id=%d: %s", call_id, exc)
                 self.repo.update_call_status(call_id, "error", str(exc))
 
         # ── Фаза 3: Analyze (LLM, после выгрузки GPU моделей) ────
@@ -363,6 +338,54 @@ class Orchestrator:
         self.process_batch(call_ids)
 
     # ── Внутренние методы ─────────────────────────────────────────────
+
+    def _diarize_segments(
+        self,
+        call_id: int,
+        norm_path: str,
+        segments: list[Segment],
+        ref_audio: str,
+    ) -> list[Segment]:
+        """Назначить роли спикеров через pyannote, с graceful degradation.
+
+        Правила (`.claude/rules/pipeline.md` + CONSTITUTION Ст.9.3):
+          - диаризация выключена или нет ref_audio → сегменты остаются UNKNOWN;
+          - любой сбой pyannote (load/diarize) → логируем warning, сегменты
+            остаются UNKNOWN, pipeline ПРОДОЛЖАЕТСЯ (транскрипт не теряется);
+          - pyannote ВСЕГДА выгружается (finally) — иначе VRAM не освободится
+            перед LLM-фазой и она упадёт по OOM.
+        """
+        if not self.config.features.enable_diarization:
+            logger.info(
+                "Diarization disabled by feature flag (call_id=%d); speakers=UNKNOWN",
+                call_id,
+            )
+            return segments
+
+        if not (ref_audio and Path(ref_audio).exists()):
+            logger.warning(
+                "Нет ref_audio для call_id=%d, пропуск диаризации (speakers=UNKNOWN)",
+                call_id,
+            )
+            return segments
+
+        try:
+            self.pyannote_runner.load(ref_audio)
+            diarization = self.pyannote_runner.diarize(norm_path)
+            result = assign_speakers(segments, diarization)
+            logger.info(
+                "Диаризация: call_id=%d, %d интервалов", call_id, len(diarization)
+            )
+            return result
+        except Exception as exc:
+            logger.warning(
+                "Диаризация упала для call_id=%d, сегменты остаются UNKNOWN "
+                "(pipeline продолжается): %s",
+                call_id, exc,
+            )
+            return segments
+        finally:
+            self.pyannote_runner.unload()
 
     def _analyze_call(
         self,

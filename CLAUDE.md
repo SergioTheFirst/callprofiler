@@ -63,10 +63,12 @@ torch.load = lambda *a, **kw: _orig(*a, **{**kw, "weights_only": kw.get("weights
 ## Key Paths
 
 ```
-Project:     C:\pro\callprofiler\          DB:    D:\calls\data\db\callprofiler.db
-Audio:       D:\calls\audio                Transcripts: D:\calls\out (18K .txt)
+Project:     C:\pro\callprofiler\          DB:    C:\calls\data\db\callprofiler.db
+Data root:   C:\calls\data                 Audio: C:\calls\data\users\{user_id}\audio\{originals,normalized}\
 Ref voice:   C:\pro\mbot\ref\manager.wav   Prototype:   reference_batch_asr.py
 ```
+> `data_dir` задаётся в `configs/base.yaml` (`C:\calls\data`). Прежний путь `D:\calls`
+> устарел — данные мигрированы на `C:\calls` 2026-04-20. Подробнее: `ARCHITECTURE_v5.md` §7.
 
 ## Transcript Format
 
@@ -85,8 +87,9 @@ Ref voice:   C:\pro\mbot\ref\manager.wav   Prototype:   reference_batch_asr.py
 IF referenced @file does not exist → ignore, do not infer its contents.
 
 ```
-Architecture & pipeline:       @ARCHITECTURE_v4.md
-Strategy & phases:             @STRATEGIC_PLAN_v4.md
+Architecture (source of truth): @ARCHITECTURE_v5.md
+Architecture (historical, ≤Фаза4):@ARCHITECTURE_v4.md
+Strategy & phases (historical): @STRATEGIC_PLAN_v4.md
 Constitution & constraints:    @CONSTITUTION.md
 Agent coding rules:            @AGENTS.md
 LLM prompt template:           @configs/prompts/analyze_v001.txt

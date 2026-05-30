@@ -8,6 +8,8 @@
 
 ## Status
 
+DONE: Step 2 (A.1) — diarization graceful-degradation fix (Orchestrator._diarize_segments + finally:unload) + normalizer ffmpeg check → call-time + 2 regression tests; 414/414 pass; code-review clean (2026-05-30)
+DONE: Audit (5 subagents) + Docs reconciliation v5 — ARCHITECTURE_v5.md, CONSTITUTION/CLAUDE.md/decisions.md factual fixes (2026-05-29)
 DONE: Dashboard v3 Slice 3 — Call detail panel, entity modal, search highlights, filters, DB stats (2026-05-26)
   ✅ db_reader.py: get_call_detail(), get_calls_filtered(), get_db_stats()
   ✅ server.py: GET /api/calls/{id}, /api/calls?status=&days=, /api/system with db_stats
@@ -15,8 +17,8 @@ DONE: Dashboard v3 Slice 3 — Call detail panel, entity modal, search highlight
   ✅ index.html: calls layout with detail sidebar, status/days filters, entity modal overlay
   ✅ style.css: detail-panel, filter-select, .modal, .search-result, .db-stats
   ✅ 412/412 pass, compileall OK
-NOW: Dashboard v3 Slice 4 — SSE real events, URL state (?tab=calls&status=error), audio player stub, CSV export
-NEXT: P0-019 — BUDGETS dict migration (deferred tech debt)
+NOW: Ready for Step 3 (A.3) — dashboard last-mile: real SSE events (orchestrator status hook), admin POST wiring, CSV export
+NEXT: Step 4 persona read-facade (B.1); deferred P0-019 BUDGETS migration; Dashboard v3 Slice 4
 BLOCKERS: None
 
 
@@ -56,6 +58,49 @@ DONE: PSYCHOLOGY PROFILER MVP — PsychologyProfiler class + CLI person-profile/
 NOW: 196 tests pass — ready for next pipeline run
 NEXT: Run build-book-and-profiles.bat to complete Stages 2-5
 BLOCKERS: None
+
+---
+
+## Текущее состояние: 2026-05-30 (Step 2 — Diarization graceful degradation)
+
+### Что сделано
+- **Баг (найден аудитом):** в `orchestrator.py` исключение `pyannote.diarize()`/`load()` пропускало `save_transcripts()` (терялся Whisper-транскрипт) и `unload()` (утечка VRAM перед LLM → риск OOM). Нарушение `pipeline.md` + Ст.9.3.
+- **Фикс (TDD: RED→GREEN):** извлечён `Orchestrator._diarize_segments()` (try/except → сегменты остаются UNKNOWN, `finally: unload()`); оба call-site (`process_call` + `process_batch`) дедуплицированы.
+- **Companion:** `normalizer.py` — проверка ffmpeg/ffprobe перенесена с import-time на call-time (`_require_ffmpeg()`); пакет стал импортируемым без ffmpeg (`config._validate()` всё ещё fail-fast на старте). Разблокировало первый orchestrator-уровневый тест.
+- **Тесты:** +2 регресс-теста в `test_regressions.py`, **414/414 pass**. Code-review субагент: 0 замечаний, safe to merge.
+- **Env-fix (не код):** доустановлен `pytest-asyncio` в этом shell (10 async-тестов не запускались без плагина).
+
+### Следующий шаг
+Step 3 (A.3): dashboard last-mile — реальные SSE-события (хук смены статуса в orchestrator), wiring admin-POST действий, CSV-экспорт.
+
+---
+
+## Текущее состояние: 2026-05-29 (Strategic Audit + Docs Reconciliation v5)
+
+### Что сделано в этой сессии
+
+1. **Глубокий аудит (5 параллельных субагентов, read-only):** pipeline/ASR/storage, LLM/prompts, graph/entities, biography/psychology, dashboard/deliver/CLI/tests. Свёл в стратегию (4 пути A/B/C/D + первый шаг).
+
+2. **Подтверждённые факт-конфликты docs↔code** (истина = код + configs):
+   - LLM: CONSTITUTION Ст.3/5/9 «Ollama» → реально **llama-server** (`config.py:21`, `base.yaml:11`).
+   - Путь: CLAUDE.md «D:\calls» → реально **`C:\calls\data`** (`base.yaml:1`).
+   - ARCHITECTURE_v4 молчит про graph+biography+dashboard (~60% кода).
+   - roadmap.md «Phase 5» / STRATEGIC_PLAN_v4 — устарели на ~2 слоя.
+
+3. **Step 1 — Docs reconciliation (zero-code):**
+   - `ARCHITECTURE_v5.md` — NEW источник истины (4 слоя, mermaid-карта, пути, пробелы, precedence).
+   - `ARCHITECTURE_v4.md` — баннер SUPERSEDED.
+   - `CONSTITUTION.md` — 4× Ollama→llama-server, конкретный путь в Ст.7, баннер факт-сверки (Ст.19.1, не Ст.16).
+   - `CLAUDE.md` — Key Paths D:→C:, Progressive Disclosure → v5.
+   - `.claude/rules/decisions.md` — ADR «Doc Reconciliation v5».
+
+4. **Подтверждено личной верификацией** (опровергнуты 2 ошибки субагентов): dashboard БД read-only (`db_reader.py:30` `mode=ro`); diarize-исключение реально теряет транскрипт (`orchestrator.py:294-305`).
+
+### Следующий шаг
+- Step 2 (Strategy A.1): фикс graceful-degradation диаризации — при исключении pyannote сохранить Whisper-сегменты + speaker=UNKNOWN + diarization_failed, продолжить к LLM. + регресс-тест (tdd) + code-review субагент. Запись в `.claude/rules/bugs.md`.
+
+### Тесты
+Step 1 — docs-only, код не тронут. Прогон pytest перед Step 2.
 
 ---
 

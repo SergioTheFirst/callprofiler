@@ -244,3 +244,66 @@ def test_corrupted_analysis_skipped_by_builder():
     builder = GraphBuilder(conn)
     result = builder.update_from_call(call_id)
     assert result is False
+
+
+# ── Diarization graceful degradation (pipeline.md + CONSTITUTION Ст.9.3) ──────
+
+def test_diarization_failure_keeps_transcript_and_frees_gpu(tmp_path):
+    """Regression: a pyannote exception must NOT lose the Whisper transcript and
+    must still free the GPU.
+
+    pipeline.md: diarization fails → speakers stay UNKNOWN, pipeline CONTINUES.
+    CONSTITUTION Ст.9.3: pyannote must be unloaded even on failure (else the LLM
+    phase OOMs).
+    """
+    from unittest.mock import MagicMock
+    from callprofiler.config import Config
+    from callprofiler.models import Segment
+    from callprofiler.pipeline.orchestrator import Orchestrator
+
+    # Arrange
+    repo = _make_repo()
+    cfg = Config(data_dir="")
+    cfg.features.enable_diarization = True
+    orch = Orchestrator(cfg, repo)
+
+    fake_pyannote = MagicMock()
+    fake_pyannote.diarize.side_effect = RuntimeError("pyannote crashed mid-run")
+    orch.pyannote_runner = fake_pyannote
+
+    ref = tmp_path / "ref.wav"
+    ref.write_bytes(b"x")  # make ref_audio "exist"
+    segments = [Segment(0, 1000, "привет, как дела", "UNKNOWN")]
+
+    # Act — must NOT raise
+    result = orch._diarize_segments(
+        call_id=1, norm_path=str(tmp_path / "c.wav"),
+        segments=segments, ref_audio=str(ref),
+    )
+
+    # Assert: transcript preserved with UNKNOWN speakers, GPU freed despite failure
+    assert [s.text for s in result] == ["привет, как дела"]
+    assert [s.speaker for s in result] == ["UNKNOWN"]
+    fake_pyannote.unload.assert_called_once()
+
+
+def test_diarization_disabled_returns_segments_without_loading():
+    """enable_diarization=False → segments returned as-is, pyannote never touched."""
+    from unittest.mock import MagicMock
+    from callprofiler.config import Config
+    from callprofiler.models import Segment
+    from callprofiler.pipeline.orchestrator import Orchestrator
+
+    repo = _make_repo()
+    cfg = Config(data_dir="")
+    cfg.features.enable_diarization = False
+    orch = Orchestrator(cfg, repo)
+    fake_pyannote = MagicMock()
+    orch.pyannote_runner = fake_pyannote
+
+    segments = [Segment(0, 1000, "hi", "UNKNOWN")]
+    result = orch._diarize_segments(1, "c.wav", segments, "/nonexistent/ref.wav")
+
+    assert result == segments
+    fake_pyannote.load.assert_not_called()
+    fake_pyannote.diarize.assert_not_called()
