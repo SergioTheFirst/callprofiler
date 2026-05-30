@@ -53,19 +53,32 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
                 dead.add(q)
         _SSE_SUBSCRIBERS.difference_update(dead)
 
+    last_ts: str | None = None
+
     async def _poller() -> None:
+        # Change-driven SSE: broadcast only when the DB actually changes.
+        # Cross-process safe — SQLite MAX(updated_at) is the event source; the
+        # in-process events.event_bus cannot reach the separate pipeline process,
+        # so DB polling (not emit_event_sync) is the real cross-process channel.
+        nonlocal last_ts
         while True:
             await asyncio.sleep(POLL_INTERVAL_SEC)
             if _CONFIG is None:
                 continue
             try:
                 reader = DashboardDBReader(_CONFIG.data_dir)
+                current_ts = reader.get_latest_timestamp(_USER_ID)
+                if current_ts == last_ts:
+                    continue  # nothing changed → no event (SSE keepalive holds the connection)
+                last_ts = current_ts
                 tools = DashboardTools(_CONFIG, _USER_ID)
                 status = tools.get_status()
                 by_stage = reader.get_calls_by_stage(_USER_ID)
+                recent = reader.get_recent_calls(_USER_ID, limit=10)
                 payload = json.dumps(
-                    {"type": "tick", "status": status, "by_stage": by_stage},
-                    ensure_ascii=False,
+                    {"type": "tick", "status": status, "by_stage": by_stage,
+                     "recent": recent, "ts": current_ts},
+                    ensure_ascii=False, default=str,
                 )
                 await _broadcast(payload)
             except Exception:
@@ -219,6 +232,32 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
         if _CONFIG is not None:
             return DashboardTools(_CONFIG, _USER_ID)
         return None
+
+    @fa.get("/api/export/calls.csv")
+    async def _export_calls_csv(status: str = Query(""), days: int = Query(0, ge=0, le=365)) -> StreamingResponse:
+        import csv
+        import io
+        reader = _get_reader()
+        rows: list[dict[str, Any]] = []
+        if reader is not None and hasattr(reader, "export_calls"):
+            rows = reader.export_calls(_USER_ID, status=status, days=days)
+        cols = ["call_id", "call_datetime", "direction", "duration_sec", "status",
+                "contact_label", "phone_e164", "call_type", "risk_score", "summary"]
+
+        def _row(values: list[Any]) -> str:
+            sbuf = io.StringIO()
+            csv.writer(sbuf).writerow(values)
+            return sbuf.getvalue()
+
+        def _gen() -> Any:
+            yield "﻿" + _row(cols)  # UTF-8 BOM so Excel reads Cyrillic correctly
+            for r in rows:
+                yield _row([r.get(c, "") for c in cols])
+
+        return StreamingResponse(
+            _gen(), media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=calls.csv"},
+        )
 
     @fa.get("/api/history")
     async def _history(limit: int = Query(50, ge=1, le=100)) -> JSONResponse:

@@ -65,11 +65,10 @@ class DashboardTools:
 
     def _reprocess_sync(self) -> dict[str, Any]:
         try:
-            from callprofiler.config import load_config
             from callprofiler.db.repository import Repository
             from callprofiler.pipeline.orchestrator import Orchestrator
 
-            cfg = load_config(str(self.config) if hasattr(self.config, '__fspath__') else self.config)
+            cfg = self.config  # already a loaded Config object — do NOT re-load from a path
             repo = Repository(str(self.db_path))
             orchestrator = Orchestrator(cfg, repo)
 

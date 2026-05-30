@@ -765,6 +765,29 @@ class DashboardDBReader:
         rows = self._conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 
+    def export_calls(self, user_id: str, status: str = "", days: int = 0) -> list[dict[str, Any]]:
+        """All matching calls for CSV export (no pagination). Always filtered by user_id."""
+        self.connect()
+        where = "WHERE c.user_id = ?"
+        params: list[Any] = [user_id]
+        if status:
+            where += " AND c.status = ?"
+            params.append(status)
+        if days > 0:
+            where += " AND COALESCE(c.call_datetime, c.created_at) >= DATE('now', ? || ' days')"
+            params.append(f"-{days}")
+        query = f"""SELECT c.call_id, c.call_datetime, c.direction, c.duration_sec,
+                           c.status,
+                           COALESCE(ct.display_name, ct.phone_e164) AS contact_label,
+                           ct.phone_e164, a.call_type, a.risk_score, a.summary
+                    FROM calls c
+                    LEFT JOIN contacts ct ON ct.contact_id = c.contact_id AND ct.user_id = c.user_id
+                    LEFT JOIN analyses a ON a.call_id = c.call_id
+                    {where}
+                    ORDER BY COALESCE(c.call_datetime, c.created_at) DESC"""
+        rows = self._conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
     def get_db_stats(self, user_id: str) -> dict[str, Any]:
         """Database-level statistics for the system tab."""
         self.connect()

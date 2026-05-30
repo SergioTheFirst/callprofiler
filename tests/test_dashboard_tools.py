@@ -174,3 +174,38 @@ class TestGetHistory:
         h1 = tools.get_history()
         assert len(h1) == 1
         assert h1[0]["message"] == "x"
+
+
+class TestReprocessConfig:
+    def test_reprocess_sync_uses_loaded_config_not_path(self, tmp_path, monkeypatch):
+        """Regression: _reprocess_sync must use self.config (already a Config),
+        never load_config(path). Previously it called load_config(Config obj) → crash."""
+        from types import SimpleNamespace
+        import callprofiler.db.repository as repo_mod
+        import callprofiler.pipeline.orchestrator as orch_mod
+        import callprofiler.config as cfg_mod
+
+        captured: dict = {}
+
+        class FakeRepo:
+            def __init__(self, *a, **k): pass
+            def get_error_calls(self, n): return []
+            def close(self): pass
+
+        class FakeOrch:
+            def __init__(self, c, r): captured["cfg"] = c
+            def retry_errors(self): captured["retried"] = True
+
+        def _no_load(*a, **k):
+            raise AssertionError("load_config must NOT be called; self.config is already a Config")
+
+        monkeypatch.setattr(repo_mod, "Repository", FakeRepo)
+        monkeypatch.setattr(orch_mod, "Orchestrator", FakeOrch)
+        monkeypatch.setattr(cfg_mod, "load_config", _no_load)
+
+        cfg = SimpleNamespace(data_dir=str(tmp_path), pipeline=SimpleNamespace(max_retries=3))
+        tools = DashboardTools(cfg, "test_user")
+        result = tools._reprocess_sync()
+
+        assert result["status"] == "ok"
+        assert captured["cfg"] is cfg  # used self.config directly

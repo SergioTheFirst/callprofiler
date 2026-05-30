@@ -8,6 +8,18 @@
 
 ## [Unreleased]
 
+### Added — Dashboard last-mile (Step 3): change-driven SSE, CSV export, reprocess fix (2026-05-30)
+
+- `dashboard/server.py`:
+  - `_poller` is now **change-driven** — emits an SSE event only when `get_latest_timestamp(user_id)` changes (was a blind 5s "tick"); payload keeps `type:"tick"` for frontend compat and adds `recent` calls + `ts`. (The in-process `events.event_bus` can't reach the separate pipeline process; per `decisions.md`, SQLite `MAX(updated_at)` is the cross-process event source.)
+  - `GET /api/export/calls.csv?status=&days=` — new StreamingResponse CSV export (UTF-8 BOM for Excel, `Content-Disposition: attachment`), always filtered by `user_id`; header-only when no reader.
+- `dashboard/db_reader.py` — `export_calls(user_id, status, days)`: parameterized, `user_id`-scoped, unpaginated (for export).
+- `dashboard/tools.py` — **fix:** `_reprocess_sync` called `load_config(self.config)` (a `Config` object passed where a path is expected → crash). Now uses `self.config` directly, so the dashboard **"Retry failed" admin action works**.
+- `dashboard/static/app.js` — "Export CSV" button now downloads `/api/export/calls.csv` honoring the status/days filters (was a toast stub).
+- Tests: +3 (`test_dashboard_server.py` CSV export ×2; `test_dashboard_tools.py` reprocess-config regression). Full suite **417/417**.
+- `.gitignore` — ignore `.codegraph/` (machine-local CodeGraph index).
+- `CONTINUITY.md` — converted to the **Continuity Ledger** format (compaction-survivable briefing); pre-ledger history preserved in git.
+
 ### Fixed — Diarization failure no longer loses transcript or leaks VRAM (2026-05-30)
 
 - `pipeline/orchestrator.py` — extracted `Orchestrator._diarize_segments()` (used by both `process_call` and `process_batch`; the diarize logic was duplicated). On any pyannote `load()`/`diarize()` exception it now logs a warning, leaves segments `speaker=UNKNOWN`, and **continues** (transcript still saved) per `.claude/rules/pipeline.md`. `pyannote_runner.unload()` runs in a `finally`, so VRAM is always freed before the LLM phase (CONSTITUTION Ст.9.3). Previously a diarize exception skipped **both** `save_transcripts()` (transcript lost) and `unload()` (VRAM leak → OOM risk).

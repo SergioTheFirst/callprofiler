@@ -401,7 +401,14 @@
     $('#calls-status-filter').addEventListener('change', function() { loadCalls(0); });
     $('#calls-days-filter').addEventListener('change', function() { loadCalls(0); });
     $('#calls-export').addEventListener('click', function() {
-        toast('CSV export coming soon', '');
+        var stEl = $('#calls-status-filter');
+        var dyEl = $('#calls-days-filter');
+        var st = stEl ? (stEl.value || '') : '';
+        var dys = dyEl ? (dyEl.value || '0') : '0';
+        var url = '/api/export/calls.csv?status=' + encodeURIComponent(st) +
+                  '&days=' + encodeURIComponent(dys || '0');
+        window.location.href = url;  // triggers download (Content-Disposition: attachment)
+        toast('Exporting CSV…', '');
     });
 
     // ── Search Tab ─────────────────────────────────────────────────────────

@@ -43,6 +43,9 @@ data/
 pipeline-tmp.txt
 .claude/settings.local.json
 
+# CodeGraph local index (machine-specific, do not commit)
+.codegraph/
+
 # Cache
 .pytest_cache/
 .mypy_cache/

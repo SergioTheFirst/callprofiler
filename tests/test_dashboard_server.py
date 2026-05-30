@@ -177,3 +177,33 @@ class TestUninitialized:
             assert resp.status_code == 200
         finally:
             server_mod._TOOLS = saved
+
+
+class TestExport:
+    def test_export_calls_csv(self, client):
+        import callprofiler.dashboard.server as server_mod
+        server_mod._DB_READER.export_calls.return_value = [
+            {"call_id": 1, "call_datetime": "2026-05-01 10:00", "direction": "IN",
+             "duration_sec": 60, "status": "processed", "contact_label": "Иван",
+             "phone_e164": "+700", "call_type": "business", "risk_score": 42,
+             "summary": "тест"},
+        ]
+        resp = client.get("/api/export/calls.csv")
+        assert resp.status_code == 200
+        assert "text/csv" in resp.headers["content-type"]
+        assert "attachment" in resp.headers.get("content-disposition", "")
+        body = resp.text
+        assert "call_id" in body      # header row present
+        assert "Иван" in body         # data row, Cyrillic preserved
+        assert "+700" in body
+
+    def test_export_calls_csv_header_only_when_no_reader(self, client):
+        import callprofiler.dashboard.server as server_mod
+        saved = server_mod._DB_READER
+        server_mod._DB_READER = None
+        try:
+            resp = client.get("/api/export/calls.csv")
+            assert resp.status_code == 200
+            assert "call_id" in resp.text  # header still emitted
+        finally:
+            server_mod._DB_READER = saved
