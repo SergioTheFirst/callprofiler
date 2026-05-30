@@ -19,6 +19,12 @@ htmlcov/
 build/
 dist/
 
+# ═══ JS / Node / frontend build (на будущее; проект пока Python) ═
+node_modules/
+.next/
+coverage/
+*.min.js
+
 # ═══ Данные пользователя (БД, логи, аудио) ══════════════════════
 data/db/
 data/logs/

@@ -36,6 +36,17 @@ IF architectural_decision:
   → write to .claude/rules/decisions.md
 ```
 
+## Before Starting Any Task
+
+1. Respect `.claudeignore`.
+2. Never read ignored files unless explicitly requested.
+3. Prefer `src/`, `app/`, `lib/`, `packages/`.
+4. Avoid `node_modules`, `dist`, `build`, `coverage`.
+5. Minimize context usage.
+6. Use the Explore agent for repository search.
+7. Use Sonnet for implementation.
+8. Use Opus only for planning and architecture; use subagents for exploration and parallel work.
+
 ## Before Writing Code
 
 THINK (what files affected, what depends on them) → PLAN (3-5 steps) → IMPLEMENT → VERIFY (run tests) → LOG (update CONTINUITY.md)
