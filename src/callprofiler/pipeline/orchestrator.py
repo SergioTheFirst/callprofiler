@@ -29,6 +29,15 @@ from callprofiler.diarize.role_assigner import assign_speakers
 from callprofiler.models import Segment
 from callprofiler.transcribe.whisper_runner import WhisperRunner
 
+
+def _make_asr_runner(config: "Config"):
+    """Factory: return ASR runner based on config.models.asr_backend."""
+    backend = getattr(config.models, "asr_backend", "whisper")
+    if backend == "gigaam":
+        from callprofiler.transcribe.gigaam_runner import GigaAMRunner
+        return GigaAMRunner(config)
+    return WhisperRunner(config)
+
 if TYPE_CHECKING:
     from callprofiler.config import Config
     from callprofiler.db.repository import Repository
@@ -77,7 +86,7 @@ class Orchestrator:
         self.repo = repo
 
         # Компоненты ASR/diarize (лениво загружаются)
-        self.whisper_runner = WhisperRunner(config)
+        self.asr_runner = _make_asr_runner(config)
         self.pyannote_runner = PyannoteRunner(config)
 
         # Компоненты анализа
@@ -137,9 +146,9 @@ class Orchestrator:
 
             # ── Шаг 2: Transcribe ────────────────────────────
             self.repo.update_call_status(call_id, "transcribing")
-            self.whisper_runner.load()
-            segments = self.whisper_runner.transcribe(norm_path)
-            self.whisper_runner.unload()
+            self.asr_runner.load()
+            segments = self.asr_runner.transcribe(norm_path)
+            self.asr_runner.unload()
             logger.info(
                 "Транскрибирование: call_id=%d, %d сегментов", call_id, len(segments)
             )
@@ -263,18 +272,18 @@ class Orchestrator:
 
         needs_transcribe = [c for c in calls_data if c.get("pipeline_stage", 0) < 2]
         if needs_transcribe:
-            self.whisper_runner.load()
+            self.asr_runner.load()
             for call in needs_transcribe:
                 call_id = call["call_id"]
                 try:
                     self.repo.update_call_status(call_id, "transcribing")
-                    segments = self.whisper_runner.transcribe(call["_norm_path"])
+                    segments = self.asr_runner.transcribe(call["_norm_path"])
                     segments_map[call_id] = segments
                     logger.info("Transcribe: call_id=%d, %d сегментов", call_id, len(segments))
                 except Exception as exc:
                     logger.error("Ошибка транскрибирования call_id=%d: %s", call_id, exc)
                     self.repo.update_call_status(call_id, "error", str(exc))
-            self.whisper_runner.unload()
+            self.asr_runner.unload()
 
             # Diarize (сбой → UNKNOWN, pipeline продолжается)
             for call in needs_transcribe:

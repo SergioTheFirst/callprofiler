@@ -20,6 +20,8 @@ class ModelsConfig:
     whisper_language: str = "ru"
     llm_model: str = "local"
     llm_url: str = "http://127.0.0.1:8080/v1/chat/completions"
+    asr_backend: str = "whisper"  # "whisper" | "gigaam"
+    gigaam_url: str = ""          # GigaAM server URL (required when asr_backend="gigaam")
 
 
 @dataclass
@@ -85,6 +87,8 @@ def load_config(path: str) -> Config:
             whisper_language=m.get("whisper_language", cfg.models.whisper_language),
             llm_model=m.get("llm_model", cfg.models.llm_model),
             llm_url=m.get("llm_url", cfg.models.llm_url),
+            asr_backend=m.get("asr_backend", cfg.models.asr_backend),
+            gigaam_url=m.get("gigaam_url", cfg.models.gigaam_url),
         )
 
     if "pipeline" in raw:

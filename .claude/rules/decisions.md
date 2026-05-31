@@ -1,5 +1,20 @@
 # Architecture Decisions
 
+## ASR Backend: Whisper → GigaAM v3 RNN-T (2026-06-01)
+
+**Decision:** Replace Whisper (faster-whisper) with GigaAM v3 RNN-T as the primary ASR backend.
+
+**Why:** User decision — GigaAM v3 RNN-T targets Russian-language call transcription with higher accuracy. URL/endpoint configured in `models.gigaam_url` when server is deployed.
+
+**Architecture:** `ASRRunner` Protocol created (`transcribe/asr_runner.py`). Factory `_make_asr_runner(config)` in `pipeline/orchestrator.py` selects backend via `config.models.asr_backend`. Switching = change one YAML field: `asr_backend: gigaam` + `gigaam_url: http://...`.
+
+**Blast-radius:** HIGH. Transcript quality change invalidates:
+- `events.quote` (graph facts linked to transcript quotes)
+- `bio_scenes.key_quote` (biography scene quotes)
+After switching: run `graph-replay --user X` + `biography-run --user X --passes p1_scene,p2_entities` to rebuild from new transcripts.
+
+**Current state:** `GigaAMRunner` is a working HTTP stub (POST /transcribe, retry/backoff 3x). `asr_backend: whisper` by default. Awaiting GigaAM server address.
+
 ## Core Stack Decisions
 
 ### Why SQLite (not PostgreSQL/cloud)?

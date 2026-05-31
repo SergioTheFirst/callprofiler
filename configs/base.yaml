@@ -9,6 +9,8 @@ models:
   whisper_language: "ru"
   llm_model: "local"
   llm_url: "http://127.0.0.1:8080/v1/chat/completions"
+  asr_backend: "whisper"   # switch to "gigaam" when gigaam_url is set
+  gigaam_url: ""            # e.g. "http://127.0.0.1:8090"
 
 pipeline:
   watch_interval_sec: 60

@@ -87,6 +87,30 @@ class Orchestrator:
     def run_passes(self, passes: list[str], **pass_kwargs) -> dict:
         results: dict[str, dict] = {}
         overall_start = time.monotonic()
+
+        # Pre-flight: graph integrity required before p5/p6 use entity_metrics
+        _GRAPH_DEPENDENT = {"p5_portraits", "p6_chapters"}
+        if any(p in _GRAPH_DEPENDENT for p in passes):
+            try:
+                from callprofiler.graph.auditor import GraphAuditor
+                audit = GraphAuditor(self.bio.conn).run_checks(self.user_id)
+                if audit["has_critical"]:
+                    raise RuntimeError(
+                        f"Graph pre-flight CRITICAL — run 'graph-replay --user {self.user_id}' "
+                        f"before biography passes p5/p6. Failed: "
+                        f"{ {k for k, v in audit['checks'].items() if not v['ok']} }"
+                    )
+                if audit["has_warnings"]:
+                    log.warning(
+                        "Graph pre-flight warnings for user=%s (non-blocking): %s",
+                        self.user_id,
+                        {k for k, v in audit["checks"].items() if not v["ok"]},
+                    )
+            except RuntimeError:
+                raise
+            except Exception as _ge:
+                log.warning("Graph pre-flight check error (non-fatal, continuing): %s", _ge)
+
         for name in passes:
             if name not in self.PASSES:
                 log.warning("unknown pass: %s", name)

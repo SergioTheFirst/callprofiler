@@ -32,13 +32,23 @@ Done:
 - Auth-surface mapped (2 Explore subagents): no traditional auth (Ст.8.3) — surface = secrets/tokens + user_id isolation + telegram chat_id whitelist + dashboard ro/127.0.0.1.
 
 Now:
-- Фаза 2 (storage hygiene) завершена. 429/429. Не запушено — ожидает git push.
+- Фаза 3 (tech-debt) + GigaAM abstraction завершены. 429/429. Не запушено.
 
 Done (Фаза 1):
 - HF_TOKEN: config.py теперь вызывает `os.path.expandvars()` — pyannote получает реальный токен.
 - event_bus удалён как эмиттер: блоки `emit_event_sync` вырезаны из orchestrator.py + enricher.py; файл event_bus.py не удалён (server.py может импортировать).
 - Retry/backoff: LLMClient.generate() — 3 попытки, экспоненциальный backoff 2s/4s/8s; WhisperRunner.transcribe() — 2 попытки, 1s sleep.
 - Crash-resume: `pipeline_stage` (0–4) добавлен в таблицу `calls` (миграция); `update_pipeline_stage()` + `get_stalled_calls()` в repository; `process_batch()` проверяет stage перед каждой фазой и сохраняет после; `process_pending()` подбирает stalled-звонки.
+
+Done (Фаза 3 + GigaAM):
+- `biography/prompts.py` — удалён мёртвый `BUDGETS` dict (legacy, помечен TODO:Remove; BASELINE_BUDGETS + calculate_dynamic_budget() остаются).
+- `biography/orchestrator.py` — добавлен GraphAuditor pre-flight перед p5/p6: CRITICAL → RuntimeError (требует graph-replay); WARNING → log.warning, продолжить.
+- `CONSTITUTION.md` Ст.19 — переписана в формате Continuity Ledger (Goal/Constraints/Key decisions/State вместо старого ## Status).
+- `transcribe/asr_runner.py` — ASRRunner Protocol (load/unload/transcribe).
+- `transcribe/gigaam_runner.py` — GigaAMRunner: HTTP stub с retry 3×, ждёт gigaam_url.
+- `config.py` + `configs/base.yaml` — `asr_backend: "whisper"`, `gigaam_url: ""` (switch когда придёт адрес).
+- `pipeline/orchestrator.py` — `_make_asr_runner(config)` factory; `self.asr_runner` вместо `self.whisper_runner`.
+- `.claude/rules/decisions.md` — решение Whisper→GigaAM зафиксировано с blast-radius.
 
 Done (Фаза 2):
 - `ingest/ingester.py` — `_copy_original()` теперь пишет в `originals/YYYY/MM/` когда call_datetime доступен; фоллбэк на flat при отсутствии даты.
@@ -48,7 +58,8 @@ Done (Фаза 2):
 
 Next:
 - `git commit && git push origin main`
-- Фаза 3: BUDGETS (P0-019) — удалить BASELINE_BUDGETS или завершить миграцию; graph-health pre-flight внутри biography orchestrator; Ст.19 reconcile.
+- Получить адрес GigaAM сервера → вписать `gigaam_url` + переключить `asr_backend: gigaam` в base.yaml → запустить pipeline на тестовом звонке.
+- Фаза 4: persona detail (dashboard modal Metrics/Psychology/Calls), audio player, Telegram end-to-end.
 
 **Open questions (UNCONFIRMED):**
 - Does anything expand `${HF_TOKEN}` from `configs/base.yaml`? `config.py` loads it literally (no `expandvars`) → HF/pyannote auth may receive the literal placeholder unless models are pre-cached. (Telegram token IS read from env correctly.) Found during auth-surface mapping.

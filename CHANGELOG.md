@@ -8,6 +8,17 @@
 
 ## [Unreleased]
 
+### Added/Changed — Фаза 3: tech-debt + GigaAM ASR abstraction (2026-06-01)
+
+- `biography/prompts.py` — удалён мёртвый `BUDGETS` dict (migration artifact); активная система BASELINE_BUDGETS + calculate_dynamic_budget() сохранена.
+- `biography/orchestrator.py` — GraphAuditor pre-flight перед p5/p6: CRITICAL→RuntimeError, WARNING→log, continue.
+- `CONSTITUTION.md` Ст.19 — обновлена под формат Continuity Ledger.
+- `transcribe/asr_runner.py` — новый ASRRunner Protocol.
+- `transcribe/gigaam_runner.py` — GigaAMRunner HTTP stub (retry 3×, backoff 2s/4s/8s); ждёт `gigaam_url`.
+- `config.py`, `configs/base.yaml` — поля `asr_backend` ("whisper"|"gigaam") + `gigaam_url`.
+- `pipeline/orchestrator.py` — factory `_make_asr_runner(config)`; `self.asr_runner` вместо `self.whisper_runner`.
+- `.claude/rules/decisions.md` — зафиксировано решение Whisper→GigaAM с blast-radius и инструкцией по переключению.
+
 ### Added — Фаза 2: хранение и гигиена данных (2026-06-11)
 
 - `ingest/ingester.py` — новые аудиофайлы пишутся в `originals/YYYY/MM/` по call_datetime; фоллбэк на flat при отсутствии даты.

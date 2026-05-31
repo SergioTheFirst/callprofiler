@@ -230,19 +230,6 @@ def assess_output_quality(pass_name: str, output: str, input_crs: float) -> dict
     return {"metrics": metrics, "adjustment": adjustment}
 
 
-# Legacy BUDGETS dict (for backward compatibility during migration)
-# TODO: Remove after all passes migrated to calculate_dynamic_budget()
-BUDGETS = {
-    "p1_scene": TokenBudget(12000, {"transcript": 1.0}),
-    "p2_entities": TokenBudget(10000, {"mentions": 1.0}),
-    "p3_threads": TokenBudget(12000, {"scenes": 1.0}),
-    "p4_arcs": TokenBudget(14000, {"scenes": 1.0}),
-    "p5_portraits": TokenBudget(12000, {"scenes": 1.0}),
-    "p6_chapters": TokenBudget(17000, {"portraits": 0.50, "arcs": 0.25, "scenes": 0.25}),
-    "p7_book": TokenBudget(9000, {"chapters": 0.45, "arcs": 0.35, "entities": 0.20}),
-    "p8_editorial": TokenBudget(18000, {"prose": 1.0}),  # REDUCED from 32000
-    "p9_yearly": TokenBudget(9500, {"chapters": 0.50, "arcs": 0.30, "entities": 0.20}),
-}
 # ---------------------------------------------------------------------------
 # Shared style guide
 # ---------------------------------------------------------------------------
