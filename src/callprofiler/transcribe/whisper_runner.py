@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import gc
 import logging
+import time
 from typing import TYPE_CHECKING
 
 import torch
@@ -113,57 +114,66 @@ class WhisperRunner:
 
         logger.debug("Транскрибирование: %s", wav_path)
 
-        try:
-            # Вызов faster_whisper.transcribe()
-            segments, info = self.model.transcribe(
-                wav_path,
-                language=self.config.models.whisper_language,
-                beam_size=self.config.models.whisper_beam_size,
-                best_of=1,  # best_of>1 redundant with temperature=0 (was 5 → 5× waste)
-                temperature=0,
-                vad_filter=True,
-                vad_parameters=dict(
-                    min_silence_duration_ms=400,
-                    speech_pad_ms=200,
-                    threshold=0.5,
-                ),
-                word_timestamps=True,
-                condition_on_previous_text=True,
-                compression_ratio_threshold=2.4,
-                log_prob_threshold=-1.0,
-                no_speech_threshold=0.6,
-            )
-
-            # Конвертировать в список Segment (float сек → int мс)
-            result: list[Segment] = []
-            for seg in segments:
-                text = seg.text.strip()
-                if not text:
-                    # Пропустить пустые сегменты
-                    continue
-
-                result.append(
-                    Segment(
-                        start_ms=int(seg.start * 1000),
-                        end_ms=int(seg.end * 1000),
-                        text=text,
-                        speaker="UNKNOWN",  # Роли назначаются потом в diarize
-                    )
+        last_exc: Exception | None = None
+        for attempt in range(2):
+            try:
+                # Вызов faster_whisper.transcribe()
+                segments, info = self.model.transcribe(
+                    wav_path,
+                    language=self.config.models.whisper_language,
+                    beam_size=self.config.models.whisper_beam_size,
+                    best_of=1,  # best_of>1 redundant with temperature=0 (was 5 → 5× waste)
+                    temperature=0,
+                    vad_filter=True,
+                    vad_parameters=dict(
+                        min_silence_duration_ms=400,
+                        speech_pad_ms=200,
+                        threshold=0.5,
+                    ),
+                    word_timestamps=True,
+                    condition_on_previous_text=True,
+                    compression_ratio_threshold=2.4,
+                    log_prob_threshold=-1.0,
+                    no_speech_threshold=0.6,
                 )
 
-            # Применить очистку от hallucinations и артефактов
-            result = self.cleaner.clean_segments(result)
+                # Конвертировать в список Segment (float сек → int мс)
+                result: list[Segment] = []
+                for seg in segments:
+                    text = seg.text.strip()
+                    if not text:
+                        # Пропустить пустые сегменты
+                        continue
 
-            logger.info(
-                "Транскрибирование завершено: %d сегментов из %s",
-                len(result),
-                wav_path,
-            )
-            return result
+                    result.append(
+                        Segment(
+                            start_ms=int(seg.start * 1000),
+                            end_ms=int(seg.end * 1000),
+                            text=text,
+                            speaker="UNKNOWN",  # Роли назначаются потом в diarize
+                        )
+                    )
 
-        except Exception as exc:
-            logger.error("Ошибка при транскрибировании %s: %s", wav_path, exc)
-            raise RuntimeError(f"Транскрибирование упало для {wav_path}: {exc}") from exc
+                # Применить очистку от hallucinations и артефактов
+                result = self.cleaner.clean_segments(result)
+
+                logger.info(
+                    "Транскрибирование завершено: %d сегментов из %s",
+                    len(result),
+                    wav_path,
+                )
+                return result
+
+            except Exception as exc:
+                last_exc = exc
+                logger.warning(
+                    "Transcribe попытка %d/2 упала для %s: %s", attempt + 1, wav_path, exc
+                )
+                if attempt == 0:
+                    time.sleep(1)
+
+        logger.error("Транскрибирование упало после 2 попыток: %s", wav_path)
+        raise RuntimeError(f"Транскрибирование упало для {wav_path}: {last_exc}") from last_exc
 
     def unload(self) -> None:
         """Выгрузить модель и очистить GPU-память.

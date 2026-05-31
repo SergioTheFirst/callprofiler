@@ -178,28 +178,21 @@ class Orchestrator:
             return False
 
     def process_batch(self, call_ids: list[int]) -> None:
-        """Batch-обработка: GPU-оптимизированный режим.
+        """Batch-обработка с crash-resume по pipeline_stage (0→1→2→3→4).
 
-        Загружает Whisper+pyannote один раз для всех файлов,
-        затем выгружает и запускает LLM анализ.
-
-        Параметры:
-            call_ids  — список call_id для обработки
+        pipeline_stage персистируется в БД после каждой фазы.
+        При рестарте после краша пропускает уже выполненные фазы.
         """
         if not call_ids:
             return
 
         logger.info("Batch-обработка: %d звонков", len(call_ids))
 
-        # Собрать данные о звонках
         calls_data = []
         for call_id in call_ids:
             call = (
                 self.repo._get_conn()
-                .execute(
-                    "SELECT * FROM calls WHERE call_id=?",
-                    (call_id,),
-                )
+                .execute("SELECT * FROM calls WHERE call_id=?", (call_id,))
                 .fetchone()
             )
             if call:
@@ -208,104 +201,133 @@ class Orchestrator:
         if not calls_data:
             return
 
-        # ── Фаза 1: Normalize все ────────────────────────
+        # Кэш пользователей для ref_audio
+        users_cache: dict = {}
         for call in calls_data:
+            uid = call["user_id"]
+            if uid not in users_cache:
+                users_cache[uid] = self.repo.get_user(uid)
+
+        # ── Фаза 1: Normalize ────────────────────────────────────────
+        for call in calls_data:
+            call_id = call["call_id"]
+            stage = call.get("pipeline_stage", 0)
+            if stage >= 1:
+                call["_norm_path"] = call.get("norm_path", "")
+                logger.info("Resume: call_id=%d пропуск normalize (stage=%d)", call_id, stage)
+                continue
             try:
-                self.repo.update_call_status(call["call_id"], "normalizing")
+                self.repo.update_call_status(call_id, "normalizing")
                 user_id = call["user_id"]
                 norm_dir = (
-                    Path(self.config.data_dir)
-                    / "users"
-                    / user_id
-                    / "audio"
-                    / "normalized"
+                    Path(self.config.data_dir) / "users" / user_id / "audio" / "normalized"
                 )
                 norm_dir.mkdir(parents=True, exist_ok=True)
-                norm_path = str(norm_dir / f"{call['call_id']}.wav")
-
+                norm_path = str(norm_dir / f"{call_id}.wav")
                 normalize(call["audio_path"], norm_path)
                 duration_sec = get_duration_sec(norm_path)
-                self.repo.update_call_paths(call["call_id"], norm_path, duration_sec)
+                self.repo.update_call_paths(call_id, norm_path, duration_sec)
+                self.repo.update_pipeline_stage(call_id, 1)
                 call["_norm_path"] = norm_path
+                call["pipeline_stage"] = 1
+                logger.info("Нормализация: call_id=%d, duration=%ds", call_id, duration_sec)
             except Exception as exc:
-                logger.error("Ошибка нормализации call_id=%d: %s", call["call_id"], exc)
-                self.repo.update_call_status(call["call_id"], "error", str(exc))
+                logger.error("Ошибка нормализации call_id=%d: %s", call_id, exc)
+                self.repo.update_call_status(call_id, "error", str(exc))
                 call["_skip"] = True
 
-        # Отфильтровать сбойные
         calls_data = [c for c in calls_data if not c.get("_skip")]
 
-        # ── Фаза 2: Transcribe + Diarize (Whisper + pyannote в GPU) ──
-        self.whisper_runner.load()
+        # ── Фаза 2: Transcribe + Diarize ─────────────────────────────
+        # stage >= 2 → сегменты уже в БД
+        segments_map: dict[int, list[Segment]] = {}
 
-        # Группировка по user_id для ref_audio
-        users_cache = {}
-        for call in calls_data:
-            user_id = call["user_id"]
-            if user_id not in users_cache:
-                users_cache[user_id] = self.repo.get_user(user_id)
-
-        segments_map = {}
         for call in calls_data:
             call_id = call["call_id"]
-            try:
-                self.repo.update_call_status(call_id, "transcribing")
-                segments = self.whisper_runner.transcribe(call["_norm_path"])
-                segments_map[call_id] = segments
+            if call.get("pipeline_stage", 0) >= 2:
+                rows = self.repo.get_transcript(call_id)
+                if rows:
+                    segments_map[call_id] = [
+                        Segment(
+                            start_ms=int(r["start_ms"]),
+                            end_ms=int(r["end_ms"]),
+                            text=r["text"],
+                            speaker=r["speaker"],
+                        )
+                        for r in rows
+                    ]
                 logger.info(
-                    "Transcribe: call_id=%d, %d сегментов", call_id, len(segments)
+                    "Resume: call_id=%d пропуск transcribe (stage=%d, %d сег.)",
+                    call_id, call.get("pipeline_stage", 0), len(segments_map.get(call_id, [])),
                 )
-            except Exception as exc:
-                logger.error("Ошибка транскрибирования call_id=%d: %s", call_id, exc)
-                self.repo.update_call_status(call_id, "error", str(exc))
 
-        self.whisper_runner.unload()
+        needs_transcribe = [c for c in calls_data if c.get("pipeline_stage", 0) < 2]
+        if needs_transcribe:
+            self.whisper_runner.load()
+            for call in needs_transcribe:
+                call_id = call["call_id"]
+                try:
+                    self.repo.update_call_status(call_id, "transcribing")
+                    segments = self.whisper_runner.transcribe(call["_norm_path"])
+                    segments_map[call_id] = segments
+                    logger.info("Transcribe: call_id=%d, %d сегментов", call_id, len(segments))
+                except Exception as exc:
+                    logger.error("Ошибка транскрибирования call_id=%d: %s", call_id, exc)
+                    self.repo.update_call_status(call_id, "error", str(exc))
+            self.whisper_runner.unload()
 
-        # Diarize (сбой pyannote → сегменты остаются UNKNOWN, pipeline продолжается)
-        for call in calls_data:
-            call_id = call["call_id"]
-            if call_id not in segments_map:
-                continue
-
-            try:
-                self.repo.update_call_status(call_id, "diarizing")
-                user = users_cache.get(call["user_id"])
-                ref_audio = user.get("ref_audio", "") if user else ""
-                segments_map[call_id] = self._diarize_segments(
-                    call_id, call["_norm_path"], segments_map[call_id], ref_audio
-                )
-                self.repo.save_transcripts(call_id, segments_map[call_id])
-            except Exception as exc:
-                logger.error("Ошибка сохранения транскрипта call_id=%d: %s", call_id, exc)
-                self.repo.update_call_status(call_id, "error", str(exc))
-
-        # ── Фаза 3: Analyze (LLM, после выгрузки GPU моделей) ────
-        if not self.config.features.enable_llm_analysis:
-            logger.info(
-                "LLM analysis disabled by feature flag; skipping batch analyze phase"
-            )
-        else:
-            for call in calls_data:
+            # Diarize (сбой → UNKNOWN, pipeline продолжается)
+            for call in needs_transcribe:
                 call_id = call["call_id"]
                 if call_id not in segments_map:
                     continue
+                try:
+                    self.repo.update_call_status(call_id, "diarizing")
+                    user = users_cache.get(call["user_id"])
+                    ref_audio = user.get("ref_audio", "") if user else ""
+                    segments_map[call_id] = self._diarize_segments(
+                        call_id, call["_norm_path"], segments_map[call_id], ref_audio
+                    )
+                    self.repo.save_transcripts(call_id, segments_map[call_id])
+                    self.repo.update_pipeline_stage(call_id, 2)
+                    call["pipeline_stage"] = 2
+                except Exception as exc:
+                    logger.error("Ошибка транскрипта call_id=%d: %s", call_id, exc)
+                    self.repo.update_call_status(call_id, "error", str(exc))
 
+        # ── Фаза 3: Analyze (LLM) ────────────────────────────────────
+        if not self.config.features.enable_llm_analysis:
+            logger.info("LLM analysis disabled by feature flag; skipping batch analyze phase")
+        else:
+            for call in calls_data:
+                call_id = call["call_id"]
+                stage = call.get("pipeline_stage", 0)
+                if stage >= 3:
+                    logger.info("Resume: call_id=%d пропуск analyze (stage=%d)", call_id, stage)
+                    continue
+                if call_id not in segments_map:
+                    continue
                 try:
                     self.repo.update_call_status(call_id, "analyzing")
                     self._analyze_call(call_id, call, segments_map[call_id])
+                    self.repo.update_pipeline_stage(call_id, 3)
+                    call["pipeline_stage"] = 3
                 except Exception as exc:
                     logger.error("Ошибка анализа call_id=%d: %s", call_id, exc)
                     self.repo.update_call_status(call_id, "error", str(exc))
 
-        # ── Фаза 4: Deliver ──────────────────────────────
+        # ── Фаза 4: Deliver ──────────────────────────────────────────
         for call in calls_data:
             call_id = call["call_id"]
-            if call_id not in segments_map:
+            stage = call.get("pipeline_stage", 0)
+            if stage >= 4:
                 continue
-
+            if stage < 3:
+                continue  # analyze не завершён
             try:
                 self.repo.update_call_status(call_id, "delivering")
                 self._deliver_call(call_id, call["user_id"], call.get("contact_id"))
+                self.repo.update_pipeline_stage(call_id, 4)
                 self.repo.update_call_status(call_id, "done")
                 logger.info("✓ Звонок %d обработан (batch)", call_id)
             except Exception as exc:
@@ -315,14 +337,21 @@ class Orchestrator:
         logger.info("Batch завершён: %d звонков", len(call_ids))
 
     def process_pending(self) -> None:
-        """Обработать все звонки со статусом 'new'."""
+        """Обработать новые звонки и зависшие после краша (crash-resume)."""
         pending = self.repo.get_pending_calls()
-        if not pending:
-            logger.debug("Нет pending звонков")
+        stalled = self.repo.get_stalled_calls()
+        pending_ids = {c["call_id"] for c in pending}
+        all_calls = pending + [c for c in stalled if c["call_id"] not in pending_ids]
+        if not all_calls:
+            logger.debug("Нет pending/stalled звонков")
             return
-
-        call_ids = [c["call_id"] for c in pending]
-        logger.info("Найдено %d pending звонков", len(call_ids))
+        call_ids = [c["call_id"] for c in all_calls]
+        if stalled:
+            logger.info(
+                "Найдено %d pending + %d stalled звонков", len(pending), len(stalled)
+            )
+        else:
+            logger.info("Найдено %d pending звонков", len(pending))
         self.process_batch(call_ids)
 
     def retry_errors(self) -> None:
@@ -464,29 +493,6 @@ class Orchestrator:
             logger.warning(
                 "graph update failed for call_id=%d: %s", call_id, _graph_exc
             )
-
-        # Отправить событие в дашборд (non-fatal, F5.1)
-        try:
-            from callprofiler.events import emit_event_sync
-
-            contact = self.repo.get_contact(user_id, contact_id) if contact_id else None
-            contact_label = (
-                (contact.get("display_name") or contact.get("phone_e164") or "?")
-                if contact
-                else "?"
-            )
-            emit_event_sync(
-                "analysis_complete",
-                {
-                    "call_id": call_id,
-                    "contact_label": contact_label,
-                    "risk_score": analysis.risk_score,
-                    "call_type": analysis.call_type,
-                    "summary": analysis.summary,
-                },
-            )
-        except Exception:
-            logger.warning("Failed to emit analysis_complete event", exc_info=True)
 
         logger.info(
             "Анализ: call_id=%d, priority=%d, risk=%d, parse_status=%s",

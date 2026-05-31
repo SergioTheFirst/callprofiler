@@ -115,6 +115,15 @@ class Repository:
         except Exception:
             pass  # entities table may not exist yet
 
+        # calls migration: pipeline_stage для crash-resume (Фаза 1 надёжности)
+        existing_calls = {
+            row[1] for row in conn.execute("PRAGMA table_info(calls)").fetchall()
+        }
+        if "pipeline_stage" not in existing_calls:
+            conn.execute(
+                "ALTER TABLE calls ADD COLUMN pipeline_stage INTEGER NOT NULL DEFAULT 0"
+            )
+
         # РЈРЅРёРєР°Р»СЊРЅС‹Р№ РёРЅРґРµРєСЃ РґР»СЏ Р°С‚РѕРјР°СЂРЅРѕР№ MD5-РґРµРґСѓРїР»РёРєР°С†РёРё Р·РІРѕРЅРєРѕРІ (F2.5)
         try:
             conn.execute(
@@ -395,6 +404,15 @@ class Repository:
             )
         conn.commit()
 
+    def update_pipeline_stage(self, call_id: int, stage: int) -> None:
+        """Персистировать стадию pipeline (0-4) для crash-resume."""
+        conn = self._get_conn()
+        conn.execute(
+            "UPDATE calls SET pipeline_stage=?, updated_at=datetime('now') WHERE call_id=?",
+            (stage, call_id),
+        )
+        conn.commit()
+
     def update_call_paths(
         self, call_id: int, norm_path: str, duration_sec: int
     ) -> None:
@@ -421,6 +439,24 @@ class Repository:
                 .execute("SELECT * FROM calls WHERE status='new' ORDER BY created_at")
                 .fetchall()
             )
+        return [dict(r) for r in rows]
+
+    def get_stalled_calls(self, user_id: str | None = None) -> list[dict]:
+        """Звонки, зависшие в промежуточном состоянии после краша.
+
+        Условие: pipeline_stage > 0 и status не new/done/error.
+        Используется process_pending() для crash-resume.
+        """
+        where = "pipeline_stage > 0 AND status NOT IN ('new','done','error')"
+        if user_id:
+            rows = self._get_conn().execute(
+                f"SELECT * FROM calls WHERE {where} AND user_id=? ORDER BY updated_at",
+                (user_id,),
+            ).fetchall()
+        else:
+            rows = self._get_conn().execute(
+                f"SELECT * FROM calls WHERE {where} ORDER BY updated_at",
+            ).fetchall()
         return [dict(r) for r in rows]
 
     def get_error_calls(self, user_id: str | None = None, max_retries: int = 3) -> list[dict]:

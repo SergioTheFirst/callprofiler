@@ -32,10 +32,18 @@ Done:
 - Auth-surface mapped (2 Explore subagents): no traditional auth (Ст.8.3) — surface = secrets/tokens + user_id isolation + telegram chat_id whitelist + dashboard ro/127.0.0.1.
 
 Now:
-- Idle. All shipped to main (HEAD `21858d1`): Steps 1–4 + config + auth map. 419/419. Awaiting next direction.
+- Фаза 1 (reliability) завершена. 419/419. Не запушено — ожидает git push.
+
+Done (Фаза 1):
+- HF_TOKEN: config.py теперь вызывает `os.path.expandvars()` — pyannote получает реальный токен.
+- event_bus удалён как эмиттер: блоки `emit_event_sync` вырезаны из orchestrator.py + enricher.py; файл event_bus.py не удалён (server.py может импортировать).
+- Retry/backoff: LLMClient.generate() — 3 попытки, экспоненциальный backoff 2s/4s/8s; WhisperRunner.transcribe() — 2 попытки, 1s sleep.
+- Crash-resume: `pipeline_stage` (0–4) добавлен в таблицу `calls` (миграция); `update_pipeline_stage()` + `get_stalled_calls()` в repository; `process_batch()` проверяет stage перед каждой фазой и сохраняет после; `process_pending()` подбирает stalled-звонки.
 
 Next:
-- Full forward plan in `ROADMAP.md`. Top priority = Фаза 1 (reliability): verify `${HF_TOKEN}` expansion; pipeline crash-resume (D.2); LLM retry/backoff; remove dead `event_bus`. Then Фаза 2 storage (B.4), Фаза 3 tech-debt (P0-019 BUDGETS, graph-health pre-flight, Ст.19 reconcile).
+- `git commit && git push origin main`
+- Фаза 2: год/месяц для аудио (`originals/YYYY/MM/`), аудит индексов БД.
+- Фаза 3: BUDGETS (P0-019), graph-health pre-flight, Ст.19 reconcile.
 
 **Open questions (UNCONFIRMED):**
 - Does anything expand `${HF_TOKEN}` from `configs/base.yaml`? `config.py` loads it literally (no `expandvars`) → HF/pyannote auth may receive the literal placeholder unless models are pre-cached. (Telegram token IS read from env correctly.) Found during auth-surface mapping.

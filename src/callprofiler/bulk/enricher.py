@@ -20,7 +20,6 @@ from callprofiler.analyze.response_parser import parse_llm_response
 from callprofiler.config import load_config
 from callprofiler.db.repository import Repository
 from callprofiler.analyze.prompt_budget import estimate_tokens, clip_transcript_for_llm
-from callprofiler.events import emit_event_sync
 from callprofiler.models import Analysis
 
 log = logging.getLogger(__name__)
@@ -482,31 +481,6 @@ def bulk_enrich(
                     _update_graph(repo, [it["call_id"] for it in pending_batch])
 
                 # Emit real-time events to dashboard
-                for item in pending_batch:
-                    try:
-                        # Get call metadata for event
-                        conn = repo._get_conn()
-                        call_row = conn.execute(
-                            """SELECT c.call_id, c.source_filename, cnt.display_name
-                               FROM calls c
-                               LEFT JOIN contacts cnt ON c.contact_id = cnt.contact_id
-                               WHERE c.call_id = ?""",
-                            (item["call_id"],)
-                        ).fetchone()
-                        if not call_row:
-                            continue
-
-                        contact_label = call_row["display_name"] or call_row["source_filename"] or "Unknown"
-                        emit_event_sync("analysis_complete", {
-                            "call_id": item["call_id"],
-                            "contact_label": contact_label,
-                            "risk_score": item["analysis"].risk_score,
-                            "call_type": item["analysis"].call_type,
-                            "summary": item["analysis"].summary,
-                        })
-                    except Exception as e:
-                        log.warning("[enricher] Failed to emit event for call_id=%d: %s", item["call_id"], e)
-
                 pending_batch.clear()
 
     except KeyboardInterrupt:
@@ -520,32 +494,6 @@ def bulk_enrich(
         stats["failed"] += _flush_batch(repo, pending_batch)
         if cfg.features.enable_graph_update:
             _update_graph(repo, [it["call_id"] for it in pending_batch])
-
-        # Emit real-time events to dashboard
-        for item in pending_batch:
-            try:
-                # Get call metadata for event
-                conn = repo._get_conn()
-                call_row = conn.execute(
-                    """SELECT c.call_id, c.source_filename, cnt.display_name
-                       FROM calls c
-                       LEFT JOIN contacts cnt ON c.contact_id = cnt.contact_id
-                       WHERE c.call_id = ?""",
-                    (item["call_id"],)
-                ).fetchone()
-                if not call_row:
-                    continue
-
-                contact_label = call_row["display_name"] or call_row["source_filename"] or "Unknown"
-                emit_event_sync("analysis_complete", {
-                    "call_id": item["call_id"],
-                    "contact_label": contact_label,
-                    "risk_score": item["analysis"].risk_score,
-                    "call_type": item["analysis"].call_type,
-                    "summary": item["analysis"].summary,
-                })
-            except Exception as e:
-                log.warning("[enricher] Failed to emit event for call_id=%d: %s", item["call_id"], e)
 
     elapsed_total = time.time() - global_start
     avg_tps = tokens_total / sum(llm_times) if llm_times else 0

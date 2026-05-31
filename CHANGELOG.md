@@ -8,6 +8,14 @@
 
 ## [Unreleased]
 
+### Fixed — Фаза 1: надёжность для необслуживаемой работы (2026-06-11)
+
+- `config.py` — `hf_token` теперь раскрывается через `os.path.expandvars()`; ранее `"${HF_TOKEN}"` передавался буквально в pyannote и ломал диаризацию.
+- `pipeline/orchestrator.py`, `bulk/enricher.py` — удалены вызовы `emit_event_sync` (in-process event_bus не достигает отдельного процесса pipeline; SSE-дашборд использует DB-polling).
+- `analyze/llm_client.py` — `generate()` получил retry-loop: 3 попытки, exponential backoff 2s/4s/8s для `Timeout`/`ConnectionError`; non-transient ошибки не ретраятся.
+- `transcribe/whisper_runner.py` — `transcribe()` получил 1 повтор (1s sleep) при transient-сбое GPU.
+- `db/repository.py`, `db/schema.sql`, `pipeline/orchestrator.py` — crash-resume: колонка `pipeline_stage INTEGER DEFAULT 0` в таблице `calls`; `update_pipeline_stage()` + `get_stalled_calls()`; `process_batch()` пропускает завершённые фазы; `process_pending()` подбирает stalled-звонки.
+
 ### Added — Forward strategic roadmap (2026-05-30)
 
 - `ROADMAP.md` — phased forward plan: Фаза 1 reliability (HF_TOKEN check, pipeline crash-resume, LLM retry/backoff, remove dead event_bus) → Фаза 2 storage hygiene (year/month audio, DB indexes) → Фаза 3 tech-debt (BUDGETS, graph-health pre-flight, Ст.19) → Фаза 4 admin/UX (persona detail, audio player, book export, Telegram) → Фаза 5 tests (E2E pipeline, coverage, extraction eval) → Фаза 6 measured strategic bets (GigaAM ASR, vector search). Complements `ARCHITECTURE_v5.md`.

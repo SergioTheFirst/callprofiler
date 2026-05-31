@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 
 import requests
 
@@ -95,32 +96,45 @@ class LLMClient:
             len(messages), max_tokens,
         )
 
-        try:
-            response = requests.post(
-                self.base_url,
-                json={
-                    "messages": messages,
-                    "temperature": temperature,
-                    "max_tokens": max_tokens,
-                },
-                timeout=self.timeout,
-            )
-            response.raise_for_status()
-
+        last_exc: Exception | None = None
+        for attempt in range(3):
             try:
-                result = response.json()
-                # OpenAI API format: response["choices"][0]["message"]["content"]
-                return result["choices"][0]["message"]["content"]
-            except (json.JSONDecodeError, KeyError, IndexError) as exc:
-                logger.error("Невалидный ответ от LLM сервера: %s", response.text[:200])
-                return None
+                response = requests.post(
+                    self.base_url,
+                    json={
+                        "messages": messages,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens,
+                    },
+                    timeout=self.timeout,
+                )
+                response.raise_for_status()
 
-        except requests.Timeout as exc:
-            logger.error("Timeout при запросе к LLM серверу (timeout=%ds): %s", self.timeout, exc)
-            return None
-        except requests.RequestException as exc:
-            logger.error("Ошибка при запросе к LLM серверу: %s", exc)
-            return None
+                try:
+                    result = response.json()
+                    # OpenAI API format: response["choices"][0]["message"]["content"]
+                    return result["choices"][0]["message"]["content"]
+                except (json.JSONDecodeError, KeyError, IndexError):
+                    logger.error("Невалидный ответ от LLM сервера: %s", response.text[:200])
+                    return None  # не ретраим: ответ пришёл, но невалидный JSON
+
+            except (requests.Timeout, requests.ConnectionError) as exc:
+                last_exc = exc
+                if attempt < 2:
+                    delay = 2 ** (attempt + 1)  # 2s, 4s, 8s
+                    logger.warning(
+                        "LLM недоступен (попытка %d/3), повтор через %ds: %s",
+                        attempt + 1, delay, exc,
+                    )
+                    time.sleep(delay)
+            except requests.RequestException as exc:
+                logger.error("Ошибка при запросе к LLM серверу: %s", exc)
+                return None  # не ретраим: не transient error
+
+        logger.error(
+            "LLM недоступен после 3 попыток (timeout=%ds): %s", self.timeout, last_exc
+        )
+        return None
 
 
 # Для обратной совместимости (если что-то ещё использует OllamaClient)

@@ -1,139 +1,80 @@
 # CallProfiler
 
-Local multi-user phone call analysis system. Records → transcripts → LLM structured analysis → Telegram + Android overlay.
+**Mission:** audio → transcript → local LLM → Telegram/Android. Think a lot, show little.
 
-## Mission
+## Hard Constraints
+- 100% local. No cloud / Docker / Redis / Celery / ORM / Ollama.
+- LLM: `llama-server.exe -m "C:\models\Qwen3.5-9B.Q8_0.gguf" -ngl 99 -c 16384` → `http://127.0.0.1:8080/v1/chat/completions`
+- GPU sequential: Whisper+pyannote (4.5GB) → unload → LLM (10GB). Never concurrent.
+- Every SQL: `WHERE user_id = ?`. Tokens: `os.environ.get()`. Errors: log+DB+continue.
+- Push to `main` only. No feature branches.
 
-**System thinks a lot — shows little.** Heavy analysis offline, user sees only short actionable digests.
-
-## Constraints (never violate)
-
-- 100% local. No cloud LLM, no SaaS, no subscriptions.
-- Windows + system Python. No Docker/Redis/Celery.
-- LLM: `llama-server.exe -m "C:\models\Qwen3.5-9B.Q8_0.gguf" -ngl 99 -c 16384 --host 127.0.0.1 --port 8080` — OpenAI-compatible API at `http://127.0.0.1:8080/v1/chat/completions`. NOT Ollama.
-- GPU sequential: Whisper+pyannote together (4.5GB), unload before LLM (10GB).
-- Every DB query MUST filter by `user_id`.
-- Never hardcode tokens — `os.environ.get()` only.
-- Never swallow errors — log + save to DB + continue.
-
-## Session Protocol
-
+## Paths & Commands
 ```
-IF session_start:
-  → read CONTINUITY.md + CHANGELOG.md
-  → output: "Last state: … / Next: …"
-
-IF code_generated OR schema_changed:
-  → update CONTINUITY.md immediately
-  → update CHANGELOG.md
-  → run tests
-
-IF bug_fixed:
-  → write to .claude/rules/bugs.md
-  → add regression test
-
-IF architectural_decision:
-  → write to .claude/rules/decisions.md
+Project: C:\pro\callprofiler\          DB: C:\calls\data\db\callprofiler.db
+Data:    C:\calls\data                 Audio: …\users\{uid}\audio\{originals,normalized}\
+Ref:     C:\pro\mbot\ref\manager.wav
+PYTHONPATH=C:\pro\callprofiler\src | python -m callprofiler <cmd> | pytest tests/ -v
+dashboard: python -m callprofiler dashboard --user UID [--port 8765]
 ```
 
-## Before Starting Any Task
-
-1. Respect `.claudeignore`.
-2. Never read ignored files unless explicitly requested.
-3. Prefer `src/`, `app/`, `lib/`, `packages/`.
-4. Avoid `node_modules`, `dist`, `build`, `coverage`.
-5. Minimize context usage.
-6. Use the Explore agent for repository search.
-7. Use Sonnet for implementation.
-8. Use Opus only for planning and architecture; use subagents for exploration and parallel work.
-
-## Before Writing Code
-
-THINK (what files affected, what depends on them) → PLAN (3-5 steps) → IMPLEMENT → VERIFY (run tests) → LOG (update CONTINUITY.md)
-
-## Commands
-
-```bash
-set PYTHONPATH=C:\pro\callprofiler\src
-python -m callprofiler <command>          # CLI entry point
-python -m callprofiler dashboard --user USER_ID [--port 8765] [--host 127.0.0.1]  # Real-time web dashboard
-python -m pytest tests/ -v               # Tests
-git add . && git commit -m "msg" && git push origin main
-```
-
-## Required Hacks
-
+## Python Hacks
 ```python
-# torch 2.6 — in any module loading pyannote
-import torch; _orig = torch.load
-torch.load = lambda *a, **kw: _orig(*a, **{**kw, "weights_only": kw.get("weights_only", False)})
-
-# pyannote 3.3.2 — use_auth_token=, NOT token=
+import torch; _o=torch.load; torch.load=lambda *a,**k:_o(*a,**{**k,'weights_only':k.get('weights_only',False)})  # torch 2.6
+# pyannote 3.3.2: use_auth_token=  NOT  token=
 ```
 
-## Key Paths
+## Model Routing (enforce strictly)
+| Task | Model | Effort |
+|------|-------|--------|
+| Q&A, format, 1-file patch | Haiku 4.5 | low |
+| Routine dev, CRUD, tests, refactor | Opus (Fast Mode) | medium |
+| New feature, complex bug, module design | Opus | high |
+| Architecture, research, genuinely novel | Opus | max |
 
-```
-Project:     C:\pro\callprofiler\          DB:    C:\calls\data\db\callprofiler.db
-Data root:   C:\calls\data                 Audio: C:\calls\data\users\{user_id}\audio\{originals,normalized}\
-Ref voice:   C:\pro\mbot\ref\manager.wav   Prototype:   reference_batch_asr.py
-```
-> `data_dir` задаётся в `configs/base.yaml` (`C:\calls\data`). Прежний путь `D:\calls`
-> устарел — данные мигрированы на `C:\calls` 2026-04-20. Подробнее: `ARCHITECTURE_v5.md` §7.
+## Session Start (every session)
+1. `.codegraph/` exists? → `codegraph_search` affected symbols before any Read.
+2. Read `CONTINUITY.md` + last 5 lines `CHANGELOG.md` → print "State: … / Next: …"
+3. Match task to model tier above.
 
-## Transcript Format
+## .codegraph (mandatory)
+`codegraph_search` / `codegraph_callers` / `codegraph_impact` **before every edit**.
+For multi-file questions: spawn Explore subagent with codegraph as primary tool.
+If `.codegraph/` missing → `codegraph init -i` first.
 
-`[me]` = owner (Сергей Медведев), `[s2]` = other speaker. Roles may be swapped — LLM determines by context. "Сергей/Серёжа/Медведев" = ALWAYS owner.
+## Subagents (always, never optional)
+- **Explore**: any question spanning >1 file.
+- **planner**: feature touching >2 files.
+- **tdd-guide**: every bug fix + new feature (RED→GREEN→REFACTOR).
+- **code-reviewer**: after every code write.
+- **security-reviewer**: any auth / DB / input / API / file change.
 
-## Working Style
+## Skills (invoke before writing code)
+| Trigger | Skill |
+|---------|-------|
+| DB schema / SQL | `sql-pro` + `database-optimizer` + `.claude/skills/db-migration` |
+| Python module | `python-pro` + `python-patterns` |
+| LLM prompt | `prompt-engineer` |
+| Bug | `.claude/skills/fix-bug` + `systematic-debugging` |
+| Architecture | `architecture-patterns` |
+| Security | `007` |
 
-- Vertical slice first (end-to-end before broad scaffolding).
-- Reuse `reference_batch_asr.py` logic — refactor, don't rewrite.
-- Events + aggregates, not ad-hoc queries.
-- Precompute after each call (contact_summary → card → ready for next incoming).
-- Small testable steps. One commit per logical change.
+## Memory Protocol
+- `CONTINUITY.md` — current state + next step only. **Overwrite** each session (not append).
+- `CHANGELOG.md` — one line per logical change. Append only.
+- `.claude/rules/bugs.md` — non-obvious root cause + regression test ref. One block per bug.
+- `.claude/rules/decisions.md` — architectural WHY only. One paragraph per decision.
+- **Rule: add only non-obvious facts. Never duplicate what's already in code or rules.**
 
-## Progressive Disclosure
-
-IF referenced @file does not exist → ignore, do not infer its contents.
-
-```
-Architecture (source of truth): @ARCHITECTURE_v5.md
-Architecture (historical, ≤Фаза4):@ARCHITECTURE_v4.md
-Strategy & phases (historical): @STRATEGIC_PLAN_v4.md
-Constitution & constraints:    @CONSTITUTION.md
-Agent coding rules:            @AGENTS.md
-LLM prompt template:           @configs/prompts/analyze_v001.txt
-Working prototype:             @reference_batch_asr.py
-DB rules:                      @.claude/rules/db.md
-Pipeline rules:                @.claude/rules/pipeline.md
-LLM analysis rules:            @.claude/rules/llm.md
-Known bugs & fixes:            @.claude/rules/bugs.md
-Architectural decisions log:   @.claude/rules/decisions.md
-Narrative journal architecture:@.claude/rules/narrative-journal.md
-Biography module overview:     @src/callprofiler/biography/CLAUDE.md
-Biography data rules:          @.claude/rules/biography-data.md
-Biography style canon:         @.claude/rules/biography-style.md
-Biography prompt contracts:    @.claude/rules/biography-prompts.md
-Knowledge graph rules:         @.claude/rules/graph.md
-```
+## Domain
+- `[me]` = Сергей Медведев (always owner). `[s2]` = other. Roles may be swapped — LLM determines.
+- Output: ≤300 chars/item, ≤3 facts/item. Never show counts/durations to user.
 
 ## Prohibited
+ORM · Ollama · cloud LLM · auto-merge contacts · verbose output (>300 chars) · features outside current phase · premature abstraction
 
-- Cloud/SaaS dependencies
-- ORM (use sqlite3 directly)
-- Ollama API (use llama-server)
-- Auto-merge contacts
-- Verbose user-facing output
-- User-facing output longer than 300 chars or more than 3 facts per item
-- Adding components not in current phase plan
-
-## Git Push Authorization
-
-**Push to: `main` branch (not feature branches)**
-
-All commits and pushes should go directly to `main`. Feature branches are not used for this repository.
-
-```bash
-git push origin main
-```
+## Reference Files (load on demand — NOT at session start)
+`@ARCHITECTURE_v5.md` `@CONSTITUTION.md` `@AGENTS.md` `@configs/prompts/analyze_v001.txt`
+`@.claude/rules/db.md` `@.claude/rules/pipeline.md` `@.claude/rules/llm.md` `@.claude/rules/graph.md`
+`@.claude/rules/biography-*.md` `@.claude/rules/bugs.md` `@.claude/rules/decisions.md`
+`@src/callprofiler/biography/CLAUDE.md` `@.claude/skills/fix-bug.md` `@.claude/skills/db-migration.md`

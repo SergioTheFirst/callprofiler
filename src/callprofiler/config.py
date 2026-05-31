@@ -3,6 +3,7 @@
 config.py — загрузка и валидация конфигурации из YAML.
 """
 
+import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -71,7 +72,7 @@ def load_config(path: str) -> Config:
     cfg = Config(
         data_dir=raw.get("data_dir", ""),
         log_file=raw.get("log_file", ""),
-        hf_token=raw.get("hf_token", ""),
+        hf_token=os.path.expandvars(raw.get("hf_token", "")),
     )
 
     if "models" in raw:
