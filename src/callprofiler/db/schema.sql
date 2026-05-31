@@ -123,6 +123,11 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS idx_events_contact ON events(user_id, contact_id, event_type);
 CREATE INDEX IF NOT EXISTS idx_events_status ON events(user_id, status);
 
+-- Indexes для dashboard/poller (Фаза 2)
+CREATE INDEX IF NOT EXISTS idx_calls_user_status ON calls(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_calls_updated_at ON calls(updated_at);
+CREATE INDEX IF NOT EXISTS idx_calls_user_datetime ON calls(user_id, call_datetime);
+
 -- Атомарная MD5-дедупликация (F2.5): один звонок на пользователя по source_md5
 CREATE UNIQUE INDEX IF NOT EXISTS idx_calls_user_md5
     ON calls(user_id, source_md5)
@@ -156,6 +161,7 @@ CREATE TABLE IF NOT EXISTS entities (
     UNIQUE(user_id, entity_type, normalized_key)
 );
 CREATE INDEX IF NOT EXISTS idx_entities_user_type ON entities(user_id, entity_type);
+CREATE INDEX IF NOT EXISTS idx_entities_user_archived ON entities(user_id, archived);
 
 -- Directed relations between entities (time-decayed weight).
 CREATE TABLE IF NOT EXISTS relations (

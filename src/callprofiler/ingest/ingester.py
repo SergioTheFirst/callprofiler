@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -124,9 +125,9 @@ class Ingester:
             logger.error("Ошибка при создании контакта для %s: %s", metadata.phone, exc)
             raise RuntimeError(f"Не удалось создать контакт: {exc}") from exc
 
-        # 6. Скопировать оригинал в data/users/{user_id}/audio/originals/
+        # 6. Скопировать оригинал в data/users/{user_id}/audio/originals/YYYY/MM/
         try:
-            dest_audio_path = self._copy_original(user_id, fpath, file_md5)
+            dest_audio_path = self._copy_original(user_id, fpath, file_md5, metadata.call_datetime)
         except Exception as exc:
             logger.error("Ошибка при копировании оригинала: %s", exc)
             raise RuntimeError(f"Не удалось скопировать оригинал: {exc}") from exc
@@ -170,15 +171,23 @@ class Ingester:
                 md5_hash.update(chunk)
         return md5_hash.hexdigest()
 
-    def _copy_original(self, user_id: str, src_path: Path, file_md5: str) -> str:
+    def _copy_original(
+        self,
+        user_id: str,
+        src_path: Path,
+        file_md5: str,
+        call_datetime: datetime | None = None,
+    ) -> str:
         """Скопировать оригинальный аудиофайл в архив.
 
-        Путь назначения: data/users/{user_id}/audio/originals/{filename}
+        Путь назначения: originals/YYYY/MM/{filename} (если call_datetime известен)
+        Фоллбэк:         originals/{filename} (если дата отсутствует)
 
         Параметры:
-            user_id   — ID пользователя
-            src_path  — Path к исходному файлу
-            file_md5  — MD5-хеш (для логирования)
+            user_id        — ID пользователя
+            src_path       — Path к исходному файлу
+            file_md5       — MD5-хеш (для логирования)
+            call_datetime  — дата звонка для создания YYYY/MM бакета
 
         Возвращает:
             Полный путь к скопированному файлу (абсолютный)
@@ -186,8 +195,13 @@ class Ingester:
         Raises:
             RuntimeError  — если копирование упало
         """
-        # Построить путь назначения
-        dest_dir = Path(self.config.data_dir) / "users" / user_id / "audio" / "originals"
+        # Построить путь назначения с год/месяц бакетингом
+        base = Path(self.config.data_dir) / "users" / user_id / "audio" / "originals"
+        if call_datetime is not None:
+            dt = call_datetime if isinstance(call_datetime, datetime) else datetime.fromisoformat(str(call_datetime))
+            dest_dir = base / str(dt.year) / f"{dt.month:02d}"
+        else:
+            dest_dir = base
         dest_dir.mkdir(parents=True, exist_ok=True)
 
         # Имя файла: {filename} (можно добавить MD5 префикс при конфликтах)

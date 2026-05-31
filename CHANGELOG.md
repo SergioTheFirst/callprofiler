@@ -8,6 +8,13 @@
 
 ## [Unreleased]
 
+### Added — Фаза 2: хранение и гигиена данных (2026-06-11)
+
+- `ingest/ingester.py` — новые аудиофайлы пишутся в `originals/YYYY/MM/` по call_datetime; фоллбэк на flat при отсутствии даты.
+- `cli/commands/bulk.py`, `cli/main.py` — команда `audio-migrate --user --dry-run --limit`: идемпотентная миграция существующих flat-оригиналов в YYYY/MM/, обновление calls.audio_path, без удаления источника.
+- `db/schema.sql`, `db/repository.py` — 4 индекса для dashboard/poller: `idx_calls_user_status`, `idx_calls_updated_at`, `idx_calls_user_datetime`, `idx_entities_user_archived`.
+- `tests/test_ingester.py`, `tests/test_audio_migrate.py` — 10 новых тестов (429/429).
+
 ### Fixed — Фаза 1: надёжность для необслуживаемой работы (2026-06-11)
 
 - `config.py` — `hf_token` теперь раскрывается через `os.path.expandvars()`; ранее `"${HF_TOKEN}"` передавался буквально в pyannote и ломал диаризацию.

@@ -32,7 +32,7 @@ Done:
 - Auth-surface mapped (2 Explore subagents): no traditional auth (Ст.8.3) — surface = secrets/tokens + user_id isolation + telegram chat_id whitelist + dashboard ro/127.0.0.1.
 
 Now:
-- Фаза 1 (reliability) завершена. 419/419. Не запушено — ожидает git push.
+- Фаза 2 (storage hygiene) завершена. 429/429. Не запушено — ожидает git push.
 
 Done (Фаза 1):
 - HF_TOKEN: config.py теперь вызывает `os.path.expandvars()` — pyannote получает реальный токен.
@@ -40,10 +40,15 @@ Done (Фаза 1):
 - Retry/backoff: LLMClient.generate() — 3 попытки, экспоненциальный backoff 2s/4s/8s; WhisperRunner.transcribe() — 2 попытки, 1s sleep.
 - Crash-resume: `pipeline_stage` (0–4) добавлен в таблицу `calls` (миграция); `update_pipeline_stage()` + `get_stalled_calls()` в repository; `process_batch()` проверяет stage перед каждой фазой и сохраняет после; `process_pending()` подбирает stalled-звонки.
 
+Done (Фаза 2):
+- `ingest/ingester.py` — `_copy_original()` теперь пишет в `originals/YYYY/MM/` когда call_datetime доступен; фоллбэк на flat при отсутствии даты.
+- `cli/commands/bulk.py` + `cli/main.py` — команда `audio-migrate --user --dry-run --limit`: идемпотентная миграция плоских оригиналов в YYYY/MM, обновление calls.audio_path, оригиналы не удаляются.
+- `db/schema.sql` + `repository.py _migrate()` — 4 новых индекса: `idx_calls_user_status`, `idx_calls_updated_at`, `idx_calls_user_datetime`, `idx_entities_user_archived`.
+- +10 новых тестов (test_ingester.py, test_audio_migrate.py).
+
 Next:
 - `git commit && git push origin main`
-- Фаза 2: год/месяц для аудио (`originals/YYYY/MM/`), аудит индексов БД.
-- Фаза 3: BUDGETS (P0-019), graph-health pre-flight, Ст.19 reconcile.
+- Фаза 3: BUDGETS (P0-019) — удалить BASELINE_BUDGETS или завершить миграцию; graph-health pre-flight внутри biography orchestrator; Ст.19 reconcile.
 
 **Open questions (UNCONFIRMED):**
 - Does anything expand `${HF_TOKEN}` from `configs/base.yaml`? `config.py` loads it literally (no `expandvars`) → HF/pyannote auth may receive the literal placeholder unless models are pre-cached. (Telegram token IS read from env correctly.) Found during auth-surface mapping.

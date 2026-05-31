@@ -37,7 +37,7 @@ from callprofiler.cli.commands.admin import (  # noqa: E402
 
 # ---- bulk commands ----
 from callprofiler.cli.commands.bulk import (  # noqa: E402
-    cmd_extract_names, cmd_bulk_load, cmd_bulk_enrich,
+    cmd_extract_names, cmd_bulk_load, cmd_bulk_enrich, cmd_audio_migrate,
 )
 
 # ---- query commands ----
@@ -492,6 +492,24 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Идентификатор пользователя",
     )
 
+    # ── audio-migrate ──────────────────────────────────────────────
+    p_audio_migrate = sub.add_parser(
+        "audio-migrate",
+        help="Мигрировать оригиналы из flat originals/ в originals/YYYY/MM/ (идемпотентно)",
+    )
+    p_audio_migrate.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_audio_migrate.add_argument(
+        "--dry-run", action="store_true",
+        help="Показать что будет перемещено без реальных изменений",
+    )
+    p_audio_migrate.add_argument(
+        "--limit", type=int, default=0, metavar="N",
+        help="Максимум файлов (0 = все)",
+    )
+
     # ── biography-export ───────────────────────────────────────────
     p_bio_export = sub.add_parser(
         "biography-export",
@@ -536,6 +554,7 @@ def main() -> None:
         "biography-run": cmd_biography_run,
         "biography-status": cmd_biography_status,
         "biography-export": cmd_biography_export,
+        "audio-migrate": cmd_audio_migrate,
         "graph-backfill": cmd_graph_backfill,
         "reenrich-v2": cmd_reenrich_v2,
         "graph-replay": cmd_graph_replay,

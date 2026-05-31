@@ -124,6 +124,18 @@ class Repository:
                 "ALTER TABLE calls ADD COLUMN pipeline_stage INTEGER NOT NULL DEFAULT 0"
             )
 
+        # indexes для dashboard/poller (Фаза 2)
+        for _idx_sql in [
+            "CREATE INDEX IF NOT EXISTS idx_calls_user_status ON calls(user_id, status)",
+            "CREATE INDEX IF NOT EXISTS idx_calls_updated_at ON calls(updated_at)",
+            "CREATE INDEX IF NOT EXISTS idx_calls_user_datetime ON calls(user_id, call_datetime)",
+            "CREATE INDEX IF NOT EXISTS idx_entities_user_archived ON entities(user_id, archived)",
+        ]:
+            try:
+                conn.execute(_idx_sql)
+            except Exception:
+                pass
+
         # РЈРЅРёРєР°Р»СЊРЅС‹Р№ РёРЅРґРµРєСЃ РґР»СЏ Р°С‚РѕРјР°СЂРЅРѕР№ MD5-РґРµРґСѓРїР»РёРєР°С†РёРё Р·РІРѕРЅРєРѕРІ (F2.5)
         try:
             conn.execute(
