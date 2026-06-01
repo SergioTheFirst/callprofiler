@@ -263,6 +263,21 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
             headers={"Content-Disposition": "attachment; filename=calls.csv"},
         )
 
+    @fa.get("/api/export/book.md")
+    async def _export_book_md() -> StreamingResponse:
+        reader = _get_reader()
+        md = "# Биография\n\n_Книга ещё не сгенерирована._\n"
+        if reader is not None and hasattr(reader, "export_book_markdown"):
+            md = reader.export_book_markdown(_USER_ID)
+
+        def _gen() -> Any:
+            yield md
+
+        return StreamingResponse(
+            _gen(), media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": "attachment; filename=biography.md"},
+        )
+
     @fa.get("/api/history")
     async def _history(limit: int = Query(50, ge=1, le=100)) -> JSONResponse:
         dbr = _get_reader()

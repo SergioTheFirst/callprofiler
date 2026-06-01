@@ -23,50 +23,26 @@
 
 **State:**
 
-Done:
-- Step 1 — docs reconciliation v5 (pushed `702ec13`).
-- Step 2 (A.1) — diarization graceful degradation + normalizer call-time ffmpeg check (pushed `702ec13`).
-- Step 3 (A.3) dashboard last-mile — change-driven SSE (`_poller` via `get_latest_timestamp`), reprocess config-bug fix (Retry-failed now works), CSV export endpoint + `export_calls()` + frontend wire; 417/417; code-review addressed (pushed `154f469`).
-- Step 4 (B.1) persona facade — `/api/entities` lists graph personas (entity_id), fixing entities-tab↔modal id-space mismatch; persona render + header "Character"; +2 tests; 419/419.
-- Config — `.claudeignore` merged (+node/.next/coverage/*.min.js; kept DB/audio/secret/historical excludes); CLAUDE.md "Before Starting Any Task" (8 rules).
-- Auth-surface mapped (2 Explore subagents): no traditional auth (Ст.8.3) — surface = secrets/tokens + user_id isolation + telegram chat_id whitelist + dashboard ro/127.0.0.1.
+Done (on `main`, pushed): Steps 1–4 · Фаза 1 (reliability) · Фаза 2 (audio bucketing/indexes) · Фаза 3 (tech-debt + GigaAM ASR abstraction). Suite was 429/429.
 
-Now:
-- Фаза 3 (tech-debt) + GigaAM abstraction завершены. 429/429. Не запушено.
-
-Done (Фаза 1):
-- HF_TOKEN: config.py теперь вызывает `os.path.expandvars()` — pyannote получает реальный токен.
-- event_bus удалён как эмиттер: блоки `emit_event_sync` вырезаны из orchestrator.py + enricher.py; файл event_bus.py не удалён (server.py может импортировать).
-- Retry/backoff: LLMClient.generate() — 3 попытки, экспоненциальный backoff 2s/4s/8s; WhisperRunner.transcribe() — 2 попытки, 1s sleep.
-- Crash-resume: `pipeline_stage` (0–4) добавлен в таблицу `calls` (миграция); `update_pipeline_stage()` + `get_stalled_calls()` в repository; `process_batch()` проверяет stage перед каждой фазой и сохраняет после; `process_pending()` подбирает stalled-звонки.
-
-Done (Фаза 3 + GigaAM):
-- `biography/prompts.py` — удалён мёртвый `BUDGETS` dict (legacy, помечен TODO:Remove; BASELINE_BUDGETS + calculate_dynamic_budget() остаются).
-- `biography/orchestrator.py` — добавлен GraphAuditor pre-flight перед p5/p6: CRITICAL → RuntimeError (требует graph-replay); WARNING → log.warning, продолжить.
-- `CONSTITUTION.md` Ст.19 — переписана в формате Continuity Ledger (Goal/Constraints/Key decisions/State вместо старого ## Status).
-- `transcribe/asr_runner.py` — ASRRunner Protocol (load/unload/transcribe).
-- `transcribe/gigaam_runner.py` — GigaAMRunner: HTTP stub с retry 3×, ждёт gigaam_url.
-- `config.py` + `configs/base.yaml` — `asr_backend: "whisper"`, `gigaam_url: ""` (switch когда придёт адрес).
-- `pipeline/orchestrator.py` — `_make_asr_runner(config)` factory; `self.asr_runner` вместо `self.whisper_runner`.
-- `.claude/rules/decisions.md` — решение Whisper→GigaAM зафиксировано с blast-radius.
-
-Done (Фаза 2):
-- `ingest/ingester.py` — `_copy_original()` теперь пишет в `originals/YYYY/MM/` когда call_datetime доступен; фоллбэк на flat при отсутствии даты.
-- `cli/commands/bulk.py` + `cli/main.py` — команда `audio-migrate --user --dry-run --limit`: идемпотентная миграция плоских оригиналов в YYYY/MM, обновление calls.audio_path, оригиналы не удаляются.
-- `db/schema.sql` + `repository.py _migrate()` — 4 новых индекса: `idx_calls_user_status`, `idx_calls_updated_at`, `idx_calls_user_datetime`, `idx_entities_user_archived`.
-- +10 новых тестов (test_ingester.py, test_audio_migrate.py).
+Done (Фаза 4 — этой сессии, готово к пушу). 435/435.
+- **Feature 1 (persona detail)** — оказалась УЖЕ завершённой в B.1: `db_reader.get_character_profile()` отдаёт metrics+temperament/big_five/motivation+patterns+contradictions+contact+open_promises+recent_calls; `app.js` рендерит все 3 вкладки. Работу не фабриковали.
+- **Feature 2 (book export)** — `db_reader.export_book_markdown(user_id)` (prose_full → иначе склейка bio_chapters по chapter_num + рамка книги; placeholder если пусто; user_id-scoped, read-only) + `GET /api/export/book.md` (md-вложение) + кнопка «Export Book (MD)» на вкладке Entities. TDD: 4 real-DB теста + 2 endpoint.
+- **Feature 3 (URL-state)** — `app.js`: `syncURL()` (`URLSearchParams`+`replaceState`) на смене вкладки/фильтров; `restoreFromURL()` на загрузке. JS-тестов нет (в проекте нет JS-инфры; соответствует существующей конвенции — app.js не покрыт).
 
 Next:
-- `git commit && git push origin main`
-- Получить адрес GigaAM сервера → вписать `gigaam_url` + переключить `asr_backend: gigaam` в base.yaml → запустить pipeline на тестовом звонке.
-- Фаза 4: persona detail (dashboard modal Metrics/Psychology/Calls), audio player, Telegram end-to-end.
+- `git add -A && git commit && git push origin main` (эта сессия).
+- Получить адрес GigaAM сервера → `gigaam_url` + `asr_backend: gigaam` в base.yaml → прогон на тестовом звонке.
+- Фаза 5 (качество/тесты): реальный E2E pipeline-тест на мини-фикстуре; починить coverage-тулинг; eval-харнесс LLM-JSON.
+- Отложено (ТОЛЬКО по явному запросу, предупреждать): аудиоплеер, Telegram end-to-end.
 
 **Open questions (UNCONFIRMED):**
-- Does anything expand `${HF_TOKEN}` from `configs/base.yaml`? `config.py` loads it literally (no `expandvars`) → HF/pyannote auth may receive the literal placeholder unless models are pre-cached. (Telegram token IS read from env correctly.) Found during auth-surface mapping.
-- Resolved: `DashboardTools.run_*` ARE real logic (`_reprocess_sync` config bug fixed). `events.event_bus` is disconnected + cross-process — DB-poll change-detection in `_poller` is the correct source; in-memory bus stays dead (later removal candidate).
+- HF_TOKEN expandvars — RESOLVED в Фазе 1 (`config.py` зовёт `os.path.expandvars()`).
+- `events.event_bus` мёртв (disconnected + cross-process) — `_poller` DB-poll корректен; шина — кандидат на удаление позже.
+- Latent: dashboard prod передаёт `_CONFIG.data_dir` в `DashboardDBReader(db_path)` — проверить, что это путь к .db, а не каталог (вне Фазы 4; reads работают в тестах через путь к файлу).
 
 **Working set (files/ids/commands):**
-- Step 4 (persona facade) likely files: `dashboard/db_reader.py` (`get_character_profile`/`get_entity_profile` already exist — consolidate into one Persona read-model), `biography/psychology_profiler.py`, `graph/repository.py`, `aggregate/summary_builder.py`.
-- Tests: `tests/test_dashboard_server.py`, `test_dashboard_tools.py`, `test_psychology_profiler.py`.
+- Phase 4 touched: `dashboard/db_reader.py` (export_book_markdown), `dashboard/server.py` (/api/export/book.md), `dashboard/static/app.js` (syncURL/restoreFromURL + export btn), `dashboard/templates/index.html` (Entities header btn).
+- Tests: `tests/test_dashboard_export.py` (new, real-DB), `tests/test_dashboard_server.py::TestExport`.
 - Run tests: `$env:PYTHONPATH="C:\pro\callprofiler\src"; python -m pytest tests/ -q`
-- Last commit: `21858d1` (main); all session work pushed.
+- Last pushed commit: `5c0cb79` (main). Фаза 4 ещё не закоммичена.

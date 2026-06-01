@@ -9,6 +9,8 @@
         callsPage: 0,
         callsLimit: 50,
         searchQuery: '',
+        callsStatus: '',
+        callsDays: 0,
     };
 
     // ── DOM refs ───────────────────────────────────────────────────────────
@@ -26,12 +28,24 @@
     var sseDot = $('#sse-dot');
     var clock = $('#clock');
 
+    // ── URL state (?tab=&status=&days=) ──────────────────────────────────────
+    // Shareable, reload-safe dashboard state. replaceState (not pushState) so
+    // filter changes don't flood the back-stack.
+    function syncURL() {
+        var params = new URLSearchParams();
+        params.set('tab', state.activeTab);
+        if (state.callsStatus) params.set('status', state.callsStatus);
+        if (state.callsDays) params.set('days', String(state.callsDays));
+        var qs = params.toString();
+        history.replaceState(null, '', qs ? '?' + qs : location.pathname);
+    }
+
     // ── Tab Switching ──────────────────────────────────────────────────────
     function switchTab(name) {
         state.activeTab = name;
         tabs.forEach(function(t) { t.classList.toggle('active', t.dataset.tab === name); });
         panels.forEach(function(p) { p.classList.toggle('active', p.id === 'panel-' + name); });
-        location.hash = name;
+        syncURL();
         if (name === 'overview') loadOverview();
         else if (name === 'calls') loadCalls();
         else if (name === 'entities') loadEntities();
@@ -42,9 +56,19 @@
         t.addEventListener('click', function() { switchTab(this.dataset.tab); });
     });
 
-    // Restore tab from URL hash
-    var hash = location.hash.replace('#', '');
-    if (hash && $('#panel-' + hash)) switchTab(hash);
+    // Restore state from URL query (?tab=&status=&days=). Set the filter
+    // selects BEFORE switching so loadCalls() picks up the restored values.
+    (function restoreFromURL() {
+        var params = new URLSearchParams(location.search);
+        var st = params.get('status');
+        var dys = params.get('days');
+        var stEl = $('#calls-status-filter');
+        var dyEl = $('#calls-days-filter');
+        if (st && stEl) stEl.value = st;
+        if (dys && dyEl) dyEl.value = dys;
+        var tab = params.get('tab');
+        if (tab && $('#panel-' + tab)) switchTab(tab);
+    })();
 
     // ── Clock ──────────────────────────────────────────────────────────────
     function updateClock() {
@@ -251,7 +275,10 @@
         state.callsPage = page;
         var offset = page * state.callsLimit;
         var statusFilter = ($('#calls-status-filter') || {}).value || '';
-        var daysFilter = parseInt(($('#calls-days-filter') || {}).value || '0');
+        var daysFilter = parseInt(($('#calls-days-filter') || {}).value || '0') || 0;
+        state.callsStatus = statusFilter;
+        state.callsDays = daysFilter;
+        syncURL();
         var url = '/api/calls?limit=' + state.callsLimit + '&offset=' + offset;
         if (statusFilter) url += '&status=' + encodeURIComponent(statusFilter);
         if (daysFilter > 0) url += '&days=' + daysFilter;
@@ -628,6 +655,14 @@
     }
 
     // ── Entities Tab ───────────────────────────────────────────────────────
+    var entExportBtn = $('#entities-export-book');
+    if (entExportBtn) {
+        entExportBtn.addEventListener('click', function() {
+            window.location.href = '/api/export/book.md';  // Content-Disposition: attachment
+            toast('Exporting biography…', '');
+        });
+    }
+
     function loadEntities() {
         fetch('/api/entities?limit=100')
             .then(function(r) { return r.json(); })

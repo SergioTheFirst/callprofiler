@@ -27,13 +27,15 @@
 - [ ] `graph-health` pre-flight внутри biography-оркестратора (не только CLI-гейт) — чтобы p5/p6 не работали по нездоровому графу молча.
 - [ ] Привести CONSTITUTION Ст.19 к формату Continuity Ledger.
 
-## Фаза 4 — Полнота админки и UX
+## Фаза 4 — Полнота админки и UX ✅
 *Цель: «реально удобная админка» + экспорт.*
-- [ ] Persona detail: обогатить вкладки модалки (Metrics/Psychology/Calls) — id-space уже починен (B.1).
-- [ ] Аудиоплеер: воспроизведение сегмента по клику в call-detail.
-- [ ] Экспорт за пределы CSV: endpoint выгрузки книги/главы (markdown/PDF; biography p7/p8 уже дают прозу).
-- [ ] Telegram: включить и проверить доставку end-to-end (сейчас off по умолчанию); расписание дайджеста.
-- [ ] URL-state дашборда (`?tab=&status=&days=`).
+- [x] Persona detail: вкладки модалки (Metrics/Psychology/Calls) — `get_character_profile` отдаёт metrics+temperament/big_five/motivation+patterns+contradictions+contact+open_promises+recent_calls; фронт рендерит все три. Завершено в B.1.
+- [x] Экспорт за пределы CSV: `GET /api/export/book.md` + `db_reader.export_book_markdown()` (prose_full → иначе сборка глав по chapter_num + рамка книги; placeholder если пусто; user_id-scoped). Кнопка «Export Book (MD)» на вкладке Entities.
+- [x] URL-state дашборда (`?tab=&status=&days=`): `syncURL()` через `URLSearchParams`+`replaceState`; restore на загрузке (restoreFromURL).
+
+## Отложено (только по явному запросу — предупреждать перед реализацией)
+- **Аудиоплеер**: воспроизведение сегмента по клику в call-detail. ⚠️ требует явного разрешения.
+- **Telegram end-to-end**: включить и проверить доставку (сейчас off); расписание дайджеста. ⚠️ требует явного разрешения.
 
 ## Фаза 5 — Глубина качества и тестов
 - [ ] Реальный E2E-тест pipeline (watch → process → enrich → card) на мини-фикстуре — крупнейшая дыра покрытия.

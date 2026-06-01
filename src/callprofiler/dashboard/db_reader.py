@@ -788,6 +788,61 @@ class DashboardDBReader:
         rows = self._conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 
+    def export_book_markdown(self, user_id: str) -> str:
+        """Assemble the user's biography as a single markdown document.
+
+        Prefers the newest main book's ``prose_full`` (the canonical stitched
+        volume). Falls back to concatenating chapters in ``chapter_num`` order,
+        wrapped by the book frame (title / subtitle / epigraph / prologue /
+        epilogue) when present. Returns a clearly-empty placeholder when no
+        biography content exists. Always filtered by ``user_id``.
+        """
+        self.connect()
+        book = self._conn.execute(
+            """SELECT title, subtitle, epigraph, prologue, epilogue, prose_full
+               FROM bio_books
+               WHERE user_id = ? AND book_type = 'main'
+               ORDER BY generated_at DESC, book_id DESC
+               LIMIT 1""",
+            (user_id,),
+        ).fetchone()
+
+        # A fully-assembled volume is the canonical export — chapters are
+        # already stitched into it, so don't duplicate them.
+        if book and (book["prose_full"] or "").strip():
+            return book["prose_full"].strip() + "\n"
+
+        parts: list[str] = []
+        if book:
+            if book["title"]:
+                parts.append(f"# {book['title'].strip()}")
+            if book["subtitle"]:
+                parts.append(f"_{book['subtitle'].strip()}_")
+            if book["epigraph"]:
+                parts.append(f"> {book['epigraph'].strip()}")
+            if book["prologue"]:
+                parts.append(book["prologue"].strip())
+
+        chapter_rows = self._conn.execute(
+            """SELECT chapter_num, title, prose
+               FROM bio_chapters
+               WHERE user_id = ?
+               ORDER BY chapter_num ASC""",
+            (user_id,),
+        ).fetchall()
+        for ch in chapter_rows:
+            heading = (ch["title"] or "").strip() or f"Глава {ch['chapter_num']}"
+            parts.append(f"## {heading}")
+            if (ch["prose"] or "").strip():
+                parts.append(ch["prose"].strip())
+
+        if book and book["epilogue"]:
+            parts.append(book["epilogue"].strip())
+
+        if not parts:
+            return "# Биография\n\n_Книга ещё не сгенерирована._\n"
+        return "\n\n".join(parts).strip() + "\n"
+
     def get_db_stats(self, user_id: str) -> dict[str, Any]:
         """Database-level statistics for the system tab."""
         self.connect()

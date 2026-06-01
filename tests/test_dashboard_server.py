@@ -208,6 +208,32 @@ class TestExport:
         finally:
             server_mod._DB_READER = saved
 
+    def test_export_book_md(self, client):
+        """Phase 4 F2: /api/export/book.md streams the assembled biography as a
+        markdown attachment (Cyrillic preserved)."""
+        import callprofiler.dashboard.server as server_mod
+        server_mod._DB_READER.export_book_markdown.return_value = (
+            "# Жизнь\n\n## Глава 1\n\nтекст главы\n"
+        )
+        resp = client.get("/api/export/book.md")
+        assert resp.status_code == 200
+        assert "text/markdown" in resp.headers["content-type"]
+        assert "attachment" in resp.headers.get("content-disposition", "")
+        body = resp.text
+        assert "Глава 1" in body
+        assert "текст главы" in body
+
+    def test_export_book_md_placeholder_when_no_reader(self, client):
+        import callprofiler.dashboard.server as server_mod
+        saved = server_mod._DB_READER
+        server_mod._DB_READER = None
+        try:
+            resp = client.get("/api/export/book.md")
+            assert resp.status_code == 200
+            assert resp.text.strip()  # always returns valid markdown
+        finally:
+            server_mod._DB_READER = saved
+
 
 class TestEntitiesPersona:
     def test_entities_returns_personas_with_entity_id(self, client):

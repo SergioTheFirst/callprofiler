@@ -8,6 +8,15 @@
 
 ## [Unreleased]
 
+### Added — Фаза 4: полнота админки и UX (2026-06-01)
+
+- `dashboard/db_reader.py` — `export_book_markdown(user_id)`: собирает биографию в один markdown (предпочитает `bio_books.prose_full`; иначе склейка `bio_chapters` по `chapter_num` + рамка title/subtitle/epigraph/prologue/epilogue; placeholder если данных нет). Всегда фильтрует по `user_id`, read-only.
+- `dashboard/server.py` — `GET /api/export/book.md`: стримит markdown-вложение (`Content-Disposition: attachment; filename=biography.md`), зеркалит паттерн CSV-экспорта.
+- `dashboard/templates/index.html` — кнопка «Export Book (MD)» в шапке вкладки Entities.
+- `dashboard/static/app.js` — URL-state `?tab=&status=&days=`: `syncURL()` (`URLSearchParams`+`history.replaceState`) пишет состояние при смене вкладки и фильтров; `restoreFromURL()` восстанавливает на загрузке. Persona-модалка (Metrics/Psychology/Calls) подтверждена завершённой (B.1) — фабриковать работу не стали.
+- Tests: +4 real-DB (`tests/test_dashboard_export.py`) + 2 endpoint (`tests/test_dashboard_server.py::TestExport`). Suite 435/435.
+- Отложено (по явному запросу): аудиоплеер, Telegram end-to-end.
+
 ### Added/Changed — Фаза 3: tech-debt + GigaAM ASR abstraction (2026-06-01)
 
 - `biography/prompts.py` — удалён мёртвый `BUDGETS` dict (migration artifact); активная система BASELINE_BUDGETS + calculate_dynamic_budget() сохранена.
