@@ -109,6 +109,18 @@ class FileWatcher:
 
         return new_call_ids
 
+    def run_once(self) -> int:
+        """Один цикл: scan → process_batch → cleanup → retry, затем выход.
+
+        Для тестового/пакетного прогона (bat). Возвращает число новых файлов.
+        """
+        new_ids = self.scan_all_users()
+        if new_ids:
+            self.orchestrator.process_batch(new_ids)
+        self.cleanup_sources()
+        self.orchestrator.retry_errors()
+        return len(new_ids)
+
     def run_loop(self) -> None:
         """Запустить бесконечный цикл мониторинга."""
         interval = self.config.pipeline.watch_interval_sec

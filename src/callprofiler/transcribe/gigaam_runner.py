@@ -87,6 +87,23 @@ class GigaAMRunner:
             k.setdefault("weights_only", False)
             return _orig_load(*a, **k)
 
+        # transformers trust_remote_code сканирует ВСЕ import'ы в modeling_gigaam.py
+        # (даже внутри функций — get_imports() regex ловит и отступы) и падает, если
+        # отсутствует опциональный пакет. В GigaAM это `from pyannote.audio import ...`
+        # внутри get_pipeline() (longform VAD) — нам он НЕ нужен (своя нарезка окнами).
+        # Подменяем check_imports на get_relative_imports: пропускаем проверку внешних
+        # пакетов, сохраняя резолв относительных модулей → грузим без установки pyannote.
+        _dmu = None
+        _orig_check = None
+        try:
+            import transformers.dynamic_module_utils as _dmu  # type: ignore
+            _orig_check = getattr(_dmu, "check_imports", None)
+            _rel = getattr(_dmu, "get_relative_imports", None)
+            if _orig_check is not None and _rel is not None:
+                _dmu.check_imports = _rel
+        except Exception:  # noqa: BLE001 — best-effort, не критично
+            _dmu = None
+
         torch.load = _patched_load
         try:
             from transformers import AutoModel
@@ -94,6 +111,8 @@ class GigaAMRunner:
             model = AutoModel.from_pretrained(model_dir, trust_remote_code=True)
         finally:
             torch.load = _orig_load
+            if _dmu is not None and _orig_check is not None:
+                _dmu.check_imports = _orig_check
 
         device = getattr(self.config.models, "gigaam_device", "cuda") or "cuda"
         if device == "cuda" and not torch.cuda.is_available():

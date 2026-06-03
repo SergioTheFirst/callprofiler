@@ -27,7 +27,14 @@ def cmd_watch(args: argparse.Namespace) -> int:
     orchestrator = Orchestrator(cfg, repo)
     watcher = FileWatcher(cfg, repo, ingester, orchestrator)
 
-    logging.getLogger(__name__).info("Запуск watchdog-режима...")
+    log = logging.getLogger(__name__)
+    if getattr(args, "once", False):
+        log.info("Однократный прогон (--once): scan → обработка → cleanup")
+        n = watcher.run_once()
+        log.info("Однократный прогон завершён: новых файлов=%d", n)
+        return 0
+
+    log.info("Запуск watchdog-режима...")
     watcher.run_loop()
     return 0
 

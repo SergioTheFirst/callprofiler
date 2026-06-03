@@ -95,9 +95,13 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.required = True
 
     # ── watch ────────────────────────────────────────────────
-    sub.add_parser(
+    p_watch = sub.add_parser(
         "watch",
         help="Запустить watchdog: мониторинг папок + автообработка",
+    )
+    p_watch.add_argument(
+        "--once", action="store_true",
+        help="Один цикл (scan→обработка→cleanup) и выход — для тестового прогона",
     )
 
     # ── process ──────────────────────────────────────────────

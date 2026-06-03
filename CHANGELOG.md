@@ -8,6 +8,14 @@
 
 ## [Unreleased]
 
+### Added/Fixed — GPU-прогон фидбэк #2 (2026-06-04)
+
+- **GigaAM грузится без pyannote** `transcribe/gigaam_runner.py` — `load()` временно подменяет `transformers.dynamic_module_utils.check_imports` на `get_relative_imports`. Причина: `trust_remote_code` сканирует ВСЕ импорты в `modeling_gigaam.py` (regex ловит и отступы → `from pyannote.audio import ...` внутри `get_pipeline()`) и падает без pyannote. Теперь не нужен ни ручной патч модели, ни установка pyannote. Подтверждено боксом: на Python 3.12 + torch 2.6 cu124 + transformers 4.57 модель грузится, GPU используется.
+- **`watch --once`** `pipeline/watcher.py` (`run_once`) + `cli` — один цикл scan→обработка→cleanup→retry и выход (для пакетного/тестового прогона, без бесконечного цикла).
+- **bat-раннеры** (корень): `test-env.bat` (Python/CUDA/ffmpeg/модель), `test-unit.bat` (pytest), `test-pipeline.bat` (bootstrap + `watch --once` по C:\calls\in + status), `test-all.bat` (env+unit+pipeline), `install-deps.bat`. Глобальный `-v` ставится ДО подкоманды (argparse).
+- **Dashboard deps** `requirements-gigaam.txt` — добавлены `fastapi`/`uvicorn`/`jinja2` (на боксе дашборд падал без них).
+- Примечание: патчи A/B (melscale numpy, all_tied_weights_keys), добавленные на боксе под transformers 5.9, на main НЕ нужны (transformers<5). После `git pull` на боксе: junction `C:\calls\configs` и ручная правка `modeling_gigaam.py` больше не требуются (B6/pyannote закрыты в коде).
+
 ### Fixed — фидбэк прогона на GPU-боксе (rez.txt, 2026-06-03)
 
 - **B2** `pipeline/orchestrator.py` — pyannote больше не импортируется/инстанцируется на старте: top-import убран, `self.pyannote_runner=None`, ленивое создание внутри `_diarize_segments` (+ guard в `finally`). Stage-1 не требует pyannote.

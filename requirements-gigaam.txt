@@ -24,4 +24,10 @@ sentencepiece>=0.2
 numpy
 pyyaml
 requests
+
+# Dashboard (realtime UI) — для `python -m callprofiler dashboard`:
+fastapi
+uvicorn
+jinja2
+
 # torch==2.6.0 + torchaudio==2.6.0 — ставить отдельно с cu124 index (шаг 2 выше)
