@@ -24,7 +24,6 @@ from callprofiler.analyze.response_parser import parse_llm_response
 from callprofiler.audio.normalizer import get_duration_sec, normalize
 from callprofiler.deliver.card_generator import CardGenerator
 from callprofiler.deliver.telegram_bot import TelegramNotifier
-from callprofiler.diarize.pyannote_runner import PyannoteRunner
 from callprofiler.diarize.role_assigner import assign_speakers
 from callprofiler.models import Segment
 from callprofiler.transcribe.whisper_runner import WhisperRunner
@@ -87,14 +86,11 @@ class Orchestrator:
 
         # Компоненты ASR/diarize (лениво загружаются)
         self.asr_runner = _make_asr_runner(config)
-        self.pyannote_runner = PyannoteRunner(config)
+        # pyannote создаётся лениво при первой диаризации — Stage-1 его не требует
+        self.pyannote_runner = None
 
-        # Компоненты анализа
-        self.prompt_builder = PromptBuilder(
-            str(Path(config.data_dir).parent / "configs" / "prompts")
-            if config.data_dir
-            else "configs/prompts"
-        )
+        # Компоненты анализа (prompts резолвятся от корня проекта, не от data_dir)
+        self.prompt_builder = PromptBuilder(config.prompts_dir)
         self.card_generator = CardGenerator(repo)
         self.telegram = telegram
 
@@ -138,6 +134,7 @@ class Orchestrator:
             normalize(audio_path, norm_path)
             duration_sec = get_duration_sec(norm_path)
             self.repo.update_call_paths(call_id, norm_path, duration_sec)
+            self.repo.update_pipeline_stage(call_id, 1)
             logger.info(
                 "Нормализация завершена: call_id=%d, duration=%ds",
                 call_id,
@@ -159,13 +156,16 @@ class Orchestrator:
             ref_audio = user.get("ref_audio", "") if user else ""
             segments = self._diarize_segments(call_id, norm_path, segments, ref_audio)
 
-            # Сохранить транскрипт
+            # Сохранить транскрипт (БД = источник истины) + читабельный .txt
             self.repo.save_transcripts(call_id, segments)
+            self._export_text(call, segments)
+            self.repo.update_pipeline_stage(call_id, 2)
 
             # ── Шаг 4: Analyze ───────────────────────────────
             if self.config.features.enable_llm_analysis:
                 self.repo.update_call_status(call_id, "analyzing")
                 self._analyze_call(call_id, call, segments)
+                self.repo.update_pipeline_stage(call_id, 3)
             else:
                 logger.info(
                     "LLM analysis disabled by feature flag; skipping call_id=%d",
@@ -175,6 +175,7 @@ class Orchestrator:
             # ── Шаг 5: Deliver ───────────────────────────────
             self.repo.update_call_status(call_id, "delivering")
             self._deliver_call(call_id, user_id, contact_id)
+            self.repo.update_pipeline_stage(call_id, 4)
 
             # ── Готово ────────────────────────────────────────
             self.repo.update_call_status(call_id, "done")
@@ -298,6 +299,7 @@ class Orchestrator:
                         call_id, call["_norm_path"], segments_map[call_id], ref_audio
                     )
                     self.repo.save_transcripts(call_id, segments_map[call_id])
+                    self._export_text(call, segments_map[call_id])
                     self.repo.update_pipeline_stage(call_id, 2)
                     call["pipeline_stage"] = 2
                 except Exception as exc:
@@ -377,6 +379,31 @@ class Orchestrator:
 
     # ── Внутренние методы ─────────────────────────────────────────────
 
+    def _export_text(self, call: dict, segments: list[Segment]) -> None:
+        """Записать читабельный .txt транскрипт (по ролям).
+
+        Путь: ``pipeline.text_export_dir / <имя_исходника>.txt`` — имя равно
+        имени исходного аудиофайла, расширение меняется на ``.txt``.
+        Роли: OWNER→[me], OTHER→[s2], UNKNOWN→[?]. На Stage-1 (без диаризации)
+        все строки идут с ``[?]``.
+
+        Не фатально: сбой логируется, pipeline продолжается.
+        """
+        text_dir = getattr(self.config.pipeline, "text_export_dir", "")
+        if not text_dir:
+            return
+        try:
+            from callprofiler.transcribe.text_export import write_transcript
+
+            src_name = call.get("source_filename") or f"call_{call.get('call_id')}"
+            out_path = write_transcript(text_dir, src_name, segments)
+            logger.info("Текст сохранён: %s (%d строк)", out_path, len(segments))
+        except Exception as exc:  # noqa: BLE001 — экспорт не валит pipeline
+            logger.warning(
+                "Не удалось записать текст для call_id=%s: %s",
+                call.get("call_id"), exc,
+            )
+
     def _diarize_segments(
         self,
         call_id: int,
@@ -408,6 +435,9 @@ class Orchestrator:
             return segments
 
         try:
+            if self.pyannote_runner is None:
+                from callprofiler.diarize.pyannote_runner import PyannoteRunner
+                self.pyannote_runner = PyannoteRunner(self.config)
             self.pyannote_runner.load(ref_audio)
             diarization = self.pyannote_runner.diarize(norm_path)
             result = assign_speakers(segments, diarization)
@@ -423,7 +453,8 @@ class Orchestrator:
             )
             return segments
         finally:
-            self.pyannote_runner.unload()
+            if self.pyannote_runner is not None:
+                self.pyannote_runner.unload()
 
     def _analyze_call(
         self,

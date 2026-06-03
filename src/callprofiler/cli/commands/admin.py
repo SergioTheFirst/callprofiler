@@ -144,6 +144,69 @@ def cmd_add_user(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bootstrap(args: argparse.Namespace) -> int:
+    """bootstrap — создать папки/БД и завести пользователя по умолчанию.
+
+    Provisioning одной командой для чистой машины:
+      1. mkdir data_dir (+ db, logs), incoming, text_export_dir, sync
+      2. init БД (схема)
+      3. добавить пользователя (если ещё нет)
+    """
+    import yaml as _yaml
+
+    # 1. data_dir берём из YAML напрямую — до валидации существования в load_config
+    with open(args.config, encoding="utf-8") as f:
+        raw = _yaml.safe_load(f) or {}
+
+    data_dir = Path(raw.get("data_dir", "C:\\calls\\data"))
+    (data_dir / "db").mkdir(parents=True, exist_ok=True)
+    (data_dir / "logs").mkdir(parents=True, exist_ok=True)
+
+    incoming = Path(args.incoming)
+    incoming.mkdir(parents=True, exist_ok=True)
+
+    text_dir = (raw.get("pipeline") or {}).get("text_export_dir", "")
+    if text_dir:
+        Path(text_dir).mkdir(parents=True, exist_ok=True)
+
+    sync = Path(args.sync_dir)
+    sync.mkdir(parents=True, exist_ok=True)
+
+    # 2. конфиг + репозиторий (создаёт схему БД). Здесь же сработает проверка ffmpeg.
+    cfg, repo = load_config_and_repo(args.config)
+    setup_logging(cfg.log_file, args.verbose)
+    log = logging.getLogger(__name__)
+
+    # 3. пользователь
+    if repo.get_user(args.user_id):
+        log.info("Пользователь '%s' уже существует — пропуск", args.user_id)
+    else:
+        repo.add_user(
+            user_id=args.user_id,
+            display_name=args.display_name or args.user_id,
+            telegram_chat_id=args.telegram_chat_id,
+            incoming_dir=str(incoming),
+            sync_dir=str(sync),
+            ref_audio=str(args.ref_audio),
+        )
+        log.info("✓ Пользователь '%s' создан", args.user_id)
+
+    log.info(
+        "Bootstrap готов:\n"
+        "  data_dir : %s\n"
+        "  incoming : %s\n"
+        "  text     : %s\n"
+        "  sync     : %s\n"
+        "  user     : %s",
+        data_dir, incoming, text_dir or "(off)", sync, args.user_id,
+    )
+    log.info(
+        "Дальше: положите аудио в %s и запустите `python -m callprofiler watch`",
+        incoming,
+    )
+    return 0
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     """status — показать состояние очереди."""
     cfg, repo = load_config_and_repo(args.config)

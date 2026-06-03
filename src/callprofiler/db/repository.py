@@ -353,6 +353,18 @@ class Repository:
         )
         return dict(row) if row else None
 
+    def get_call_by_md5(self, user_id: str, source_md5: str) -> dict | None:
+        """Найти звонок по MD5 исходника (для безопасной очистки incoming)."""
+        row = (
+            self._get_conn()
+            .execute(
+                "SELECT * FROM calls WHERE user_id = ? AND source_md5 = ?",
+                (user_id, source_md5),
+            )
+            .fetchone()
+        )
+        return dict(row) if row else None
+
     def create_call(
         self,
         user_id: str,

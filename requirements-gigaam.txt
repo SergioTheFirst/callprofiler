@@ -1,0 +1,27 @@
+# GigaAM v3 RNN-T ASR stack — Stage-1 (audio → текст).
+#
+# ⚠ GPU ТРЕБУЕТ Python 3.12 (или 3.11/3.10).
+#   PyTorch НЕ собирает CUDA-колёса для Python 3.14 → на 3.14 доступна только
+#   CPU-сборка (torch 2.12+cpu), GPU простаивает, GigaAM в 20-50× медленнее.
+#   На прогоне 2026-06-03 на боксе стоял Python 3.14 → CPU-only (см. rez.txt).
+#
+# Установка для GPU (Windows):
+#   1) поставить Python 3.12, создать окружение на нём;
+#   2) torch + torchaudio под CUDA 12.4 (версии обязаны совпадать):
+#        pip install torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+#   3) остальное:
+#        pip install -r requirements-gigaam.txt
+#   4) ffmpeg (НЕ pip): https://www.gyan.dev/ffmpeg/builds/ → bin\ в PATH (ffmpeg -version)
+#
+# Проверка GPU: python -c "import torch; print(torch.cuda.is_available())"  → True
+
+# transformers <5: GigaAM v3 написан под 4.x; 5.x ломает загрузку
+# (all_tied_weights_keys / meta-device) и требует ручных патчей. Держим 4.x.
+transformers>=4.40,<5
+hydra-core>=1.3
+omegaconf>=2.3
+sentencepiece>=0.2
+numpy
+pyyaml
+requests
+# torch==2.6.0 + torchaudio==2.6.0 — ставить отдельно с cu124 index (шаг 2 выше)

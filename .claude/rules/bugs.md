@@ -89,6 +89,15 @@ None currently identified.
 
 ## Recent Fixes (Closed)
 
+✅ **Stage-1 GPU-прогон: 7 проблем из rez.txt** (2026-06-03)
+- **B1 (env, не код):** бокс на Python 3.14 → PyTorch не даёт CUDA-колёс (только torch 2.12+cpu) → GPU простаивает, GigaAM в 20-50× медленнее. Fix: Python 3.12 + torch==2.6.0+cu124 + torchaudio==2.6.0 + transformers<5. На 3.12 патчи A/B (см. rez.txt) не нужны. Зафиксировано в `requirements-gigaam.txt`/`RUN_STAGE1.md`.
+- **B2:** `orchestrator` инстанцировал `PyannoteRunner` на старте → лишняя связанность для Stage-1. Fix: lazy в `_diarize_segments`, `self.pyannote_runner=None` в `__init__`, guard в finally.
+- **B3:** `process_call()` не писал `pipeline_stage` (в отличие от `process_batch`) → нет видимости/cleanup. Fix: stage 1→4 добавлены.
+- **B4/B5 (потеря данных):** watcher удалял исходник дубликата из incoming БЕЗ проверки, что звонок реально транскрибирован → error/завис терял исходник. Fix: `_scan_user_dir` MD5-first через `repo.get_call_by_md5()`, удаление только при `pipeline_stage>=2`. Regression: `tests/test_watcher_cleanup.py::test_scan_keeps_untranscribed_duplicate` + `::test_scan_removes_transcribed_duplicate`.
+- **B6:** `prompts_dir` резолвился от `data_dir` (`C:\calls\configs\prompts` — не существует) в 3 местах. Fix: `Config.prompts_dir` от корня проекта.
+- **B7:** dashboard не стартовал — `__init__` импортировал несуществующие `app`/`set_user_id`; `DashboardDBReader` получал каталог вместо `.db`. Fix: фабрика `server._build_app()`, db_reader резолвит `data_dir/db/callprofiler.db`.
+- **Status:** RESOLVED (код), B1 — требует Python 3.12 на боксе.
+
 ✅ **Diarization exception lost transcript + leaked VRAM** (2026-05-30)
 - **Issue:** In `orchestrator.py` (`process_call` & `process_batch`), if `pyannote.diarize()`/`load()` threw, `save_transcripts()` was skipped (Whisper transcript lost) AND `pyannote_runner.unload()` was skipped (VRAM leaked before the ~10GB LLM phase → OOM risk). Violated `.claude/rules/pipeline.md` (continue with speaker=UNKNOWN) + CONSTITUTION Ст.9.3.
 - **Found by:** strategic audit (2026-05-29), verified by reading `orchestrator.py:294-305`.

@@ -8,6 +8,29 @@
 
 ## [Unreleased]
 
+### Fixed — фидбэк прогона на GPU-боксе (rez.txt, 2026-06-03)
+
+- **B2** `pipeline/orchestrator.py` — pyannote больше не импортируется/инстанцируется на старте: top-import убран, `self.pyannote_runner=None`, ленивое создание внутри `_diarize_segments` (+ guard в `finally`). Stage-1 не требует pyannote.
+- **B3** `pipeline/orchestrator.py` — `process_call()` теперь пишет `pipeline_stage` 1→2→3→4 (как `process_batch`): видимость в dashboard + работает cleanup исходников.
+- **B5/B4** `pipeline/watcher.py` + `db/repository.py` — `_scan_user_dir` переписан на MD5-first через новый `repo.get_call_by_md5()`: дубликат удаляется из incoming ТОЛЬКО если транскрибирован (stage≥2); error/завис/новый — сохраняется (нет потери данных). Зависшие файлы чистятся в следующем цикле по готовности. Добавлен `FileWatcher._file_md5`.
+- **B6** `config.py` + `analyze/service.py` + `bulk/enricher.py` — `prompts_dir` резолвится от КОРНЯ ПРОЕКТА (`Config.prompts_dir`, default = `<root>/configs/prompts`, override через YAML), а не от `data_dir`. Убирает потребность в junction `C:\calls\configs`.
+- **B7** `dashboard/__init__.py` + `dashboard/db_reader.py` — починен запуск дашборда: `__init__` использует фабрику `server._build_app(user_id, config)` (раньше импортировал несуществующие `app`/`set_user_id`); `DashboardDBReader` принимает `data_dir` и резолвит `db/callprofiler.db` (раньше открывал каталог как .db).
+- **B1** (GPU простаивает) — НЕ код: на боксе Python 3.14, под который PyTorch не даёт CUDA-колёс (только torch 2.12+cpu). Для GPU нужен **Python 3.12 + torch==2.6.0+cu124 + torchaudio==2.6.0 + transformers<5** — тогда патчи A/B (melscale meta-device, all_tied_weights_keys), добавленные на боксе под torch2.12/transformers5.9, НЕ нужны. Зафиксировано в `requirements-gigaam.txt` + `RUN_STAGE1.md`.
+- Tests: +3 (`tests/test_watcher_cleanup.py`: dedup-safety) → 15/15 локально зелёные. Все правки py_compile + smoke-import OK (Orchestrator строится без pyannote; dashboard импортируется; db_reader резолвит путь).
+
+### Added/Changed — Stage-1: GigaAM локальная модель + авто-pipeline (2026-06-03)
+
+- `transcribe/gigaam_runner.py` — ПЕРЕПИСАН с HTTP-stub на локальную in-process модель: `AutoModel.from_pretrained(gigaam_model_dir, trust_remote_code=True)` (torch.load weights_only-патч), GPU load/unload (VRAM перед LLM). Транскрибация СОБСТВЕННОЙ нарезкой фиксированными окнами (<25с) через `asr.forward`+`decoding.decode` — БЕЗ pyannote/longform (gated). Сегменты `speaker=UNKNOWN`. Ленивые импорты torch/transformers.
+- `transcribe/text_export.py` — NEW: `format_transcript`/`write_transcript` → читабельный `.txt` по ролям (OWNER→[me], OTHER→[s2], UNKNOWN→[?]); имя = имя исходника.
+- `pipeline/orchestrator.py` — `_export_text()` после `save_transcripts` (оба пути: process_call + process_batch).
+- `pipeline/watcher.py` — трекинг call_id→исходник; `cleanup_sources()` убирает исходник из incoming после транскрибации (stage≥2); дубликаты тоже чистятся; gate `remove_source_on_success`; prune пустых подпапок.
+- `config.py` + `configs/base.yaml` — `models.gigaam_model_dir/gigaam_device/gigaam_chunk_sec/gigaam_overlap_sec`; `pipeline.text_export_dir/remove_source_on_success`; `asr_backend: gigaam`.
+- `configs/features.yaml` — `enable_diarization: false` (Stage-1 без pyannote).
+- `cli/commands/admin.py` + `cli/main.py` — команда `bootstrap` (папки + БД + пользователь `me`, incoming=C:\calls\in).
+- `requirements-gigaam.txt`, `RUN_STAGE1.md` — стек зависимостей + runbook для GPU-машины.
+- Tests: `tests/test_gigaam_runner.py` (нарезка окон, mock-модель), `tests/test_text_export.py`, `tests/test_watcher_cleanup.py` — 11/11 зелёные локально.
+- ⚠ Не запускалось на реальной модели в этой сессии (среда без transformers/torchaudio/ffmpeg/GPU); прогон — на рабочей машине по RUN_STAGE1.md.
+
 ### Added — Фаза 4: полнота админки и UX (2026-06-01)
 
 - `dashboard/db_reader.py` — `export_book_markdown(user_id)`: собирает биографию в один markdown (предпочитает `bio_books.prose_full`; иначе склейка `bio_chapters` по `chapter_num` + рамка title/subtitle/epigraph/prologue/epilogue; placeholder если данных нет). Всегда фильтрует по `user_id`, read-only.

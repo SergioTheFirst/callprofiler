@@ -31,7 +31,7 @@ from callprofiler.cli.utils import load_config_and_repo as _load_config_and_repo
 
 # ---- admin commands ----
 from callprofiler.cli.commands.admin import (  # noqa: E402
-    cmd_watch, cmd_process, cmd_reprocess, cmd_add_user,
+    cmd_watch, cmd_process, cmd_reprocess, cmd_add_user, cmd_bootstrap,
     cmd_status, cmd_dashboard, cmd_bot,
 )
 
@@ -116,6 +116,18 @@ def _build_parser() -> argparse.ArgumentParser:
         "reprocess",
         help="Повторить звонки с ошибками (retry_count < max_retries)",
     )
+
+    # ── bootstrap ────────────────────────────────────────────
+    p_boot = sub.add_parser(
+        "bootstrap",
+        help="Создать папки/БД и завести пользователя по умолчанию (чистая машина)",
+    )
+    p_boot.add_argument("--user-id", dest="user_id", default="me", help="ID пользователя (default: me)")
+    p_boot.add_argument("--display-name", default="Сергей Медведев", help="Отображаемое имя")
+    p_boot.add_argument("--incoming", default="C:\\calls\\in", metavar="DIR", help="Папка входящих аудио")
+    p_boot.add_argument("--sync-dir", default="C:\\calls\\sync", metavar="DIR", help="Папка caller cards")
+    p_boot.add_argument("--ref-audio", default="C:\\pro\\mbot\\ref\\manager.wav", metavar="FILE", help="Эталон голоса (для будущей диаризации)")
+    p_boot.add_argument("--telegram-chat-id", default=None, metavar="ID", help="Telegram chat_id")
 
     # ── add-user ─────────────────────────────────────────────
     p_add = sub.add_parser(
@@ -536,6 +548,7 @@ def main() -> None:
         "watch": cmd_watch,
         "process": cmd_process,
         "reprocess": cmd_reprocess,
+        "bootstrap": cmd_bootstrap,
         "add-user": cmd_add_user,
         "digest": cmd_digest,
         "status": cmd_status,

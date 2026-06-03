@@ -298,10 +298,7 @@ def bulk_enrich(
         log.error("[enricher] Ошибка подключения к LLM: %s", e)
         return {"processed": 0, "failed": 0, "skipped": 0, "total": 0}
 
-    prompts_dir = Path(cfg.data_dir).parent / "configs" / "prompts"
-    if not prompts_dir.exists():
-        prompts_dir = Path("configs") / "prompts"
-    prompt_template = _load_prompt_template(str(prompts_dir))
+    prompt_template = _load_prompt_template(cfg.prompts_dir)
 
     conn = repo._get_conn()
     rows = conn.execute(

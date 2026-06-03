@@ -20,7 +20,12 @@ class DashboardDBReader:
     """Read-only database access for dashboard."""
 
     def __init__(self, db_path: str | Path):
-        self.db_path = str(db_path)
+        # Принять как путь к .db, так и data_dir (тогда резолвим db/callprofiler.db,
+        # как делает cli.utils.load_config_and_repo). Сервер передаёт data_dir.
+        p = Path(db_path)
+        if p.suffix.lower() != ".db":
+            p = p / "db" / "callprofiler.db"
+        self.db_path = str(p)
         self._conn: sqlite3.Connection | None = None
 
     def connect(self):

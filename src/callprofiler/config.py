@@ -21,7 +21,11 @@ class ModelsConfig:
     llm_model: str = "local"
     llm_url: str = "http://127.0.0.1:8080/v1/chat/completions"
     asr_backend: str = "whisper"  # "whisper" | "gigaam"
-    gigaam_url: str = ""          # GigaAM server URL (required when asr_backend="gigaam")
+    gigaam_url: str = ""          # legacy HTTP endpoint (не используется локальной моделью)
+    gigaam_model_dir: str = ""    # каталог локальной GigaAM (HF, trust_remote_code)
+    gigaam_device: str = "cuda"   # "cuda" | "cpu"
+    gigaam_chunk_sec: float = 20.0    # длина окна нарезки (<25с, ограничение модели)
+    gigaam_overlap_sec: float = 0.0   # перекрытие окон (0 = без дублей на стыках)
 
 
 @dataclass
@@ -30,6 +34,8 @@ class PipelineConfig:
     file_settle_sec: int = 5
     max_retries: int = 3
     retry_interval_sec: int = 3600
+    text_export_dir: str = ""             # куда писать читабельный .txt транскрипт ("" = не писать)
+    remove_source_on_success: bool = True  # удалять исходник из incoming после транскрибации
 
 
 @dataclass
@@ -56,6 +62,13 @@ class Config:
     data_dir: str = ""
     log_file: str = ""
     hf_token: str = ""
+    # prompts резолвятся от КОРНЯ ПРОЕКТА (а не от data_dir) — иначе ломается,
+    # когда data_dir вне дерева проекта (напр. C:\calls\data). Override через YAML.
+    prompts_dir: str = field(
+        default_factory=lambda: str(
+            Path(__file__).resolve().parents[2] / "configs" / "prompts"
+        )
+    )
     models: ModelsConfig = field(default_factory=ModelsConfig)
     pipeline: PipelineConfig = field(default_factory=PipelineConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
@@ -77,6 +90,10 @@ def load_config(path: str) -> Config:
         hf_token=os.path.expandvars(raw.get("hf_token", "")),
     )
 
+    # prompts_dir: YAML override, иначе дефолт (корень проекта/configs/prompts)
+    if raw.get("prompts_dir"):
+        cfg.prompts_dir = raw["prompts_dir"]
+
     if "models" in raw:
         m = raw["models"]
         cfg.models = ModelsConfig(
@@ -89,6 +106,10 @@ def load_config(path: str) -> Config:
             llm_url=m.get("llm_url", cfg.models.llm_url),
             asr_backend=m.get("asr_backend", cfg.models.asr_backend),
             gigaam_url=m.get("gigaam_url", cfg.models.gigaam_url),
+            gigaam_model_dir=m.get("gigaam_model_dir", cfg.models.gigaam_model_dir),
+            gigaam_device=m.get("gigaam_device", cfg.models.gigaam_device),
+            gigaam_chunk_sec=float(m.get("gigaam_chunk_sec", cfg.models.gigaam_chunk_sec)),
+            gigaam_overlap_sec=float(m.get("gigaam_overlap_sec", cfg.models.gigaam_overlap_sec)),
         )
 
     if "pipeline" in raw:
@@ -98,6 +119,10 @@ def load_config(path: str) -> Config:
             file_settle_sec=p.get("file_settle_sec", cfg.pipeline.file_settle_sec),
             max_retries=p.get("max_retries", cfg.pipeline.max_retries),
             retry_interval_sec=p.get("retry_interval_sec", cfg.pipeline.retry_interval_sec),
+            text_export_dir=p.get("text_export_dir", cfg.pipeline.text_export_dir),
+            remove_source_on_success=bool(
+                p.get("remove_source_on_success", cfg.pipeline.remove_source_on_success)
+            ),
         )
 
     if "audio" in raw:

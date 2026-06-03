@@ -4,16 +4,18 @@
 
 **Decision:** Replace Whisper (faster-whisper) with GigaAM v3 RNN-T as the primary ASR backend.
 
-**Why:** User decision — GigaAM v3 RNN-T targets Russian-language call transcription with higher accuracy. URL/endpoint configured in `models.gigaam_url` when server is deployed.
+**Why:** User decision — GigaAM v3 RNN-T targets Russian-language call transcription with higher accuracy. Model lives LOCALLY at `C:\models\GigaAM-v3-rnnt` (HF custom: config.json + modeling_gigaam.py + pytorch_model.bin).
 
-**Architecture:** `ASRRunner` Protocol created (`transcribe/asr_runner.py`). Factory `_make_asr_runner(config)` in `pipeline/orchestrator.py` selects backend via `config.models.asr_backend`. Switching = change one YAML field: `asr_backend: gigaam` + `gigaam_url: http://...`.
+**Architecture:** `ASRRunner` Protocol (`transcribe/asr_runner.py`). Factory `_make_asr_runner(config)` selects backend via `config.models.asr_backend`. Switching = YAML field `asr_backend: gigaam` + `gigaam_model_dir: C:\models\GigaAM-v3-rnnt`.
+
+**Update (2026-06-03) — local in-process, supersedes HTTP plan:** Модель не сервер, а локальная HF-модель → `GigaAMRunner` ПЕРЕПИСАН с HTTP-stub на in-process: `AutoModel.from_pretrained(dir, trust_remote_code=True)`, GPU load/unload. `model.transcribe_longform` НЕ используется — он тянет gated `pyannote/segmentation-3.0` (нужен HF_TOKEN); вместо него СВОЯ нарезка фиксированными окнами (<25с, `gigaam_chunk_sec`) → `asr.forward`+`decoding.decode`. Спикеры `UNKNOWN` (диаризация выключена: `enable_diarization:false`). Поля `gigaam_url`/HTTP оставлены в конфиге как legacy, не используются.
 
 **Blast-radius:** HIGH. Transcript quality change invalidates:
 - `events.quote` (graph facts linked to transcript quotes)
 - `bio_scenes.key_quote` (biography scene quotes)
 After switching: run `graph-replay --user X` + `biography-run --user X --passes p1_scene,p2_entities` to rebuild from new transcripts.
 
-**Current state:** `GigaAMRunner` is a working HTTP stub (POST /transcribe, retry/backoff 3x). `asr_backend: whisper` by default. Awaiting GigaAM server address.
+**Current state (2026-06-03):** `asr_backend: gigaam` (default). `GigaAMRunner` = local in-process, fixed-window chunking, no pyannote. Stage-1 (audio→текст→БД+.txt) собран и покрыт mock-тестами; ещё НЕ прогнан на реальной модели/GPU (рабочая машина — см. `RUN_STAGE1.md`).
 
 ## Core Stack Decisions
 

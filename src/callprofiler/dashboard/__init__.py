@@ -17,8 +17,9 @@ def run_dashboard(user_id: str, config, port: int = 8765, host: str = "127.0.0.1
         port: HTTP port (default 8765)
         host: Bind address (default 127.0.0.1)
     """
-    from callprofiler.dashboard.server import app, set_user_id
     import uvicorn
 
-    set_user_id(user_id, config)
+    from callprofiler.dashboard.server import _build_app
+
+    app = _build_app(user_id, config)
     uvicorn.run(app, host=host, port=port, log_level="info")

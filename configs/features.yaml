@@ -9,7 +9,9 @@
 
 # Диаризация (pyannote) — определение, кто говорит. Если выключена,
 # все сегменты получают speaker=UNKNOWN, LLM работает по тексту.
-enable_diarization: true
+# Stage-1 (GigaAM плоский текст): OFF — pyannote не установлен, ролей нет.
+# Включить, когда поставим pyannote.audio + HF_TOKEN и зададим ref_audio.
+enable_diarization: false
 
 # LLM-анализ через llama-server. Если выключен — звонки получают пустой
 # Analysis (только транскрипт + метаданные).

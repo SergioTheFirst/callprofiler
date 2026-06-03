@@ -1,26 +1,35 @@
 data_dir: "C:\\calls\\data"
-log_file: "C:\\calls\\data\\logs\\pipeline.log"
+log_file: "C:\\Users\\SERGE\\Desktop\\rez.txt"   # весь отчёт о запуске (лог + стадии + ошибки)
 
 models:
+  # ── ASR ──────────────────────────────────────────────────────────────
+  asr_backend: "gigaam"            # "whisper" | "gigaam"
+  gigaam_model_dir: "C:\\models\\GigaAM-v3-rnnt"   # локальная HF-модель
+  gigaam_device: "cuda"
+  gigaam_chunk_sec: 20             # окно нарезки (<25с — ограничение модели)
+  gigaam_overlap_sec: 0.0          # 0 = без дублей на стыках окон
+  gigaam_url: ""                   # legacy HTTP (не используется локальной моделью)
+  # Whisper больше не используется (оставлено для отката asr_backend: whisper)
   whisper: "large-v3"
   whisper_device: "cuda"
   whisper_compute: "float16"
   whisper_beam_size: 5
   whisper_language: "ru"
+  # ── LLM ──────────────────────────────────────────────────────────────
   llm_model: "local"
   llm_url: "http://127.0.0.1:8080/v1/chat/completions"
-  asr_backend: "whisper"   # switch to "gigaam" when gigaam_url is set
-  gigaam_url: ""            # e.g. "http://127.0.0.1:8090"
 
 pipeline:
-  watch_interval_sec: 60
+  watch_interval_sec: 30
   file_settle_sec: 10
   max_retries: 3
   retry_interval_sec: 3600
+  text_export_dir: "C:\\calls\\text"     # читабельный .txt транскрипт (имя = имя исходника)
+  remove_source_on_success: true          # убрать исходник из incoming после транскрибации
 
 audio:
   sample_rate: 16000
   channels: 1
   format: "wav"
 
-hf_token: "${HF_TOKEN}"  # "TOKEN"
+hf_token: "${HF_TOKEN}"

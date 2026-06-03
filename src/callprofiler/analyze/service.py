@@ -33,10 +33,7 @@ class AnalysisService:
         self.config = config
         self.repo = repo
         self.llm = LLMClient(base_url=config.models.llm_url)
-        prompts_dir = Path(config.data_dir).parent / "configs" / "prompts"
-        if not prompts_dir.exists():
-            prompts_dir = Path("configs") / "prompts"
-        self.prompt_builder = PromptBuilder(str(prompts_dir))
+        self.prompt_builder = PromptBuilder(config.prompts_dir)
 
     def analyze_one_call(
         self,
