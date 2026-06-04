@@ -24,7 +24,9 @@
             </button>
         </div>
         <div class="header-right">
-            <span class="user-badge">{{ user_id }}</span>
+            <select class="profile-select" id="profile-select" title="Active profile">
+                <option value="{{ user_id }}">{{ user_id }}</option>
+            </select>
             <span class="sse-indicator" id="sse-dot" title="SSE connection status">●</span>
             <span class="clock" id="clock">--:--:--</span>
         </div>

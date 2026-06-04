@@ -61,6 +61,7 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
         # in-process events.event_bus cannot reach the separate pipeline process,
         # so DB polling (not emit_event_sync) is the real cross-process channel.
         nonlocal last_ts
+        last_user: str | None = None
         while True:
             await asyncio.sleep(POLL_INTERVAL_SEC)
             if _CONFIG is None:
@@ -68,9 +69,12 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
             try:
                 reader = DashboardDBReader(_CONFIG.data_dir)
                 current_ts = reader.get_latest_timestamp(_USER_ID)
-                if current_ts == last_ts:
+                # Profile switch (_USER_ID changed) must always force a fresh tick,
+                # even if the new user's MAX(updated_at) equals the old one.
+                if current_ts == last_ts and _USER_ID == last_user:
                     continue  # nothing changed → no event (SSE keepalive holds the connection)
                 last_ts = current_ts
+                last_user = _USER_ID
                 tools = DashboardTools(_CONFIG, _USER_ID)
                 status = tools.get_status()
                 by_stage = reader.get_calls_by_stage(_USER_ID)
@@ -94,6 +98,22 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
         template = tpl.get_template("index.html")
         html = template.render(version=VERSION, user_id=_USER_ID)
         return HTMLResponse(html)
+
+    @fa.get("/api/users")
+    async def _users() -> JSONResponse:
+        """List profiles for the switcher; mark the active one."""
+        items: list[dict[str, Any]] = []
+        if _CONFIG is not None:
+            reader = DashboardDBReader(_CONFIG.data_dir)
+            items = reader.get_user_ids()
+        return JSONResponse({"users": items, "active": _USER_ID})
+
+    @fa.post("/api/users/select")
+    async def _users_select(user: str = Query(..., min_length=1)) -> JSONResponse:
+        """Switch the active profile (process-global; single local operator)."""
+        global _USER_ID
+        _USER_ID = user
+        return JSONResponse({"active": _USER_ID})
 
     @fa.get("/api/overview")
     async def _overview() -> JSONResponse:

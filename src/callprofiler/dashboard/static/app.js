@@ -108,6 +108,30 @@
     }
     connectSSE();
 
+    // ── Profile switcher ───────────────────────────────────────────────────
+    (function initProfiles() {
+        var sel = $('#profile-select');
+        if (!sel) return;
+        fetch('/api/users')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var users = data.users || [];
+                if (!users.length) return;
+                sel.innerHTML = users.map(function(u) {
+                    var on = u.user_id === data.active ? ' selected' : '';
+                    return '<option value="' + escapeHtml(u.user_id) + '"' + on + '>'
+                        + escapeHtml(u.user_id) + ' (' + (u.calls || 0) + ')</option>';
+                }).join('');
+            })
+            .catch(function(e) { console.error('Profiles load failed:', e); });
+        sel.addEventListener('change', function() {
+            var u = this.value;
+            fetch('/api/users/select?user=' + encodeURIComponent(u), { method: 'POST' })
+                .then(function() { location.reload(); })
+                .catch(function(e) { console.error('Profile switch failed:', e); });
+        });
+    })();
+
     // ── Overview ───────────────────────────────────────────────────────────
     function loadOverview() {
         fetch('/api/overview')

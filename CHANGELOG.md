@@ -8,6 +8,9 @@
 
 ## [Unreleased]
 
+### Added — дашборд: переключатель профилей (user_id) в шапке (2026-06-04)
+- `db_reader.get_user_ids()` (кросс-юзер мета-листинг), `/api/users` + `/api/users/select`, поллер форсит tick при смене профиля, dropdown в шапке + reload.
+
 ### Fixed — дашборд real-time: read-коннект не видел WAL-записи (2026-06-04)
 
 - **`dashboard/db_reader.py`** — `?mode=ro` в WAL-режиме читал снимок до последнего

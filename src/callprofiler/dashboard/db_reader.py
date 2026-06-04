@@ -73,6 +73,19 @@ class DashboardDBReader:
         row = self._conn.execute(query, (user_id, user_id, user_id)).fetchone()
         return row["latest"] if row else None
 
+    def get_user_ids(self) -> list[dict[str, Any]]:
+        """List all profiles (user_id) with call counts for the switcher.
+
+        Intentionally NOT filtered by user_id — this is the meta-listing that
+        powers the dashboard profile dropdown (the one allowed cross-user query).
+        """
+        self.connect()
+        rows = self._conn.execute(
+            "SELECT user_id, COUNT(*) AS cnt FROM calls "
+            "GROUP BY user_id ORDER BY cnt DESC"
+        ).fetchall()
+        return [{"user_id": r["user_id"], "calls": r["cnt"]} for r in rows]
+
     def get_recent_calls(self, user_id: str, limit: int = 50) -> list[dict[str, Any]]:
         """Get recent calls with analysis data."""
         self.connect()
