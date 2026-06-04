@@ -24,6 +24,12 @@
   производные (`data\users`, `text`, `sync`) → `bootstrap` (пустая БД + папки + юзер `me`). Dry-run
   по умолчанию, `--apply` для реальной очистки, `--keep-files` (только БД). Guard `_overlaps_protected`
   ЖЁСТКО защищает источники `C:\calls\in` и `C:\calls\source` (проверено: `--text-dir C:\calls\in` → STOP).
+- **Дашборд real-time степпер** `dashboard/db_reader.py` + `static/app.js` — `get_calls_by_stage`
+  мапил `'new'` на несуществующий `'pending'` (всегда 0) и не имел `'diarizing'`/`'delivering'`;
+  фронт `renderPipeline` путал порядок (transcribe до diarize) и не показывал Deliver. Теперь все
+  8 статусов конвейера считаются и рисуются в правильном порядке (new→norm→diarize→transcribe→
+  analyze→deliver→done→error), активные стадии подсвечены. SSE-поллер (5с) уже пушит `by_stage`+`recent`
+  на каждое изменение БД → near-real-time во время прогона. Регресс: `test_dashboard_export.py::test_calls_by_stage_maps_all_pipeline_statuses`.
 - **Телеметрия pyannote OFF** `diarize/pyannote_runner.py` — pyannote 4.x слал OpenTelemetry-метрики
   на `otel.pyannote.ai` (нарушение «100% local» из CLAUDE.md; виден в `run-one.log`). Глушим:
   `OTEL_SDK_DISABLED=true` до импорта pyannote + `set_telemetry_metrics(False)` в `load()`.

@@ -108,3 +108,30 @@ def test_export_is_user_scoped(tmp_path):
     md = DashboardDBReader(str(db_file)).export_book_markdown("u1")
     assert "ПРИНАДЛЕЖИТ_U1" in md
     assert "ПРИНАДЛЕЖИТ_U2" not in md
+
+
+def test_calls_by_stage_maps_all_pipeline_statuses(tmp_path):
+    """Регресс степпера: статус 'new' раньше мапился на несуществующий 'pending'
+    (всегда 0), а стадии 'diarizing'/'delivering' отсутствовали → дашборд врал.
+    Теперь каждый реальный статус конвейера считается отдельной стадией."""
+    from callprofiler.db.repository import Repository
+
+    db = tmp_path / "db" / "callprofiler.db"
+    db.parent.mkdir(parents=True)
+    repo = Repository(str(db))
+    repo.init_db()
+    repo.add_user(user_id="me", display_name="t", telegram_chat_id="1",
+                  incoming_dir="/i", sync_dir="/s", ref_audio="/r")
+    stages = ["new", "normalizing", "diarizing", "transcribing",
+              "analyzing", "delivering", "done", "error"]
+    for st in stages:
+        cid = repo.create_call(user_id="me", contact_id=None, direction="IN",
+                               call_datetime="2026-01-01 00:00:00",
+                               source_filename=st + ".mp3", source_md5=st,
+                               audio_path="/a.mp3")
+        repo.update_call_status(cid, st)
+
+    by_stage = DashboardDBReader(str(db)).get_calls_by_stage("me")
+    for st in stages:
+        assert by_stage.get(st) == 1, f"{st} -> {by_stage.get(st)}"
+    assert "other" not in by_stage  # все статусы распознаны

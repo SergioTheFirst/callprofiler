@@ -139,8 +139,11 @@
     }
 
     function renderPipeline(by_stage) {
-        var steps = ['new', 'normalizing', 'transcribing', 'diarizing', 'analyzing', 'done', 'error'];
-        var labels = ['New', 'Norm', 'Transcribe', 'Diarize', 'Analyze', 'Done', 'Errors'];
+        // Порядок = реальный конвейер: диаризация ДО транскрибации; добавлен Deliver.
+        var steps = ['new', 'normalizing', 'diarizing', 'transcribing', 'analyzing', 'delivering', 'done', 'error'];
+        var labels = ['New', 'Norm', 'Diarize', 'Transcribe', 'Analyze', 'Deliver', 'Done', 'Errors'];
+        // Стадии «в работе» подсвечиваем как active (видно, что сейчас крутится).
+        var active = { normalizing: 1, diarizing: 1, transcribing: 1, analyzing: 1, delivering: 1, done: 1 };
         var stepper = $('#pipeline-stepper');
         stepper.classList.remove('skeleton');
         var html = '';
@@ -148,7 +151,7 @@
             var count = by_stage[s] || 0;
             var cls = 'pipe-dot';
             if (s === 'error' && count > 0) cls += ' error';
-            else if (count > 0 && (s === 'done' || s === 'analyzing')) cls += ' active';
+            else if (count > 0 && active[s]) cls += ' active';
             html += '<div class="pipe-step">';
             html += '<div class="' + cls + '"></div>';
             html += '<span class="pipe-count">' + count + '</span>';

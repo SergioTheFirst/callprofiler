@@ -599,18 +599,29 @@ class DashboardDBReader:
         ).fetchall()
         db_counts = {r["status"]: r["cnt"] for r in rows}
 
+        # Порядок = реальный конвейер (orchestrator): new → normalizing →
+        # diarizing → transcribing → analyzing → delivering → done/error.
+        # Раньше "new" мапился на несуществующий статус "pending" (всегда 0),
+        # а "delivering" отсутствовал → степпер врал. Ключи статусов берём из
+        # update_call_status() в orchestrator.py.
         STAGE_MAP = {
-            "new": ["pending"],
+            "new": ["new"],
             "normalizing": ["normalizing"],
-            "transcribing": ["transcribing"],
             "diarizing": ["diarizing"],
+            "transcribing": ["transcribing"],
             "analyzing": ["analyzing"],
+            "delivering": ["delivering"],
             "done": ["processed", "done"],
             "error": ["error"],
         }
         result: dict[str, int] = {}
         for stage, statuses in STAGE_MAP.items():
             result[stage] = sum(db_counts.get(s, 0) for s in statuses)
+        # На случай неизвестных статусов — не теряем их из общего счёта
+        known = {s for ss in STAGE_MAP.values() for s in ss}
+        other = sum(v for k, v in db_counts.items() if k not in known)
+        if other:
+            result["other"] = other
         return result
 
     def get_daily_counts(self, user_id: str, days: int = 7) -> list[dict[str, Any]]:
