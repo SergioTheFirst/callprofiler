@@ -114,6 +114,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--user", required=True, metavar="USER_ID",
         help="Идентификатор пользователя",
     )
+    p_process.add_argument(
+        "--force", action="store_true",
+        help="Переобработать, даже если файл уже в БД (заменит транскрипт)",
+    )
 
     # ── reprocess ────────────────────────────────────────────
     sub.add_parser(

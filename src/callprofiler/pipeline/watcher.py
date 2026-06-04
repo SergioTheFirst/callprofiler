@@ -225,6 +225,13 @@ class FileWatcher:
                             "Дубликат транскрибирован, убираю из incoming: %s", filename
                         )
                         self._remove_source(filepath, incoming_path)
+                    else:
+                        logger.info(
+                            "Уже в БД (call_id=%s, status=%s, stage=%d) — не реингестим: %s. "
+                            "Для переобработки: process \"<файл>\" --user %s --force",
+                            existing.get("call_id"), existing.get("status"),
+                            stage, filename, user_id,
+                        )
                     continue
 
                 try:
@@ -285,7 +292,13 @@ class FileWatcher:
 
     @staticmethod
     def _is_file_settled(filepath: Path, settle_sec: int) -> bool:
-        """Проверить что файл не изменялся последние settle_sec секунд."""
+        """Проверить что файл не изменялся последние settle_sec секунд.
+
+        settle_sec<=0 → всегда «устоялся» (ждать не нужно; детерминировано,
+        без зависимости от точности часов/ФС).
+        """
+        if settle_sec <= 0:
+            return True
         try:
             mtime = filepath.stat().st_mtime
             age = time.time() - mtime

@@ -67,10 +67,31 @@ def cmd_process(args: argparse.Namespace) -> int:
 
     call_id = ingester.ingest_file(args.user, str(filepath))
     if call_id is None:
-        log.info("Файл уже был обработан ранее (дубликат): %s", filepath)
-        return 0
+        # Дубликат (MD5 уже в БД). С --force — переобработать существующий звонок.
+        if getattr(args, "force", False):
+            import hashlib
 
-    log.info("Зарегистрирован call_id=%d, запуск обработки...", call_id)
+            h = hashlib.md5()
+            with open(filepath, "rb") as fh:
+                for chunk in iter(lambda: fh.read(8192), b""):
+                    h.update(chunk)
+            existing = repo.get_call_by_md5(args.user, h.hexdigest())
+            if not existing:
+                log.error("Дубликат, но звонок не найден по MD5: %s", filepath)
+                return 1
+            call_id = existing["call_id"]
+            log.info(
+                "--force: переобработка call_id=%d (status=%s) — транскрипт заменится",
+                call_id, existing.get("status"),
+            )
+        else:
+            log.info(
+                "Файл уже обработан (дубликат): %s. Для переобработки: --force",
+                filepath,
+            )
+            return 0
+    else:
+        log.info("Зарегистрирован call_id=%d, запуск обработки...", call_id)
 
     success = orchestrator.process_call(call_id)
     if success:
