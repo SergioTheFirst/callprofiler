@@ -16,7 +16,10 @@
   одна загрузка на чанк). GPU-дисциплина цела (Pass A pyannote → unload → Pass B GigaAM).
 - **Чанкинг** `process_pending` — звонки обрабатываются партиями `pipeline.batch_chunk_size`
   (дефолт 100), иначе `turns_map`/`segments_map` всех 17k висят в RAM → риск OOM. Прогресс в БД
-  инкрементально, resume по `pipeline_stage`.
+  инкрементально, resume по `pipeline_stage`. Поле `batch_chunk_size` добавлено в `PipelineConfig`/base.yaml.
+- **Удаление normalized .wav после stage 2** `config.py`/`orchestrator.py` — флаг
+  `pipeline.delete_normalized_after_transcribe` (base.yaml: true). На 17k WAV (16кГц моно) = сотни ГБ;
+  транскрипт уже в БД, wav для stage 3/4 и resume не нужен. `_maybe_delete_normalized` (не фатально).
 - **Телеметрия pyannote OFF** `diarize/pyannote_runner.py` — pyannote 4.x слал OpenTelemetry-метрики
   на `otel.pyannote.ai` (нарушение «100% local» из CLAUDE.md; виден в `run-one.log`). Глушим:
   `OTEL_SDK_DISABLED=true` до импорта pyannote + `set_telemetry_metrics(False)` в `load()`.

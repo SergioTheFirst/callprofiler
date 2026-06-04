@@ -26,6 +26,8 @@ pipeline:
   retry_interval_sec: 3600
   text_export_dir: "C:\\calls\\text"     # читабельный .txt транскрипт (имя = имя исходника)
   remove_source_on_success: true          # убрать исходник из incoming после транскрибации
+  batch_chunk_size: 100                    # партия в process_pending (RAM/resume на больших прогонах)
+  delete_normalized_after_transcribe: true # удалять normalized .wav после stage 2 (экономия диска на 17k)
 
 audio:
   sample_rate: 16000

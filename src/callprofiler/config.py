@@ -56,6 +56,8 @@ class PipelineConfig:
     retry_interval_sec: int = 3600
     text_export_dir: str = ""             # куда писать читабельный .txt транскрипт ("" = не писать)
     remove_source_on_success: bool = True  # удалять исходник из incoming после транскрибации
+    batch_chunk_size: int = 100            # размер партии в process_pending (RAM/resume на больших прогонах)
+    delete_normalized_after_transcribe: bool = False  # удалять normalized .wav после stage 2 (экономия диска)
 
 
 @dataclass

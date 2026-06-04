@@ -165,6 +165,7 @@ class Orchestrator:
             self.repo.save_transcripts(call_id, segments)
             self._export_text(call, segments)
             self.repo.update_pipeline_stage(call_id, 2)
+            self._maybe_delete_normalized(norm_path)
 
             # ── Шаг 4: Analyze ───────────────────────────────
             if self.config.features.enable_llm_analysis:
@@ -308,6 +309,7 @@ class Orchestrator:
                     self.repo.save_transcripts(call_id, segments_map[call_id])
                     self._export_text(call, segments_map[call_id])
                     self.repo.update_pipeline_stage(call_id, 2)
+                    self._maybe_delete_normalized(call.get("_norm_path", ""))
                     call["pipeline_stage"] = 2
                 except Exception as exc:
                     logger.error("Ошибка транскрипта call_id=%d: %s", call_id, exc)
@@ -418,6 +420,26 @@ class Orchestrator:
                 "Не удалось записать текст для call_id=%s: %s",
                 call.get("call_id"), exc,
             )
+
+    def _maybe_delete_normalized(self, norm_path: str) -> None:
+        """Удалить normalized .wav после транскрибации (stage 2), если включён
+        ``pipeline.delete_normalized_after_transcribe``.
+
+        На 17k звонках WAV (16кГц моно) занимают сотни ГБ; транскрипт уже в БД,
+        wav для stage 3/4 (LLM/deliver) и для resume не нужен. Не фатально:
+        сбой удаления логируется, pipeline продолжается.
+        """
+        if not getattr(self.config.pipeline, "delete_normalized_after_transcribe", False):
+            return
+        if not norm_path:
+            return
+        try:
+            p = Path(norm_path)
+            if p.exists():
+                p.unlink()
+                logger.debug("Удалён normalized wav (экономия диска): %s", norm_path)
+        except Exception as exc:  # noqa: BLE001 — удаление не валит pipeline
+            logger.warning("Не удалось удалить normalized %s: %s", norm_path, exc)
 
     def _warn_once(self, key: str, msg: str, *args) -> None:
         """Залогировать WARNING ровно один раз на причину (key).
