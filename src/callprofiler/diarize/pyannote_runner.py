@@ -38,6 +38,12 @@ logger = logging.getLogger(__name__)
 _LOUDNORM = True
 _SAMPLE_RATE = 16000
 
+# pyannote.audio 4.x по умолчанию шлёт OpenTelemetry-метрики на otel.pyannote.ai.
+# Проект — 100% local (CLAUDE.md): глушим телеметрию ещё ДО импорта pyannote —
+# стандартный OTEL-флаг читается SDK при создании провайдеров. Плюс явный
+# set_telemetry_metrics(False) в load() (целевой выключатель pyannote).
+os.environ.setdefault("OTEL_SDK_DISABLED", "true")
+
 
 def _load_pretrained(loader, model_id: str, token: str):
     """``from_pretrained`` совместимо с разными версиями pyannote.audio.
@@ -170,6 +176,14 @@ class PyannoteRunner:
                 "pyannote.audio не установлена. "
                 "Установите: pip install pyannote.audio"
             ) from exc
+
+        # pyannote 4.x: целевой выключатель телеметрии (отправка на otel.pyannote.ai).
+        try:
+            from pyannote.audio.telemetry import set_telemetry_metrics
+
+            set_telemetry_metrics(False)
+        except Exception:  # noqa: BLE001 — в этой версии телеметрии нет = ок
+            pass
 
         # Определить device
         self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

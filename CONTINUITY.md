@@ -22,6 +22,14 @@
 
 **State:**
 
+✅ **РОЛИ РАБОТАЮТ END-TO-END НА БОКСЕ** (2026-06-04, `run-one.log`, call_id=19751 «Халит
+Мухтарович», 23-мин звонок): ingest → normalize → диаризация (405 turn'ов, OWNER=SPEAKER_01,
+sim=0.581) → GigaAM по turn'ам (403 сегмента) → `.txt` с ролями → done. Фиксы torchcodec-обход
+(in-memory waveform) + `_extract_annotation` (DiarizeOutput 4.x) сработали. Коммиты a156acd, 82d2669.
+ХВОСТЫ: (1) llama-server не запущен → LLM `parse_failed` (транскрипт/роли/карточка целы); (2) ⚠️
+pyannote 4.x шлёт телеметрию на `otel.pyannote.ai` — нарушает «100% local», вырубить в коде.
+Качество ролей (sim=0.581 — средняя) сверяем по `.txt`.
+
 diag #5 (2026-06-04, `diag.txt`/`rez.txt`): ОКРУЖЕНИЕ НА БОКСЕ ГОТОВО — py3.12, torch
 2.6.0+cu124, CUDA True (RTX 3060), ffmpeg в PATH, HF_TOKEN задан, pyannote.audio 4.0.4,
 GigaAM грузится на GPU (load-test PASS). Прошлые env-блокеры (B1, install-roles) закрыты.

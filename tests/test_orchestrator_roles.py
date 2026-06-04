@@ -113,3 +113,77 @@ def test_warn_once_dedups_by_key():
     o._warn_once("k", "msg %s", 1)
     o._warn_once("k", "msg %s", 2)
     assert o._diag_warned == {"k"}
+
+
+# ── _diarize_batch: pyannote грузится ОДИН раз на батч (узкое место масштаба) ──
+
+class _RepoStatus:
+    def update_call_status(self, *a, **k):
+        pass
+
+
+class _FakePyannote:
+    def __init__(self):
+        self.load_calls = 0
+        self.diarize_calls = 0
+        self.unload_calls = 0
+
+    def load(self, ref_audio):
+        self.load_calls += 1
+
+    def diarize(self, norm_path):
+        self.diarize_calls += 1
+        return [{"start_ms": 0, "end_ms": 100, "speaker": "OWNER"}]
+
+    def unload(self):
+        self.unload_calls += 1
+
+
+def test_diarize_batch_loads_once_for_group(tmp_path):
+    ref = tmp_path / "ref.wav"
+    ref.write_bytes(b"x")
+    cfg = Config()
+    cfg.features.enable_diarization = True
+    cfg.hf_token = "hf"
+    o = Orchestrator(cfg, _RepoStatus())
+    fake = _FakePyannote()
+    o.pyannote_runner = fake  # подставляем заранее → код не импортирует/создаёт
+    calls = [{"call_id": i, "user_id": "me", "_norm_path": f"{i}.wav"} for i in (1, 2, 3)]
+
+    turns_map = o._diarize_batch(calls, {"me": {"ref_audio": str(ref)}})
+
+    assert fake.load_calls == 1   # ОДНА загрузка на 3 звонка (не 3)
+    assert fake.diarize_calls == 3
+    assert fake.unload_calls == 1
+    assert set(turns_map) == {1, 2, 3}
+    assert all(turns_map[i] for i in (1, 2, 3))
+
+
+def test_diarize_batch_disabled_no_load():
+    cfg = Config()
+    cfg.features.enable_diarization = False
+    o = Orchestrator(cfg, _RepoStatus())
+    fake = _FakePyannote()
+    o.pyannote_runner = fake
+    out = o._diarize_batch(
+        [{"call_id": 1, "user_id": "me", "_norm_path": "1.wav"}],
+        {"me": {"ref_audio": "r"}},
+    )
+    assert out == {1: []}
+    assert fake.load_calls == 0
+
+
+def test_diarize_batch_no_ref_skips_without_load(tmp_path):
+    cfg = Config()
+    cfg.features.enable_diarization = True
+    cfg.hf_token = "hf"
+    o = Orchestrator(cfg, _RepoStatus())
+    fake = _FakePyannote()
+    o.pyannote_runner = fake
+    out = o._diarize_batch(
+        [{"call_id": 1, "user_id": "me", "_norm_path": "1.wav"}],
+        {"me": {"ref_audio": str(tmp_path / "missing.wav")}},
+    )
+    assert out == {1: []}
+    assert fake.load_calls == 0
+    assert "no_ref" in o._diag_warned

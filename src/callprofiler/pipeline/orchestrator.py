@@ -278,17 +278,10 @@ class Orchestrator:
 
         needs_transcribe = [c for c in calls_data if c.get("pipeline_stage", 0) < 2]
         if needs_transcribe:
-            # Pass A: диаризация → turn'ы (pyannote per-call, graceful). Делаем ДО
-            # ASR — GigaAM транскрибирует по turn'ам. Сбой → [] (роли UNKNOWN).
-            turns_map: dict[int, list[dict]] = {}
-            for call in needs_transcribe:
-                call_id = call["call_id"]
-                self.repo.update_call_status(call_id, "diarizing")
-                user = users_cache.get(call["user_id"])
-                ref_audio = user.get("ref_audio", "") if user else ""
-                turns_map[call_id] = self._diarize_turns(
-                    call_id, call["_norm_path"], ref_audio
-                )
+            # Pass A: диаризация → turn'ы. pyannote грузится ОДИН раз на батч
+            # (_diarize_batch), а НЕ на каждый звонок — иначе на больших партиях
+            # перезагрузка моделей съедает часы. Сбой → [] (роли UNKNOWN).
+            turns_map = self._diarize_batch(needs_transcribe, users_cache)
 
             # Pass B: ASR — модель грузится ОДИН раз на весь батч
             self.asr_runner.load()
@@ -377,7 +370,15 @@ class Orchestrator:
             )
         else:
             logger.info("Найдено %d pending звонков", len(pending))
-        self.process_batch(call_ids)
+        # Чанкуем: иначе turns_map/segments_map всех звонков висят в RAM (на 17k —
+        # риск OOM). Прогресс пишется в БД инкрементально, resume по pipeline_stage.
+        chunk = getattr(self.config.pipeline, "batch_chunk_size", 0) or 100
+        if len(call_ids) <= chunk:
+            self.process_batch(call_ids)
+        else:
+            logger.info("Обработка %d звонков чанками по %d", len(call_ids), chunk)
+            for i in range(0, len(call_ids), chunk):
+                self.process_batch(call_ids[i : i + chunk])
 
     def retry_errors(self) -> None:
         """Повторить звонки со статусом 'error' и retry_count < max_retries."""
@@ -494,6 +495,97 @@ class Orchestrator:
         finally:
             if self.pyannote_runner is not None:
                 self.pyannote_runner.unload()
+
+    def _diarize_batch(
+        self, calls: list[dict], users_cache: dict
+    ) -> dict[int, list[dict]]:
+        """Диаризовать ПАЧКУ звонков, загрузив pyannote ОДИН раз на каждый
+        уникальный ``ref_audio`` (не на каждый звонок).
+
+        Узкое место масштаба: ``_diarize_turns`` грузит модели + строит
+        ref-эмбеддинг и выгружает на КАЖДЫЙ звонок (~2-3 c/звонок) — на 17k это
+        часы впустую. Здесь pyannote живёт на всю группу одного ref (обычно один
+        юзер = один ref → одна загрузка на батч).
+
+        Возвращает ``{call_id: turns}``; диаризация выключена / нет ref / сбой
+        звонка → ``[]`` (роли UNKNOWN, pipeline продолжается). pyannote ВСЕГДА
+        выгружается (VRAM перед ASR/LLM). Причины сбоя логируются один раз.
+        """
+        turns_map: dict[int, list[dict]] = {c["call_id"]: [] for c in calls}
+        if not self.config.features.enable_diarization or not calls:
+            return turns_map
+
+        if not self.config.hf_token:
+            self._warn_once(
+                "no_token",
+                "Диаризация включена, но HF_TOKEN пуст — gated-модели pyannote "
+                "обычно отвечают 401 и роли будут UNKNOWN. Задайте HF_TOKEN.",
+            )
+
+        from collections import defaultdict
+
+        by_ref: dict[str, list[dict]] = defaultdict(list)
+        for call in calls:
+            user = users_cache.get(call["user_id"])
+            ref = user.get("ref_audio", "") if user else ""
+            by_ref[ref].append(call)
+
+        for ref_audio, group in by_ref.items():
+            if not (ref_audio and Path(ref_audio).exists()):
+                self._warn_once(
+                    "no_ref",
+                    "Диаризация включена, но ref_audio отсутствует (%r) — роли "
+                    "UNKNOWN. Задайте эталон голоса владельца.",
+                    ref_audio,
+                )
+                continue
+
+            if self.pyannote_runner is None:
+                try:
+                    from callprofiler.diarize.pyannote_runner import PyannoteRunner
+                except ImportError as exc:
+                    self._warn_once(
+                        "no_pyannote",
+                        "Диаризация включена, но стек ролей не установлен (%s) — "
+                        "роли UNKNOWN. pip install pyannote.audio librosa soundfile.",
+                        exc,
+                    )
+                    return turns_map
+                self.pyannote_runner = PyannoteRunner(self.config)
+
+            try:
+                self.pyannote_runner.load(ref_audio)  # ОДИН раз на ref
+                for call in group:
+                    call_id = call["call_id"]
+                    self.repo.update_call_status(call_id, "diarizing")
+                    try:
+                        turns = self.pyannote_runner.diarize(call["_norm_path"]) or []
+                        turns_map[call_id] = turns
+                        logger.info(
+                            "Диаризация: call_id=%s, %d turn'ов", call_id, len(turns)
+                        )
+                    except Exception as exc:  # noqa: BLE001 — звонок не валит батч
+                        self._warn_once(
+                            "diarize_fail_%s" % type(exc).__name__,
+                            "Диаризация упала (%s: %s) — роли UNKNOWN, продолжаем.",
+                            type(exc).__name__, exc,
+                        )
+                        logger.debug(
+                            "Диаризация call_id=%s — трейс:", call_id, exc_info=True
+                        )
+            except Exception as exc:  # noqa: BLE001 — load() упал → группа UNKNOWN
+                self._warn_once(
+                    "diarize_load_%s" % type(exc).__name__,
+                    "Загрузка pyannote упала (%s: %s) — роли UNKNOWN для группы. "
+                    "Частые причины: gated-модель не принята / неверный HF_TOKEN.",
+                    type(exc).__name__, exc,
+                )
+                logger.debug("pyannote load — трейс:", exc_info=True)
+            finally:
+                if self.pyannote_runner is not None:
+                    self.pyannote_runner.unload()
+
+        return turns_map
 
     def _asr_transcribe(self, norm_path: str, turns: list[dict]) -> list[Segment]:
         """Транскрибировать (ASR уже load()'нут). ``turns`` → роли.

@@ -8,6 +8,21 @@
 
 ## [Unreleased]
 
+### Changed — подготовка к массовому прогону (17k) + телеметрия off (2026-06-04)
+
+- **pyannote грузится ОДИН раз на батч** `pipeline/orchestrator.py` (`_diarize_batch`) — было:
+  `_diarize_turns` грузил модели + строил ref-эмбеддинг и выгружал на КАЖДЫЙ звонок (~2-3 c/звонок,
+  на 17k — часы впустую). Стало: pyannote живёт на всю группу одного `ref_audio` (обычно один юзер =
+  одна загрузка на чанк). GPU-дисциплина цела (Pass A pyannote → unload → Pass B GigaAM).
+- **Чанкинг** `process_pending` — звонки обрабатываются партиями `pipeline.batch_chunk_size`
+  (дефолт 100), иначе `turns_map`/`segments_map` всех 17k висят в RAM → риск OOM. Прогресс в БД
+  инкрементально, resume по `pipeline_stage`.
+- **Телеметрия pyannote OFF** `diarize/pyannote_runner.py` — pyannote 4.x слал OpenTelemetry-метрики
+  на `otel.pyannote.ai` (нарушение «100% local» из CLAUDE.md; виден в `run-one.log`). Глушим:
+  `OTEL_SDK_DISABLED=true` до импорта pyannote + `set_telemetry_metrics(False)` в `load()`.
+- ✅ Роли подтверждены на боксе (`run-one.log`, call_id=19751): 405 turn'ов, OWNER верный, текст с
+  `[me]`/`[s2]`. Регресс: `test_orchestrator_roles.py` +3 (load-once/disabled/no-ref). Suite 495 зелёных.
+
 ### Fixed — роли (torchcodec) + resume зависших на нормализации (2026-06-04, diag #5)
 
 - **БАГ pyannote/torchcodec** `diarize/pyannote_runner.py` — diag #5 показал: окружение на боксе
