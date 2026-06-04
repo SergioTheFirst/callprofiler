@@ -20,6 +20,10 @@
 - **Удаление normalized .wav после stage 2** `config.py`/`orchestrator.py` — флаг
   `pipeline.delete_normalized_after_transcribe` (base.yaml: true). На 17k WAV (16кГц моно) = сотни ГБ;
   транскрипт уже в БД, wav для stage 3/4 и resume не нужен. `_maybe_delete_normalized` (не фатально).
+- **Чистый старт `reset.py`/`reset.bat`** — бэкап БД (`callprofiler.db.bak-<ts>`) → удалить БД +
+  производные (`data\users`, `text`, `sync`) → `bootstrap` (пустая БД + папки + юзер `me`). Dry-run
+  по умолчанию, `--apply` для реальной очистки, `--keep-files` (только БД). Guard `_overlaps_protected`
+  ЖЁСТКО защищает источники `C:\calls\in` и `C:\calls\source` (проверено: `--text-dir C:\calls\in` → STOP).
 - **Телеметрия pyannote OFF** `diarize/pyannote_runner.py` — pyannote 4.x слал OpenTelemetry-метрики
   на `otel.pyannote.ai` (нарушение «100% local» из CLAUDE.md; виден в `run-one.log`). Глушим:
   `OTEL_SDK_DISABLED=true` до импорта pyannote + `set_telemetry_metrics(False)` в `load()`.
