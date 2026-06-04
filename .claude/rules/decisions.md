@@ -205,3 +205,30 @@ After switching: run `graph-replay --user X` + `biography-run --user X --passes 
 **Порядок реализации:** #1 (мемоизация+retry) первым — макс. ROI надёжности/стоимости, мин.
 риск, переиспользует код; затем #2 (task-бюджеты, прямой пример пользователя); затем #3 за
 флагом с canary-гейтом. Реализация — после согласования ветки пользователем.
+
+## Stage-1 (audio→БД) — НЕМЕДЛЕННЫЙ приоритет, transcribe-only terminal (PLAN, 2026-06-04)
+
+**Контекст:** пользователь поднял приоритет — «самое важное: завести audio→БД». Biography→analysis
+дизайн (выше) ОТЛОЖЕН. Stage-1 = audio→текст→БД, развязан с LLM (Stage-2) и ролями. Флаги
+`enable_llm_analysis` и `enable_diarization` уже есть (`config.py`/`features.yaml`/orchestrator).
+
+**Необходимый фикс (единственный реальный код-айтем):** `process_batch` (путь `watch`/17k) НЕ
+терминализует transcribe-only звонки. При `enable_llm_analysis=false`: Pass B → статус
+`transcribing`; Pass C пишет транскрипт+stage 2, но статус НЕ меняет; Phase 3 analyze пропущена;
+Phase 4 deliver гейт `if stage<3: continue` → звонок навсегда застревает status=`transcribing`/stage 2,
+`get_stalled_calls` (status NOT IN new/done/error) реклаймит каждый прогон = бесконечный stall-loop,
+дашборд вечно «transcribing». (`process_call` single-path терминализует в `done` корректно — фикс
+только для batch.)
+**Решение:** ввести терминальный статус **`transcribed`** (Stage-1 готов, анализ ждёт). Ставить его
+в Pass C при выключенном анализе (или в Phase 4). `get_stalled_calls` считает `transcribed`
+терминальным; dashboard stage-map добавляет его; Stage-2 bulk-enrich позже выбирает `status='transcribed'`.
+
+**Run-конфиг Stage-1:** `enable_llm_analysis:false` + `enable_diarization:false` → чистый
+audio→текст→БД: без llama-server, без pyannote/torchcodec/otel-телеметрии, максимально быстро/надёжно.
+
+**Роли — потом, БЕЗ повторного ASR:** держим flat сейчас; роли позже выводим наложением
+speaker-спанов pyannote на уже сохранённые `transcripts.start_ms/end_ms` (re-attribution по
+перекрытию времени, без ре-транскрибации). Flat-first не стоит ролям передёлки.
+
+**Отложить:** LLM-анализ (Stage-2 bulk-enrich над `transcribed`), граф v2/профили/биография,
+biography→analysis resilience, чистку error/serhio, VAD/overlap на стыках окон.
