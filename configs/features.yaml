@@ -7,11 +7,12 @@
 # Загружается callprofiler.config.load_config рядом с base.yaml.
 # Если файла нет — все флаги дефолтят к значениям FeaturesConfig.
 
-# Диаризация (pyannote) — определение, кто говорит. Если выключена,
-# все сегменты получают speaker=UNKNOWN, LLM работает по тексту.
-# Stage-1 (GigaAM плоский текст): OFF — pyannote не установлен, ролей нет.
-# Включить, когда поставим pyannote.audio + HF_TOKEN и зададим ref_audio.
-enable_diarization: false
+# Диаризация (pyannote) — определение, кто говорит ([me]/[s2]). Требует
+# pyannote.audio + HF_TOKEN + ref_audio (эталон голоса владельца у юзера в БД).
+# ON: сначала диаризация → turn'ы, затем GigaAM транскрибирует КАЖДЫЙ turn →
+# текст по ролям. Сбой/нет ref_audio → graceful fallback на speaker=UNKNOWN
+# (транскрипт не теряется). OFF → плоский текст без ролей.
+enable_diarization: true
 
 # LLM-анализ через llama-server. Если выключен — звонки получают пустой
 # Analysis (только транскрипт + метаданные).

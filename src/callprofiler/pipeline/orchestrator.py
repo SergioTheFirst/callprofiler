@@ -142,19 +142,21 @@ class Orchestrator:
             )
 
             # ── Шаг 2: Transcribe ────────────────────────────
+            # Сначала диаризация (роли), потом ASR по turn'ам (текст по ролям)
+            user = self.repo.get_user(user_id)
+            ref_audio = user.get("ref_audio", "") if user else ""
+            self.repo.update_call_status(call_id, "diarizing")
+            turns = self._diarize_turns(call_id, norm_path, ref_audio)
+
             self.repo.update_call_status(call_id, "transcribing")
             self.asr_runner.load()
-            segments = self.asr_runner.transcribe(norm_path)
-            self.asr_runner.unload()
+            try:
+                segments = self._asr_transcribe(norm_path, turns)
+            finally:
+                self.asr_runner.unload()
             logger.info(
                 "Транскрибирование: call_id=%d, %d сегментов", call_id, len(segments)
             )
-
-            # ── Шаг 3: Diarize ───────────────────────────────
-            self.repo.update_call_status(call_id, "diarizing")
-            user = self.repo.get_user(user_id)
-            ref_audio = user.get("ref_audio", "") if user else ""
-            segments = self._diarize_segments(call_id, norm_path, segments, ref_audio)
 
             # Сохранить транскрипт (БД = источник истины) + читабельный .txt
             self.repo.save_transcripts(call_id, segments)
@@ -273,31 +275,40 @@ class Orchestrator:
 
         needs_transcribe = [c for c in calls_data if c.get("pipeline_stage", 0) < 2]
         if needs_transcribe:
+            # Pass A: диаризация → turn'ы (pyannote per-call, graceful). Делаем ДО
+            # ASR — GigaAM транскрибирует по turn'ам. Сбой → [] (роли UNKNOWN).
+            turns_map: dict[int, list[dict]] = {}
+            for call in needs_transcribe:
+                call_id = call["call_id"]
+                self.repo.update_call_status(call_id, "diarizing")
+                user = users_cache.get(call["user_id"])
+                ref_audio = user.get("ref_audio", "") if user else ""
+                turns_map[call_id] = self._diarize_turns(
+                    call_id, call["_norm_path"], ref_audio
+                )
+
+            # Pass B: ASR — модель грузится ОДИН раз на весь батч
             self.asr_runner.load()
             for call in needs_transcribe:
                 call_id = call["call_id"]
                 try:
                     self.repo.update_call_status(call_id, "transcribing")
-                    segments = self.asr_runner.transcribe(call["_norm_path"])
-                    segments_map[call_id] = segments
-                    logger.info("Transcribe: call_id=%d, %d сегментов", call_id, len(segments))
+                    segs = self._asr_transcribe(
+                        call["_norm_path"], turns_map.get(call_id, [])
+                    )
+                    segments_map[call_id] = segs
+                    logger.info("Transcribe: call_id=%d, %d сегментов", call_id, len(segs))
                 except Exception as exc:
                     logger.error("Ошибка транскрибирования call_id=%d: %s", call_id, exc)
                     self.repo.update_call_status(call_id, "error", str(exc))
             self.asr_runner.unload()
 
-            # Diarize (сбой → UNKNOWN, pipeline продолжается)
+            # Pass C: сохранить транскрипт (БД) + .txt + stage 2
             for call in needs_transcribe:
                 call_id = call["call_id"]
                 if call_id not in segments_map:
                     continue
                 try:
-                    self.repo.update_call_status(call_id, "diarizing")
-                    user = users_cache.get(call["user_id"])
-                    ref_audio = user.get("ref_audio", "") if user else ""
-                    segments_map[call_id] = self._diarize_segments(
-                        call_id, call["_norm_path"], segments_map[call_id], ref_audio
-                    )
                     self.repo.save_transcripts(call_id, segments_map[call_id])
                     self._export_text(call, segments_map[call_id])
                     self.repo.update_pipeline_stage(call_id, 2)
@@ -403,6 +414,53 @@ class Orchestrator:
                 "Не удалось записать текст для call_id=%s: %s",
                 call.get("call_id"), exc,
             )
+
+    def _diarize_turns(self, call_id, norm_path: str, ref_audio: str) -> list[dict]:
+        """Диаризация → turn'ы (OWNER/OTHER) для назначения ролей.
+
+        Возвращает список dict ``{start_ms, end_ms, speaker}`` или ``[]``, если
+        диаризация выключена / нет ref_audio / сбой (graceful — транскрипт не
+        теряется, роли просто остаются UNKNOWN). pyannote ВСЕГДА выгружается
+        (VRAM перед ASR/LLM-фазой).
+        """
+        if not self.config.features.enable_diarization:
+            return []
+        if not (ref_audio and Path(ref_audio).exists()):
+            logger.warning("Нет ref_audio для call_id=%s — роли UNKNOWN", call_id)
+            return []
+        try:
+            if self.pyannote_runner is None:
+                from callprofiler.diarize.pyannote_runner import PyannoteRunner
+                self.pyannote_runner = PyannoteRunner(self.config)
+            self.pyannote_runner.load(ref_audio)
+            turns = self.pyannote_runner.diarize(norm_path)
+            logger.info("Диаризация: call_id=%s, %d turn'ов", call_id, len(turns))
+            return turns or []
+        except Exception as exc:  # noqa: BLE001 — роли необязательны
+            logger.warning(
+                "Диаризация упала call_id=%s (роли UNKNOWN, продолжаем): %s",
+                call_id, exc,
+            )
+            return []
+        finally:
+            if self.pyannote_runner is not None:
+                self.pyannote_runner.unload()
+
+    def _asr_transcribe(self, norm_path: str, turns: list[dict]) -> list[Segment]:
+        """Транскрибировать (ASR уже load()'нут). ``turns`` → роли.
+
+        GigaAM + turns → ``transcribe_turns`` (текст по ролям, по сегментам
+        спикеров). Иначе flat ``transcribe`` + ``assign_speakers`` поверх (Whisper).
+        """
+        if turns and hasattr(self.asr_runner, "transcribe_turns"):
+            return self.asr_runner.transcribe_turns(norm_path, turns)
+        segments = self.asr_runner.transcribe(norm_path)
+        if turns:
+            try:
+                segments = assign_speakers(segments, turns)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("assign_speakers упал (роли UNKNOWN): %s", exc)
+        return segments
 
     def _diarize_segments(
         self,

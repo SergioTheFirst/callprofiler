@@ -86,3 +86,43 @@ def test_transcribe_requires_load(tmp_path):
 def test_transcribe_missing_file():
     with pytest.raises(RuntimeError):
         _runner(16000).transcribe("C:\\nope\\missing.wav")
+
+
+# ── transcribe_turns: текст по ролям ────────────────────────────────────
+
+def test_transcribe_turns_assigns_roles(tmp_path):
+    f = tmp_path / "call.wav"
+    f.write_bytes(b"\x00")
+    r = _runner(16000 * 30, chunk_sec=20)
+    turns = [
+        {"start_ms": 0, "end_ms": 5000, "speaker": "OWNER"},
+        {"start_ms": 5000, "end_ms": 12000, "speaker": "OTHER"},
+        {"start_ms": 12000, "end_ms": 12100, "speaker": "OWNER"},  # <200мс → skip
+    ]
+
+    segs = r.transcribe_turns(str(f), turns)
+
+    assert len(segs) == 2
+    assert segs[0].speaker == "OWNER" and (segs[0].start_ms, segs[0].end_ms) == (0, 5000)
+    assert segs[1].speaker == "OTHER" and (segs[1].start_ms, segs[1].end_ms) == (5000, 12000)
+    assert all(s.text == "распознанный текст" for s in segs)
+
+
+def test_transcribe_turns_subchunks_long_turn(tmp_path):
+    f = tmp_path / "c.wav"
+    f.write_bytes(b"\x00")
+    r = _runner(16000 * 40, chunk_sec=20)
+    turns = [{"start_ms": 0, "end_ms": 40000, "speaker": "OWNER"}]
+
+    segs = r.transcribe_turns(str(f), turns)
+
+    assert len(segs) == 1
+    assert segs[0].speaker == "OWNER" and (segs[0].start_ms, segs[0].end_ms) == (0, 40000)
+    # 40с turn при окне 20с → 2 окна, текст склеен
+    assert segs[0].text == "распознанный текст распознанный текст"
+
+
+def test_transcribe_turns_empty(tmp_path):
+    f = tmp_path / "c.wav"
+    f.write_bytes(b"\x00")
+    assert _runner(16000 * 10).transcribe_turns(str(f), []) == []

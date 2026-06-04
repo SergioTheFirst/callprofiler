@@ -110,13 +110,16 @@ class FileWatcher:
         return new_call_ids
 
     def run_once(self) -> int:
-        """Один цикл: scan → process_batch → cleanup → retry, затем выход.
+        """Один цикл: scan → обработать pending/stalled → cleanup → retry, выход.
 
-        Для тестового/пакетного прогона (bat). Возвращает число новых файлов.
+        Для тестового/пакетного прогона (bat). Обрабатывает не только новые файлы,
+        но и весь backlog (status new/normalizing) через process_pending — иначе
+        при повторном запуске «0 new» оставлял бы незаконченные звонки висеть.
+        Возвращает число новых зарегистрированных файлов.
         """
         new_ids = self.scan_all_users()
-        if new_ids:
-            self.orchestrator.process_batch(new_ids)
+        # process_pending обрабатывает и только что зарегистрированные, и зависшие
+        self.orchestrator.process_pending()
         self.cleanup_sources()
         self.orchestrator.retry_errors()
         return len(new_ids)

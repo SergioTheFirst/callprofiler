@@ -217,3 +217,74 @@ class GigaAMRunner:
 
         logger.info("GigaAM: %d сегментов из %s", len(segments), wav_path)
         return segments
+
+    def transcribe_turns(self, wav_path: str, turns: list[dict]) -> list["Segment"]:
+        """Транскрибировать по диаризационным turn'ам → сегменты с ролями.
+
+        ``turns`` — список dict ``{start_ms, end_ms, speaker}`` (вывод
+        ``PyannoteRunner.diarize``). Аудио грузится один раз; каждый turn режется
+        на окна <25 c, декодируется, текст склеивается. ``speaker`` берётся из
+        turn. Сбой отдельного окна не валит звонок.
+        """
+        if self._asr is None:
+            raise RuntimeError("GigaAMRunner не загружен. Сначала вызовите load().")
+        wav_file = Path(wav_path)
+        if not wav_file.exists():
+            raise RuntimeError(f"Аудиофайл не найден: {wav_path}")
+
+        import torch
+
+        from callprofiler.models import Segment
+
+        asr = self._asr
+        wav, _ = asr.prepare_wav(str(wav_file))
+        total = int(wav.shape[-1])
+        if total <= 0 or not turns:
+            return []
+
+        chunk_sec = float(getattr(self.config.models, "gigaam_chunk_sec", 20.0) or 20.0)
+        chunk = int(max(1.0, min(chunk_sec, _MAX_CHUNK_SEC)) * _SAMPLE_RATE)
+        min_turn = int(0.2 * _SAMPLE_RATE)
+        min_tail = int(_MIN_TAIL_SEC * _SAMPLE_RATE)
+
+        out: list[Segment] = []
+        for turn in turns:
+            s = max(0, int(int(turn.get("start_ms", 0)) * _SAMPLE_RATE / 1000))
+            e = min(total, int(int(turn.get("end_ms", 0)) * _SAMPLE_RATE / 1000))
+            if e - s < min_turn:
+                continue
+            speaker = turn.get("speaker", "UNKNOWN")
+
+            parts: list[str] = []
+            p = s
+            while p < e:
+                q = min(p + chunk, e)
+                seg_wav = wav[:, p:q]
+                if int(seg_wav.shape[-1]) < min_tail:
+                    break
+                length = torch.full([1], int(seg_wav.shape[-1]), device=seg_wav.device)
+                try:
+                    encoded, encoded_len = asr.forward(seg_wav, length)
+                    text = asr.decoding.decode(asr.head, encoded, encoded_len)[0]
+                except Exception as exc:  # noqa: BLE001 — окно не валит turn
+                    logger.warning("GigaAM turn-окно [%d:%d] упало (%s)", p, q, exc)
+                    text = ""
+                if text and text.strip():
+                    parts.append(text.strip())
+                if q >= e:
+                    break
+                p = q
+
+            joined = " ".join(parts).strip()
+            if joined:
+                out.append(
+                    Segment(
+                        start_ms=int(s * 1000 / _SAMPLE_RATE),
+                        end_ms=int(e * 1000 / _SAMPLE_RATE),
+                        text=joined,
+                        speaker=speaker,
+                    )
+                )
+
+        logger.info("GigaAM turns: %d сегментов из %s", len(out), wav_path)
+        return out

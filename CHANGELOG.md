@@ -8,6 +8,31 @@
 
 ## [Unreleased]
 
+### Added — Роли [me]/[s2] с GigaAM (диаризация по turn'ам) (2026-06-04)
+
+- **Текст по ролям восстановлен** (как было при Whisper). Подход: СНАЧАЛА диаризация
+  (pyannote, OWNER/OTHER по ref-эмбеддингу владельца), ПОТОМ GigaAM транскрибирует
+  КАЖДЫЙ speaker-turn отдельно. Решает проблему: GigaAM режет крупными окнами (~20с),
+  и наивный assign_speakers пометил бы один спикер на 20с блок.
+- `transcribe/gigaam_runner.py` — `transcribe_turns(wav, turns)`: грузит аудио один
+  раз, режет по диаризационным turn'ам (длинные дробит на <25с), декодирует, склеивает
+  текст, проставляет speaker из turn.
+- `pipeline/orchestrator.py` — `_diarize_turns()` (pyannote load→diarize→unload,
+  graceful → [] при сбое/нет ref/выключено) + `_asr_transcribe()` (GigaAM+turns→
+  transcribe_turns; иначе flat+assign_speakers). `process_call` и `process_batch`
+  переstructurированы: diarize → ASR (батч грузит модель один раз) → save. GPU строго
+  последовательно (pyannote выгружается до GigaAM). `_diarize_segments` сохранён (Whisper-
+  fallback + регресс-тесты). Любой сбой ролей → транскрипт сохраняется с UNKNOWN.
+- `configs/features.yaml` — `enable_diarization: true` (нужны pyannote.audio + HF_TOKEN +
+  ref_audio у юзера; иначе graceful UNKNOWN).
+- `pipeline/watcher.py` — `run_once()` теперь зовёт `process_pending()` (обрабатывает и
+  новые, и зависший backlog new/normalizing), а не только свежеинжестнутые. Иначе
+  повторный `watch --once` при «0 new» оставлял backlog висеть.
+- Tests: +7 (`test_gigaam_runner.py` turns ×3, `test_orchestrator_roles.py` ×4). Регресс
+  `_diarize_segments` 12/12 цел. Всего по Stage-1: 22 локально зелёные.
+- ⚠ Путь с pyannote НЕ прогонялся в этой среде (нет pyannote/GPU) — проверить на боксе:
+  роли в `C:\calls\text\*.txt` должны идти `[me]`/`[s2]`, а не `[?]`.
+
 ### Added/Fixed — GPU-прогон фидбэк #2 (2026-06-04)
 
 - **GigaAM грузится без pyannote** `transcribe/gigaam_runner.py` — `load()` временно подменяет `transformers.dynamic_module_utils.check_imports` на `get_relative_imports`. Причина: `trust_remote_code` сканирует ВСЕ импорты в `modeling_gigaam.py` (regex ловит и отступы → `from pyannote.audio import ...` внутри `get_pipeline()`) и падает без pyannote. Теперь не нужен ни ручной патч модели, ни установка pyannote. Подтверждено боксом: на Python 3.12 + torch 2.6 cu124 + transformers 4.57 модель грузится, GPU используется.
