@@ -89,6 +89,50 @@ None currently identified.
 
 ## Recent Fixes (Closed)
 
+✅ **Роли UNKNOWN даже при готовом окружении — pyannote 4.x декодирует через torchcodec** (2026-06-04)
+- **Root cause (non-obvious):** diag #5 — env на боксе ПОЛНОСТЬЮ готов (py3.12, torch 2.6+cu124,
+  CUDA True, HF_TOKEN задан, pyannote.audio **4.0.4**, GigaAM на GPU). Легко решить, что роли
+  обязаны работать. НО pyannote.audio 4.x по умолчанию декодирует аудиофайл ПО ПУТИ через
+  `torchcodec`, а его `libtorchcodec_core{4..8}.dll` на Windows не грузятся (нужна full-shared
+  сборка ffmpeg + точная version-совместимость с torch). → `self.pipeline(wav_path)` упал бы на
+  декодировании → `_diarize_turns` ловит → роли UNKNOWN. ASR при этом РАБОТАЕТ: GigaAM не трогает
+  torchcodec (свой `prepare_wav` через ffmpeg-CLI), поэтому симптом избирательный (текст есть, ролей нет).
+- **Fix:** `pyannote_runner` подаёт аудио pyannote ТОЛЬКО в памяти (`{waveform, sample_rate}`),
+  загрузка через soundfile (+librosa для ресемпла) — torchcodec не вызывается вообще. Убраны
+  temp-wav в `_find_owner_label` (эмбеддинги из in-memory срезов). Никакой возни с DLL не нужно.
+- **Regression:** `tests/test_pyannote_runner.py::TestInMemoryAudio` (4: waveform-dict shape,
+  L2-norm, diarize передаёт dict а не path, owner-label in-memory). Полный путь pyannote — на боксе.
+- **Status:** RESOLVED код (2026-06-04). Реальная диаризация — проверка на боксе.
+
+✅ **754 звонка навсегда зависли в 'normalizing' — resume их не видел** (2026-06-04)
+- **Root cause (non-obvious):** `update_call_status(call_id,'normalizing')` ставится ДО
+  `update_pipeline_stage(call_id,1)`. Крах/прерывание во время нормализации → строка остаётся
+  `status='normalizing'` на `pipeline_stage=0`. `get_stalled_calls` фильтровал `pipeline_stage > 0`
+  → такие звонки не подхватывал ни resume (не >0), ни pending (status≠'new') → сирота навсегда.
+- **Fix:** условие → `status NOT IN ('new','done','error')` (любой промежуточный статус = воркер
+  начал, но не закончил, на любой стадии). `process_batch` идемпотентен по stage, переподхват с 0 безопасен.
+- **Regression:** `tests/test_repository.py` (`test_stalled_reclaims_normalizing_stage0` +
+  midstage/terminal+new/per-user).
+- **Status:** RESOLVED (2026-06-04).
+
+✅ **Роли молча UNKNOWN — hf_token-мусор маскировал причину** (2026-06-04)
+- **Root cause (non-obvious):** на Windows `os.path.expandvars("${HF_TOKEN}")` при НЕзаданной
+  переменной возвращает строку `"${HF_TOKEN}"` (truthy!), а не "". `config.hf_token` становился
+  мусором → pyannote получал `use_auth_token="${HF_TOKEN}"` → 401 на gated-моделях → диаризация
+  падала → ВСЕ роли UNKNOWN. Тот же мусор ломал guard `if not cfg.hf_token` (был truthy).
+- **Сопутствующее:** `_diarize_turns` сваливал любую причину сбоя (нет ref / нет pyannote /
+  нет токена / gated не принят) в один невнятный warning → пользователь не понимал, ЧТО чинить.
+- **Fix:** `config._resolve_secret()` — незаданная `${VAR}`/`%VAR%` → ""; strip. `_warn_once(key)`
+  в orchestrator — каждая причина логируется раз с командой фикса. Деградация остаётся graceful.
+- **Env (истинный блокер на боксе):** pyannote.audio/librosa/soundfile НЕ установлены + HF_TOKEN
+  не задан + gated-модели не приняты → `install-roles.bat` + `setx HF_TOKEN` + accept 3 моделей.
+- **Версия pyannote (non-obvious):** unpinned install ставит pyannote, где `from_pretrained`
+  ждёт `token=`, а не `use_auth_token=` → `TypeError` при РАБОЧЕМ токене. Fix: `_load_pretrained`
+  пробует оба аргумента. Токен READ корректен (gated download проходит, HTTP 302).
+- **Regression:** `tests/test_config_hf_token.py` (6), `tests/test_orchestrator_roles.py`
+  (no_ref/no_pyannote/no_token/warn_once). 19 зелёных локально.
+- **Status:** RESOLVED код (2026-06-04). Реальные роли — после env-настройки на боксе.
+
 ✅ **Stage-1 GPU-прогон: 7 проблем из rez.txt** (2026-06-03)
 - **B1 (env, не код):** бокс на Python 3.14 → PyTorch не даёт CUDA-колёс (только torch 2.12+cpu) → GPU простаивает, GigaAM в 20-50× медленнее. Fix: Python 3.12 + torch==2.6.0+cu124 + torchaudio==2.6.0 + transformers<5. На 3.12 патчи A/B (см. rez.txt) не нужны. Зафиксировано в `requirements-gigaam.txt`/`RUN_STAGE1.md`.
 - **B2:** `orchestrator` инстанцировал `PyannoteRunner` на старте → лишняя связанность для Stage-1. Fix: lazy в `_diarize_segments`, `self.pyannote_runner=None` в `__init__`, guard в finally.

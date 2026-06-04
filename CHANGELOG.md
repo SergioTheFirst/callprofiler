@@ -8,6 +8,62 @@
 
 ## [Unreleased]
 
+### Fixed — роли (torchcodec) + resume зависших на нормализации (2026-06-04, diag #5)
+
+- **БАГ pyannote/torchcodec** `diarize/pyannote_runner.py` — diag #5 показал: окружение на боксе
+  ГОТОВО (py3.12, torch 2.6.0+cu124, CUDA True, HF_TOKEN задан, pyannote.audio 4.0.4, GigaAM
+  грузится на GPU), НО `libtorchcodec_core{4..8}.dll` не загружаются → pyannote 4.x не может
+  декодировать WAV ПО ПУТИ → диаризация падала бы → роли UNKNOWN. Фикс: аудио подаётся pyannote
+  ТОЛЬКО в памяти (`{waveform, sample_rate}` через `_read_mono16k` = soundfile, librosa для
+  ресемпла) → torchcodec не вызывается вообще. Убраны temp-wav: `_find_owner_label` считает
+  эмбеддинги из in-memory срезов. GigaAM torchcodec НЕ использует (свой `prepare_wav` через
+  ffmpeg) — ASR не затронут. Регресс: `test_pyannote_runner.py::TestInMemoryAudio` (4). Реальный
+  pyannote-путь — проверка на боксе (деградация graceful: при сбое роли UNKNOWN + точная причина в лог).
+- **БАГ `get_stalled_calls`** `db/repository.py` — 754 звонка висели `status='normalizing'` на
+  `pipeline_stage=0` и НЕ переподхватывались resume'ом: фильтр `pipeline_stage>0` их сиротил
+  (`update_call_status('normalizing')` ставится ДО `update_pipeline_stage(1)` → крах во время
+  нормализации = stage 0, не-new статус). Условие → `status NOT IN ('new','done','error')` (любой
+  промежуточный статус = воркер начал, но не закончил; `process_batch` идемпотентен по stage).
+  Регресс: `test_repository.py` +4 (normalizing-stage0 / midstage / terminal+new / per-user).
+
+### Added — безопасная чистка БД: cleanup.py / cleanup.bat (2026-06-04)
+
+- **`repository.delete_calls(ids, apply=False)`** и **`purge_user(user_id, apply=False)`** —
+  FTS-safe деструктивная чистка (по решению пользователя: снести 2349 мёртвых error-звонков
+  без исходного аудио + снести юзера `serhio`). `apply=False` — только счётчики (dry-run);
+  `apply=True` — удаление в одной транзакции, дети→родитель, TEMP-таблица (без лимита 999 id).
+  FTS5: используем special-command `'delete'` со СТАРЫМИ значениями (как `save_transcripts`);
+  `'rebuild'` НЕ годится — content-таблица `transcripts` не имеет колонки `user_id` → «SQL logic error».
+- **`cleanup.py` + `cleanup.bat`** (standalone, как `diag.py`) — dry-run по умолчанию, `--apply`
+  для реального удаления. `prune-missing --user me` (error-звонки без файла на диске),
+  `purge-user --user serhio`. Регресс: `tests/test_cleanup.py` (9: dry-run/apply/FTS/идемпотент/изоляция/>999 id).
+- Tests: полный suite 487 зелёных локально.
+
+### Fixed — роли молча UNKNOWN: hf_token-мусор + немая деградация (2026-06-04)
+
+- **БАГ `config.py` (новый `_resolve_secret`)** — на Windows `os.path.expandvars("${HF_TOKEN}")`
+  при НЕзаданной переменной возвращает строку `"${HF_TOKEN}"` (truthy, не ""). Этот мусор
+  уходил в pyannote как `use_auth_token` → 401 на gated-моделях → диаризация падала → все
+  роли UNKNOWN. И ломал проверку «токен задан?» (`if not cfg.hf_token` была False на мусоре).
+  Теперь незаданная `${VAR}`/`%VAR%` → "". Регресс: `tests/test_config_hf_token.py` (6).
+- **Громкая диагностика** `pipeline/orchestrator.py` — `_diarize_turns` раньше сваливал ЛЮБУЮ
+  причину сбоя в один невнятный warning (или молчал). Теперь `_warn_once(key,…)` логирует
+  каждую причину РОВНО раз с указанием фикса: нет ref_audio / HF_TOKEN пуст (gated→401) /
+  pyannote не установлена (`pip install …`) / общий сбой (gated не принят / нет librosa|soundfile).
+  Деградация остаётся graceful (роли UNKNOWN, pipeline продолжается — `pipeline.md`).
+- **`requirements-gigaam.txt`** — добавлена секция ROLES: явно описано, что pyannote/librosa/
+  soundfile ставятся ТОЛЬКО через `install-roles.bat` (pip затирает cu124-torch CPU-сборкой),
+  + HF_TOKEN + 3 gated-модели + ref_audio. Сами строки закомментированы (не ставить через `-r`).
+- **БАГ pyannote API-версия** `diarize/pyannote_runner.py` (новый `_load_pretrained`) — на боксе
+  `install-roles.bat` поставил pyannote БЕЗ пина → новую версию, где `Pipeline.from_pretrained()`
+  ждёт `token=`, а не `use_auth_token=` → `TypeError` → диаризация падала (токен READ при этом
+  РАБОТАЛ: embedding скачался, 302). Теперь грузим version-устойчиво: пробуем `use_auth_token=`,
+  при `TypeError` → `token=`. Регресс `tests/test_pyannote_runner.py::TestLoadPretrainedCompat` (3).
+- Регресс: `tests/test_orchestrator_roles.py` +4 (no_ref/no_pyannote/no_token/warn_once_dedups).
+  Локально 25 зелёных (config 6 + roles 13 + pyannote-compat 6). Полный путь pyannote на боксе.
+- ⚠ Корень проблемы на боксе — ОКРУЖЕНИЕ (см. CHANGELOG #4): запустить `install-roles.bat`,
+  `setx HF_TOKEN`, принять 3 модели pyannote, затем `process "<f>" --user me --force -v`.
+
 ### Fixed/Added — диагностика прогона #4 (diag.txt, 2026-06-04)
 
 - **БАГ `get_error_calls`** `db/repository.py` — параметры были `(user_id=None, max_retries=3)`, но ВСЕ вызовы передают `get_error_calls(max_retries)` позиционно → трактовалось как `user_id=3` → пустой результат. Из-за этого `retry_errors`/`reprocess`/`status` НЕ видели ошибки («Ошибок (retry): 0» при 2366 error). Сигнатура → `(max_retries=3, user_id=None)`. Теперь повтор ошибок работает (у всех 2366 retry_count=1 < 3).

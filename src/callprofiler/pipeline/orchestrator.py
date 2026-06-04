@@ -88,6 +88,9 @@ class Orchestrator:
         self.asr_runner = _make_asr_runner(config)
         # pyannote создаётся лениво при первой диаризации — Stage-1 его не требует
         self.pyannote_runner = None
+        # Диагностика: каждую отдельную причину сбоя диаризации логируем ОДИН раз
+        # (batch может быть тысячи звонков — иначе один и тот же warning спамит лог).
+        self._diag_warned: set[str] = set()
 
         # Компоненты анализа (prompts резолвятся от корня проекта, не от data_dir)
         self.prompt_builder = PromptBuilder(config.prompts_dir)
@@ -415,32 +418,78 @@ class Orchestrator:
                 call.get("call_id"), exc,
             )
 
+    def _warn_once(self, key: str, msg: str, *args) -> None:
+        """Залогировать WARNING ровно один раз на причину (key).
+
+        Диаризация деградирует gracefully (роли → UNKNOWN), но раньше КАЖДАЯ
+        причина сбоя сваливалась в один невнятный warning, и пользователь не мог
+        понять, ЧТО чинить. Теперь каждая причина логируется один раз с конкретным
+        указанием, что именно отсутствует/неверно.
+        """
+        if key in self._diag_warned:
+            return
+        self._diag_warned.add(key)
+        logger.warning(msg, *args)
+
     def _diarize_turns(self, call_id, norm_path: str, ref_audio: str) -> list[dict]:
         """Диаризация → turn'ы (OWNER/OTHER) для назначения ролей.
 
         Возвращает список dict ``{start_ms, end_ms, speaker}`` или ``[]``, если
-        диаризация выключена / нет ref_audio / сбой (graceful — транскрипт не
-        теряется, роли просто остаются UNKNOWN). pyannote ВСЕГДА выгружается
-        (VRAM перед ASR/LLM-фазой).
+        диаризация выключена / нет ref_audio / нет токена / сбой (graceful —
+        транскрипт не теряется, роли просто остаются UNKNOWN, см.
+        ``.claude/rules/pipeline.md``). pyannote ВСЕГДА выгружается (VRAM перед
+        ASR/LLM-фазой). Каждая причина сбоя логируется один раз с указанием фикса.
         """
         if not self.config.features.enable_diarization:
             return []
+
         if not (ref_audio and Path(ref_audio).exists()):
-            logger.warning("Нет ref_audio для call_id=%s — роли UNKNOWN", call_id)
+            self._warn_once(
+                "no_ref",
+                "Диаризация включена, но ref_audio отсутствует (%r) — роли остаются "
+                "UNKNOWN. Задайте эталон голоса владельца: bootstrap/add-user "
+                "--ref-audio <owner.wav> (файл должен существовать).",
+                ref_audio,
+            )
             return []
+
+        if not self.config.hf_token:
+            # Не блокируем: модели могли быть скачаны заранее в локальный HF-кэш.
+            self._warn_once(
+                "no_token",
+                "Диаризация включена, но HF_TOKEN пуст — gated-модели pyannote "
+                "(speaker-diarization-3.1, embedding) обычно отвечают 401 и роли "
+                "будут UNKNOWN. Задайте HF_TOKEN и примите условия моделей на "
+                "huggingface.co.",
+            )
+
         try:
             if self.pyannote_runner is None:
-                from callprofiler.diarize.pyannote_runner import PyannoteRunner
+                try:
+                    from callprofiler.diarize.pyannote_runner import PyannoteRunner
+                except ImportError as exc:
+                    self._warn_once(
+                        "no_pyannote",
+                        "Диаризация включена, но стек ролей не установлен (%s) — роли "
+                        "UNKNOWN. Установите: pip install pyannote.audio==3.3.2 librosa "
+                        "soundfile (секция ROLES в requirements-gigaam.txt).",
+                        exc,
+                    )
+                    return []
                 self.pyannote_runner = PyannoteRunner(self.config)
             self.pyannote_runner.load(ref_audio)
             turns = self.pyannote_runner.diarize(norm_path)
             logger.info("Диаризация: call_id=%s, %d turn'ов", call_id, len(turns))
             return turns or []
         except Exception as exc:  # noqa: BLE001 — роли необязательны
-            logger.warning(
-                "Диаризация упала call_id=%s (роли UNKNOWN, продолжаем): %s",
-                call_id, exc,
+            self._warn_once(
+                "diarize_fail_%s" % type(exc).__name__,
+                "Диаризация упала (%s: %s) — роли UNKNOWN, pipeline продолжается. "
+                "Частые причины: gated-модель не принята на HF / неверный HF_TOKEN / "
+                "не установлены librosa|soundfile.",
+                type(exc).__name__, exc,
             )
+            logger.debug("Диаризация call_id=%s — полный трейс:", call_id, exc_info=True)
             return []
         finally:
             if self.pyannote_runner is not None:

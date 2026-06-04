@@ -11,6 +11,26 @@ from pathlib import Path
 import yaml
 
 
+def _resolve_secret(raw: str) -> str:
+    """Резолв секрета из окружения (``${VAR}`` / ``%VAR%``) → значение или "".
+
+    Баг, который чинит эта функция: на Windows ``os.path.expandvars('${HF_TOKEN}')``
+    при НЕзаданной переменной возвращает строку ``'${HF_TOKEN}'`` (truthy!), а не
+    "". Этот мусор уходил в pyannote как ``use_auth_token`` → 401 на gated-моделях
+    → диаризация молча падала → все роли UNKNOWN. Незаданная переменная ОБЯЗАНА
+    давать "" — чтобы вызывающий код мог честно проверить "токен не задан".
+    """
+    if not raw:
+        return ""
+    val = os.path.expandvars(raw).strip()
+    # expandvars оставляет незаданные ${VAR}/%VAR% дословно — считаем "не задано".
+    if val.startswith("${") and val.endswith("}"):
+        return ""
+    if val.startswith("%") and val.endswith("%"):
+        return ""
+    return val
+
+
 @dataclass
 class ModelsConfig:
     whisper: str = "large-v3"
@@ -87,7 +107,7 @@ def load_config(path: str) -> Config:
     cfg = Config(
         data_dir=raw.get("data_dir", ""),
         log_file=raw.get("log_file", ""),
-        hf_token=os.path.expandvars(raw.get("hf_token", "")),
+        hf_token=_resolve_secret(raw.get("hf_token", "")),
     )
 
     # prompts_dir: YAML override, иначе дефолт (корень проекта/configs/prompts)

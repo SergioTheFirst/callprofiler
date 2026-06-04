@@ -480,10 +480,17 @@ class Repository:
     def get_stalled_calls(self, user_id: str | None = None) -> list[dict]:
         """Звонки, зависшие в промежуточном состоянии после краша.
 
-        Условие: pipeline_stage > 0 и status не new/done/error.
-        Используется process_pending() для crash-resume.
+        Условие: ``status NOT IN ('new','done','error')`` — любой промежуточный
+        статус (normalizing/diarizing/transcribing/analyzing/delivering) значит,
+        что воркер начал, но не закончил. Фильтр по ``pipeline_stage`` НЕ
+        применяем: ``update_call_status('normalizing')`` ставится ДО
+        ``update_pipeline_stage(1)``, поэтому крах во время нормализации
+        оставляет звонок на stage 0 со status='normalizing'. Прежнее условие
+        ``pipeline_stage > 0`` навсегда сиротило такие звонки — их не видел ни
+        pending (status='new'), ни этот resume. ``process_batch`` идемпотентен по
+        stage, так что переподхват с stage 0 безопасен.
         """
-        where = "pipeline_stage > 0 AND status NOT IN ('new','done','error')"
+        where = "status NOT IN ('new','done','error')"
         if user_id:
             rows = self._get_conn().execute(
                 f"SELECT * FROM calls WHERE {where} AND user_id=? ORDER BY updated_at",
@@ -518,6 +525,142 @@ class Repository:
                 .fetchall()
             )
         return [dict(r) for r in rows]
+
+    # ── Деструктивная чистка (всегда dry-run по умолчанию: apply=False) ─────────
+
+    @staticmethod
+    def _table_exists(conn, name: str) -> bool:
+        return (
+            conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+            ).fetchone()
+            is not None
+        )
+
+    def _fts_delete_rows(self, conn, rows: list) -> None:
+        """Удалить строки из внешнего FTS5-индекса ``transcripts_fts``.
+
+        ``rows`` — список кортежей ``(segment_id, text, speaker, call_id, user_id)``
+        для удаляемых сегментов. Так же, как ``save_transcripts``, используем
+        FTS5 special-command ``'delete'`` с СТАРЫМИ значениями (external-content
+        FTS5 хранит только индекс, поэтому old-values нужны явно). ``'rebuild'``
+        здесь НЕ годится: content-таблица ``transcripts`` не имеет колонки
+        ``user_id`` (FTS получает её через JOIN в триггере ``transcripts_ai``),
+        поэтому rebuild падает «SQL logic error». Вызывать ДО DELETE из transcripts.
+        """
+        if rows and self._table_exists(conn, "transcripts_fts"):
+            conn.executemany(
+                "INSERT INTO transcripts_fts(transcripts_fts, rowid, text, speaker, call_id, user_id) "
+                "VALUES ('delete', ?, ?, ?, ?, ?)",
+                rows,
+            )
+
+    def delete_calls(self, call_ids: list[int], apply: bool = False) -> dict[str, int]:
+        """Удалить звонки и все зависимые строки (FTS-safe, идемпотентно).
+
+        ``apply=False`` (по умолчанию) — ТОЛЬКО считает, что будет удалено, и
+        ничего не трогает. ``apply=True`` — удаляет в одной транзакции:
+        FTS-delete старых сегментов → events/promises/analyses/transcripts
+        (дети) → calls (родитель). Использует TEMP-таблицу, поэтому число id
+        не ограничено лимитом параметров SQLite (~999).
+
+        Возвращает счётчики по таблицам (что удалено / будет удалено).
+        """
+        counts = {t: 0 for t in ("calls", "transcripts", "analyses", "events", "promises")}
+        ids = sorted({int(c) for c in call_ids})
+        if not ids:
+            return counts
+
+        conn = self._get_conn()
+        conn.execute("CREATE TEMP TABLE IF NOT EXISTS _del_ids (call_id INTEGER PRIMARY KEY)")
+        conn.execute("DELETE FROM _del_ids")
+        conn.executemany("INSERT OR IGNORE INTO _del_ids(call_id) VALUES (?)", [(i,) for i in ids])
+        in_set = "IN (SELECT call_id FROM _del_ids)"
+        try:
+            for tbl in ("transcripts", "analyses", "events", "promises", "calls"):
+                counts[tbl] = conn.execute(
+                    f"SELECT COUNT(*) AS c FROM {tbl} WHERE call_id {in_set}"
+                ).fetchone()["c"]
+
+            if apply:
+                # FTS-строки убираем ДО удаления transcripts (нужны old-values +
+                # calls для user_id). См. _fts_delete_rows.
+                fts_rows = conn.execute(
+                    "SELECT t.segment_id, t.text, t.speaker, t.call_id, c.user_id "
+                    "FROM transcripts t JOIN calls c ON c.call_id = t.call_id "
+                    f"WHERE t.call_id {in_set}"
+                ).fetchall()
+                self._fts_delete_rows(
+                    conn,
+                    [
+                        (r["segment_id"], r["text"], r["speaker"], r["call_id"], r["user_id"])
+                        for r in fts_rows
+                    ],
+                )
+                for tbl in ("events", "promises", "analyses", "transcripts", "calls"):
+                    conn.execute(f"DELETE FROM {tbl} WHERE call_id {in_set}")
+                conn.commit()
+        finally:
+            conn.execute("DROP TABLE IF EXISTS _del_ids")
+        return counts
+
+    def purge_user(self, user_id: str, apply: bool = False) -> dict[str, int]:
+        """Полностью удалить пользователя и ВСЕ его данные (FTS-safe).
+
+        ``apply=False`` — только счётчики. ``apply=True`` — удаляет в одной
+        транзакции: analyses/transcripts (по call_id юзера) → events/promises →
+        calls → граф (entities/relations/entity_metrics/entity_merges_log) →
+        contact_summaries → contacts → users. FTS-строки удаляются до transcripts.
+        Графовые таблицы могут отсутствовать (apply_graph_schema не вызывали) — пропускаем.
+        """
+        conn = self._get_conn()
+        sub = "(SELECT call_id FROM calls WHERE user_id=?)"
+        counts: dict[str, int] = {}
+
+        def _count(sql: str) -> int:
+            return conn.execute(sql, (user_id,)).fetchone()[0]
+
+        counts["calls"] = _count("SELECT COUNT(*) FROM calls WHERE user_id=?")
+        counts["transcripts"] = _count(
+            f"SELECT COUNT(*) FROM transcripts WHERE call_id IN {sub}"
+        )
+        counts["analyses"] = _count(
+            f"SELECT COUNT(*) FROM analyses WHERE call_id IN {sub}"
+        )
+        # Таблицы с прямым user_id (графовые — только если существуют)
+        user_tables = ["events", "promises", "contact_summaries", "contacts"]
+        graph_tables = ["entities", "relations", "entity_metrics", "entity_merges_log"]
+        for tbl in user_tables + graph_tables:
+            if self._table_exists(conn, tbl):
+                counts[tbl] = _count(f"SELECT COUNT(*) FROM {tbl} WHERE user_id=?")
+        counts["users"] = _count("SELECT COUNT(*) FROM users WHERE user_id=?")
+
+        if apply:
+            # FTS-строки убираем ДО удаления transcripts (user_id известен — это
+            # цель purge; все сегменты принадлежат ему). См. _fts_delete_rows.
+            fts_rows = conn.execute(
+                f"SELECT segment_id, text, speaker, call_id FROM transcripts "
+                f"WHERE call_id IN {sub}",
+                (user_id,),
+            ).fetchall()
+            self._fts_delete_rows(
+                conn,
+                [
+                    (r["segment_id"], r["text"], r["speaker"], r["call_id"], user_id)
+                    for r in fts_rows
+                ],
+            )
+            # Дети звонков (FK на calls) — раньше calls
+            conn.execute(f"DELETE FROM analyses WHERE call_id IN {sub}", (user_id,))
+            conn.execute(f"DELETE FROM transcripts WHERE call_id IN {sub}", (user_id,))
+            for tbl in ("events", "promises"):
+                conn.execute(f"DELETE FROM {tbl} WHERE user_id=?", (user_id,))
+            conn.execute("DELETE FROM calls WHERE user_id=?", (user_id,))
+            for tbl in graph_tables + ["contact_summaries", "contacts", "users"]:
+                if self._table_exists(conn, tbl):
+                    conn.execute(f"DELETE FROM {tbl} WHERE user_id=?", (user_id,))
+            conn.commit()
+        return counts
 
     def get_call_count_for_contact(self, user_id: str, contact_id: int) -> int:
         row = (

@@ -57,7 +57,17 @@
       "Bash(grep -E '\\\\.\\(pyc|pyo|log|tmp|bak\\)$|~$|__pycache__|\\\\.DS_Store')",
       "Bash(grep -E '\\\\.\\(db|sqlite|sqlite3|env|secret|key|pem|p12\\)$')",
       "Bash(xargs -I {} sh -c 'stat -c \"%s %n\" \"{}\" 2>/dev/null || stat -f \"%z %N\" \"{}\" 2>/dev/null')",
-      "Bash(awk '$1 > 1048576 {print $1/1048576 \"MB\", $2}')"
+      "Bash(awk '$1 > 1048576 {print $1/1048576 \"MB\", $2}')",
+      "PowerShell(wc *)",
+      "Bash(Get-ChildItem -Path \"src\\\\callprofiler\\\\dashboard\\\\*.py\" -Force)",
+      "mcp__plugin_context-mode_context-mode__ctx_search",
+      "PowerShell(\\(Get-Content -Path \"C:\\\\pro\\\\callprofiler\\\\src\\\\callprofiler\\\\biography\\\\llm_client.py\" | Measure-Object -Line\\).Lines)",
+      "PowerShell($env:PYTHONPATH=\"C:\\\\pro\\\\callprofiler\\\\src\"; python -m pytest tests/test_regressions.py -k \"diarization\" -v 2>&1 | Select-Object -Last 20)",
+      "PowerShell($env:PYTHONPATH=\"C:\\\\pro\\\\callprofiler\\\\src\"; python -m pytest tests/ -q 2>&1 | Select-Object -Last 35)",
+      "PowerShell(python -m pip show pytest-asyncio 2>&1 | Select-String -Pattern \"Name|Version\" ; \"exit=$LASTEXITCODE\")",
+      "PowerShell(git push *)",
+      "PowerShell(*)",
+      "Bash(*)"
     ]
   }
 }

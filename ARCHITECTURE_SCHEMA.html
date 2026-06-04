@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CallProfiler - Архитектурная схема</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: #0d1117;
+            color: #c9d1d9;
+            line-height: 1.6;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            color: #58a6ff;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #8b949e;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+
+        .mission {
+            background-color: #161b22;
+            border-left: 4px solid #58a6ff;
+            padding: 15px;
+            margin-bottom: 30px;
+            border-radius: 6px;
+        }
+
+        .mission p {
+            color: #79c0ff;
+            font-weight: 500;
+        }
+
+        .architecture {
+            margin-bottom: 40px;
+        }
+
+        .layer {
+            background-color: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+
+        .layer-header {
+            background-color: #0d1117;
+            padding: 15px 20px;
+            border-bottom: 1px solid #30363d;
+            font-weight: 600;
+            font-size: 1.1em;
+        }
+
+        .layer-1 { border-left: 5px solid #79c0ff; }
+        .layer-2 { border-left: 5px solid #56d364; }
+        .layer-3 { border-left: 5px solid #d29922; }
+        .layer-4 { border-left: 5px solid #f85149; }
+        .layer-5 { border-left: 5px solid #a371f7; }
+        .layer-6 { border-left: 5px solid #79c0ff; }
+
+        .layer-1 .layer-header { color: #79c0ff; }
+        .layer-2 .layer-header { color: #56d364; }
+        .layer-3 .layer-header { color: #d29922; }
+        .layer-4 .layer-header { color: #f85149; }
+        .layer-5 .layer-header { color: #a371f7; }
+        .layer-6 .layer-header { color: #79c0ff; }
+
+        .layer-content {
+            padding: 20px;
+        }
+
+        .component {
+            background-color: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+        }
+
+        .component-name {
+            font-weight: 600;
+            color: #c9d1d9;
+            margin-bottom: 5px;
+        }
+
+        .component-desc {
+            color: #8b949e;
+            font-size: 0.95em;
+            flex: 1;
+        }
+
+        .component-badge {
+            background-color: #238636;
+            color: #ffffff;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            white-space: nowrap;
+            margin-left: 10px;
+        }
+
+        .flow {
+            background-color: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 30px 0;
+        }
+
+        .flow-title {
+            font-weight: 600;
+            color: #58a6ff;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }
+
+        .flow-step {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .flow-step-num {
+            background-color: #58a6ff;
+            color: #0d1117;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            flex-shrink: 0;
+            margin-right: 15px;
+        }
+
+        .flow-step-text {
+            color: #c9d1d9;
+        }
+
+        .flow-arrow {
+            color: #58a6ff;
+            font-weight: bold;
+            margin: 0 10px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .constraint {
+            background-color: #0d1117;
+            border-left: 3px solid #f85149;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+        }
+
+        .constraint-title {
+            font-weight: 600;
+            color: #f85149;
+            margin-bottom: 5px;
+        }
+
+        .constraint-text {
+            color: #8b949e;
+            font-size: 0.95em;
+        }
+
+        .data-flow {
+            background-color: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 30px 0;
+        }
+
+        .data-flow-title {
+            font-weight: 600;
+            color: #56d364;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }
+
+        .table-wrapper {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            background-color: #0d1117;
+            color: #58a6ff;
+            padding: 12px;
+            text-align: left;
+            border-bottom: 2px solid #30363d;
+            font-weight: 600;
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #30363d;
+            color: #c9d1d9;
+        }
+
+        tr:hover {
+            background-color: #0d1117;
+        }
+
+        .code-block {
+            background-color: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 12px;
+            overflow-x: auto;
+            margin: 10px 0;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 0.9em;
+            color: #79c0ff;
+        }
+
+        .footer {
+            text-align: center;
+            color: #8b949e;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #30363d;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 CallProfiler</h1>
+        <p class="subtitle">Архитектурная схема системы анализа телефонных звонков</p>
+
+        <div class="mission">
+            <p>🎯 Миссия: "Система много думает — показывает мало"</p>
+            <p style="margin-top: 8px;">Тяжелый анализ оффлайн, пользователь видит только короткие диджесты.</p>
+        </div>
+
+        <!-- LAYER 1: INPUT -->
+        <div class="architecture">
+            <div class="layer layer-1">
+                <div class="layer-header">📥 Слой 1: Входной поток (Ввод аудио)</div>
+                <div class="layer-content">
+                    <div class="component">
+                        <div style="flex: 1;">
+                            <div class="component-name">Файловая система (D:\calls\audio)</div>
+                            <div class="component-desc">Директория с аудиофайлами от Android-приложения. Форматы: WAV, MP3, M4A</div>
+                        </div>
+                        <div class="component-badge">Windows</div>
+                    </div>
+
+                    <div class="component">
+                        <div style="flex: 1;">
+                            <div class="component-name">Whisper (faster-whisper)</div>
+                            <div class="component-desc">Транскрибирование аудио в текст. На GPU (~30 сек → 2-3 сек за звонок)</div>
+                        </div>
+                        <div class="component-badge">GPU 4.5GB</div>
+                    </div>
+
+                    <div class="component">
+                        <div style="flex: 1;">
+                            <div class="component-name">Pyannote 3.3.2 (Speaker Diarization)</div>
+                            <div class="component-desc">Определение спикеров [me]=владелец, [s2]=другой. Загружает reference voice: ref/manager.wav</div>
+                        </div>
+                        <div class="component-badge">GPU 4.5GB</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LAYER 2: DATABASE & STORAGE -->
+            <div class="layer layer-2">
+                <div class="layer-header">💾 Слой 2: Хранилище данных (SQLite)</div>
+                <div class="layer-content">
+                    <div class="component">
+                        <div style="flex: 1;">
+                            <div class="component-name">callprofiler.db</div>
+                            <div class="component-desc">Основная БД. 15 таблиц: calls, transcripts, analyses, contacts, promises, events, entities, relations, bio_*, narrative_*</div>
+                        </div>
+                        <div class="component-badge">SQLite3</div>
+                    </div>
+
+                    <div class="component">
+                        <div style="flex: 1;">
+                            <div class="component-name">FTS5 индекс (Full-Text Search)</div>
+                            <div class="component-desc">Полнотекстовый поиск по транскриптам. Использует BM25 ранжирование</div>
+                        </div>
+                        <div class="component-badge">Поиск</div>
+                    </div>
+
+                    <div class="component">
+                        <div style="flex: 1;">
+                            <div class="component-name">Правило фильтрации: user_id</div>
+                            <div class="component-desc">КРИТИЧНО: каждый SELECT/UPDATE/DELETE ДОЛЖЕН содержать WHERE user_id = ?</div>
+                        </div>
+                        <div class="component-badge">Безопасность</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LAYER 3: PROCESSING & LLM -->
+            <div class="layer layer-3">
+                <div class="layer-header">🧠 Слой 3: Анализ и обработка (LLM)</div>
+                <div class="layer-content">
+                    <div class="component">
+                        <div style="flex: 1;">
+                            <div class="component-name">llama-server (Qwen 2.5 9B Q8)</div>
+                            <div class="component-desc">Локальный LLM на http://127.0.0.1:8080 (OpenAI API совместимый)</div>
+                        </div>
+                        <div class="component-badge">GPU 10GB</div>
+                    </div>
+
+                    <div class="component">
+                        <div style="flex: 1;">
+                            <div class="component-name">Enricher (bulk_enrich)</div>
+                            <div class="component-desc">Основной конвейер анализа: читает транскрипты → вызывает LLM → парсит JSON → сохраняет в DB</div>
+                        </div>
+                        <div class="component-badge">Pipeline</div>
+                    </div>
+
+                    <div class="component">
+                        <div style="flex: 1;">
+                            <div class="component-name">Промпт analyze_v001.txt</div>
+                            <div class="component-desc">Система для извлечения: call_type, risk_score (0-100), promises, key_topics, entities</div>
+                        </div>
+                        <div class="component-badge">Версион</div>
+                    </div>
+
+                    <div class="component">
+                        <div style="flex: 1;">
+                            <div class="component-name">Memoization (bio_llm_calls)</div>
+                            <div class="component-desc">Кэширование LLM ответов по MD5 хешу промпта. Избегает повторных вызовов одинаковых запросов</div>
+                        </div>
+                        <div class="component-badge">Оптимизация</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LAYER 4: INTELLIGENCE LAYER -->
+            <div class="layer layer-4">
+                <div class="layer-header">🔍 Слой 4: Интеллект (Граф + Аналитика)</div>
+                <div class="layer-content">
+                    <div class="component">
+                        <div style="flex: 1;">
+                            <div class="component-name">Knowledge Graph Builder</div>
+                            <div class="component-desc">Агрегирует entities, relations, structured_facts из LLM ответов в граф знаний</div>
+                        </div>
+                        <div class="component-badge">Граф</div>
+                    </div>
+
+                    <div class="component">
+                        <div style="flex: 1;">
+                            <div class="component-name">Entity Metrics Aggregator</div>
+                            <div class="component-desc">Вычисляет BS-index (Bullshit Index) по формуле v1_linear. Экспоненциальное затухание рисков за 90 дней</div>
+                        </div>
+                        <div class="component-badge">Риск</div>
+                    </div>
+
+                    <div class="component">
+                        <div style="flex: 1;">
+                            <div class="component-name">Psychology Profiler</div>
+                            <div class="component-desc">Строит психологический профиль контакта: паттерны поведения, связи, рекомендации взаимодействия</div>
+                        </div>
+                        <div class="component-badge">Профиль</div>
+                    </div>
+
+                    <div class="component">
+                        <div style="flex: 1;">
+                            <div class="component-name">Contact Summary Cache</div>
+                            <div class="component-desc">Быстрый доступ к сводке контакта: risk_score, promises, debt, facts. Обновляется после каждого анализа</div>
+                        </div>
+                        <div class="component-badge">Кэш</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LAYER 5: BIOGRAPHY PIPELINE -->
+            <div class="layer layer-5">
+                <div class="layer-header">📖 Слой 5: Biography Pipeline (8-проходный)</div>
+                <div class="layer-content">
+                    <div class="grid">
+                        <div class="component" style="margin-bottom: 0;">
+                            <div style="flex: 1;">
+                                <div class="component-name">Pass 1: Scene Extractor</div>
+                                <div class="component-desc">Извлекает scenes из звонков (importance 0-100, tone, synopsis)</div>
+                            </div>
+                        </div>
+                        <div class="component" style="margin-bottom: 0;">
+                            <div style="flex: 1;">
+                                <div class="component-name">Pass 2: Entity Resolver</div>
+                                <div class="component-desc">Канонизирует имена, мерджит aliases (Василий=Вася)</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid">
+                        <div class="component" style="margin-bottom: 0;">
+                            <div style="flex: 1;">
+                                <div class="component-name">Pass 3: Thread Builder</div>
+                                <div class="component-desc">Строит narrative threads для каждого контакта</div>
+                            </div>
+                        </div>
+                        <div class="component" style="margin-bottom: 0;">
+                            <div style="flex: 1;">
+                                <div class="component-name">Pass 4: Arc Detector</div>
+                                <div class="component-desc">Обнаруживает многосцен арки (project, problem, relationship)</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid">
+                        <div class="component" style="margin-bottom: 0;">
+                            <div style="flex: 1;">
+                                <div class="component-name">Pass 5: Portrait Writer</div>
+                                <div class="component-desc">Пишет портреты контактов (3-5 абзацев, traits, relationship)</div>
+                            </div>
+                        </div>
+                        <div class="component" style="margin-bottom: 0;">
+                            <div style="flex: 1;">
+                                <div class="component-name">Pass 6: Chapter Writer</div>
+                                <div class="component-desc">Пишет главы книги (2500-4500 слов, период=месяц)</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid">
+                        <div class="component" style="margin-bottom: 0;">
+                            <div style="flex: 1;">
+                                <div class="component-name">Pass 7: Book Frame</div>
+                                <div class="component-desc">Скелет книги: title, prologue, epilogue, TOC</div>
+                            </div>
+                        </div>
+                        <div class="component" style="margin-bottom: 0;">
+                            <div style="flex: 1;">
+                                <div class="component-name">Pass 8: Editorial</div>
+                                <div class="component-desc">Редакция черновиков (убирает повторы, вычищает текст)</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LAYER 6: OUTPUT -->
+            <div class="layer layer-6">
+                <div class="layer-header">📤 Слой 6: Выходные каналы (Пользователю)</div>
+                <div class="layer-content">
+                    <div class="component">
+                        <div style="flex: 1;">
+                            <div class="component-name">Telegram Bot</div>
+                            <div class="component-desc">/digest - дневной диджест, /promises - открытые обещания, /contact - карточка контакта</div>
+                        </div>
+                        <div class="component-badge">Bot API</div>
+                    </div>
+
+                    <div class="component">
+                        <div style="flex: 1;">
+                            <div class="component-name">Android Overlay Cards</div>
+                            <div class="component-desc">FolderSync → контактные карточки (риск, обещания, факты) на экране входящего звонка</div>
+                        </div>
+                        <div class="component-badge">Mobile</div>
+                    </div>
+
+                    <div class="component">
+                        <div style="flex: 1;">
+                            <div class="component-name">Web Dashboard (FastAPI)</div>
+                            <div class="component-desc">Real-time SSE (Server-Sent Events) для live-обновлений. Polling fallback на 5-сек интервалах</div>
+                        </div>
+                        <div class="component-badge">Web UI</div>
+                    </div>
+
+                    <div class="component">
+                        <div style="flex: 1;">
+                            <div class="component-name">Book Export (Markdown)</div>
+                            <div class="component-desc">Экспорт сгенерированной книги в markdown, PDF, EPUB (future)</div>
+                        </div>
+                        <div class="component-badge">Export</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- DATA FLOW -->
+        <div class="flow">
+            <div class="flow-title">🔄 Основной поток данных (End-to-End)</div>
+            <div class="flow-step">
+                <div class="flow-step-num">1</div>
+                <div class="flow-step-text">
+                    <strong>Входящий звонок</strong><br>
+                    Android записывает в D:\calls\audio\speaker_name_YYYYMMDD_HHMMSS.wav
+                </div>
+            </div>
+            <div class="flow-step">
+                <div class="flow-step-num">2</div>
+                <div class="flow-step-text">
+                    <strong>Транскрибирование & Diarization</strong><br>
+                    Whisper+Pyannote → JSON с сегментами [me]/[s2]/[?] текста
+                </div>
+            </div>
+            <div class="flow-step">
+                <div class="flow-step-num">3</div>
+                <div class="flow-step-text">
+                    <strong>Сохранение в DB</strong><br>
+                    calls.call_id, transcripts (с speaker, text, start_ms)
+                </div>
+            </div>
+            <div class="flow-step">
+                <div class="flow-step-num">4</div>
+                <div class="flow-step-text">
+                    <strong>LLM анализ (bulk_enrich)</strong><br>
+                    Промпт → LLM → JSON парсинг → analyses.raw_response (v2 schema)
+                </div>
+            </div>
+            <div class="flow-step">
+                <div class="flow-step-num">5</div>
+                <div class="flow-step-text">
+                    <strong>Агрегация в граф</strong><br>
+                    GraphBuilder → entities, relations, events, entity_metrics (BS-index)
+                </div>
+            </div>
+            <div class="flow-step">
+                <div class="flow-step-num">6</div>
+                <div class="flow-step-text">
+                    <strong>Генерация контактной карточки</strong><br>
+                    contact_summary → JSON (risk_score 🟢🟡🔴, promises, facts) → FolderSync на телефон
+                </div>
+            </div>
+            <div class="flow-step">
+                <div class="flow-step-num">7</div>
+                <div class="flow-step-text">
+                    <strong>Telegram уведомление</strong><br>
+                    Бот отправляет disjest (/digest), инлайн-кнопку feedback
+                </div>
+            </div>
+            <div class="flow-step">
+                <div class="flow-step-num">8</div>
+                <div class="flow-step-text">
+                    <strong>Biography pipeline (по расписанию)</strong><br>
+                    8 проходов → book_chapters, bio_books, markdown готовый к печати
+                </div>
+            </div>
+        </div>
+
+        <!-- DATA MODELS -->
+        <div class="data-flow">
+            <div class="data-flow-title">📊 Основные таблицы базы данных</div>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Таблица</th>
+                            <th>Назначение</th>
+                            <th>Ключевые поля</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>calls</strong></td>
+                            <td>Метаданные звонков</td>
+                            <td>call_id, user_id, contact_id, call_datetime, direction, duration_sec, status</td>
+                        </tr>
+                        <tr>
+                            <td><strong>transcripts</strong></td>
+                            <td>Текст звонка с говорящими</td>
+                            <td>call_id, speaker (OWNER|OTHER|UNKNOWN), text, start_ms</td>
+                        </tr>
+                        <tr>
+                            <td><strong>analyses</strong></td>
+                            <td>LLM-анализ звонка</td>
+                            <td>call_id, call_type, priority, risk_score, raw_response (JSON v2)</td>
+                        </tr>
+                        <tr>
+                            <td><strong>contacts</strong></td>
+                            <td>Контакты пользователя</td>
+                            <td>contact_id, user_id, display_name, guessed_name, phone_e164</td>
+                        </tr>
+                        <tr>
+                            <td><strong>contact_summaries</strong></td>
+                            <td>Кэш контактной сводки</td>
+                            <td>contact_id, user_id, risk_score, promises (JSON), debt (JSON), facts (JSON)</td>
+                        </tr>
+                        <tr>
+                            <td><strong>promises</strong></td>
+                            <td>Обещания/долги</td>
+                            <td>promise_id, contact_id, user_id, promise_text, deadline, status, fulfilled_at</td>
+                        </tr>
+                        <tr>
+                            <td><strong>events</strong></td>
+                            <td>Событиях в графе (v2)</td>
+                            <td>event_id, user_id, entity_id, event_type, quote, polarity, intensity, schema_version</td>
+                        </tr>
+                        <tr>
+                            <td><strong>entities</strong></td>
+                            <td>Сущности графа (люди, места, компании)</td>
+                            <td>entity_id, user_id, entity_type, canonical, aliases (JSON)</td>
+                        </tr>
+                        <tr>
+                            <td><strong>entity_metrics</strong></td>
+                            <td>Вычисленные метрики сущности</td>
+                            <td>entity_id, user_id, bs_index, call_count, last_seen, formula_version</td>
+                        </tr>
+                        <tr>
+                            <td><strong>bio_scenes</strong></td>
+                            <td>Biography pass 1 вывод</td>
+                            <td>call_id, user_id, importance, scene_type, synopsis, key_quote</td>
+                        </tr>
+                        <tr>
+                            <td><strong>bio_entities</strong></td>
+                            <td>Biography сущности (отдельно от graph)</td>
+                            <td>entity_id, user_id, canonical, role, description, mention_count</td>
+                        </tr>
+                        <tr>
+                            <td><strong>bio_chapters</strong></td>
+                            <td>Главы книги</td>
+                            <td>chapter_id, user_id, chapter_num, period_start, title, prose, status</td>
+                        </tr>
+                        <tr>
+                            <td><strong>bio_books</strong></td>
+                            <td>Сгенерированные книги</td>
+                            <td>book_id, user_id, period_start, period_end, title, subtitle, book_type, version_label</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- CRITICAL CONSTRAINTS -->
+        <div class="flow">
+            <div class="flow-title">⚠️ Критические ограничения (НИКОГДА не нарушать)</div>
+
+            <div class="constraint">
+                <div class="constraint-title">🚫 100% Локальная система</div>
+                <div class="constraint-text">Нет облака, нет SaaS, нет интернет-зависимостей. Только локальное llama-server.</div>
+            </div>
+
+            <div class="constraint">
+                <div class="constraint-title">🔐 Фильтрация по user_id</div>
+                <div class="constraint-text">КАЖДЫЙ SELECT/UPDATE/DELETE ДОЛЖЕН содержать WHERE user_id = ?. Это ЕДИНСТВЕННЫЙ способ изоляции данных пользователя.</div>
+            </div>
+
+            <div class="constraint">
+                <div class="constraint-title">🪜 Windows + Python (без Docker)</div>
+                <div class="constraint-text">Среда: Windows 10, system Python, никаких контейнеров, никаких Redis/Celery. Запуск через batch files.</div>
+            </div>
+
+            <div class="constraint">
+                <div class="constraint-title">💾 SQLite3 + прямой SQL (без ORM)</div>
+                <div class="constraint-text">Используй sqlite3 напрямую, никаких SQLAlchemy/Django ORM. Миграции через ALTER TABLE, не recreate.</div>
+            </div>
+
+            <div class="constraint">
+                <div class="constraint-title">🎯 GPU последовательность</div>
+                <div class="constraint-text">Whisper+Pyannote (4.5GB) → выгрузка → LLM (10GB). Параллелизм невозможен, разные процессы.</div>
+            </div>
+
+            <div class="constraint">
+                <div class="constraint-title">🔑 Нет hardcoded токенов</div>
+                <div class="constraint-text">os.environ.get() ТОЛЬКО. Telegram token, user_id — через ENV переменные.</div>
+            </div>
+
+            <div class="constraint">
+                <div class="constraint-title">📊 Выход ≤ 300 символов</div>
+                <div class="constraint-text">User-facing output никогда не длиннее 300 символов или 3 фактов на item. System denotes a lot, shows little.</div>
+            </div>
+
+            <div class="constraint">
+                <div class="constraint-title">🛑 Никогда не глушить ошибки</div>
+                <div class="constraint-text">Логируй + сохраняй в DB + продолжай. Исключения не должны ломать весь батч.</div>
+            </div>
+        </div>
+
+        <!-- COMMAND REFERENCE -->
+        <div class="data-flow">
+            <div class="data-flow-title">⚙️ Основные CLI команды</div>
+            <div class="code-block">
+# Основная обработка звонков
+python -m callprofiler bulk-load --user &lt;USER_ID&gt;
+python -m callprofiler bulk-enrich --user &lt;USER_ID&gt;
+
+# Граф и аналитика
+python -m callprofiler graph-backfill --user &lt;USER_ID&gt;
+python -m callprofiler graph-health --user &lt;USER_ID&gt;
+python -m callprofiler person-profile --user &lt;USER_ID&gt; --name "&lt;CONTACT_NAME&gt;"
+
+# Biography
+python -m callprofiler biography-run --user &lt;USER_ID&gt;
+python -m callprofiler biography-status --user &lt;USER_ID&gt;
+
+# Web интерфейс
+python -m callprofiler dashboard --user &lt;USER_ID&gt; --port 8765
+
+# Тестирование
+python -m pytest tests/ -v
+            </div>
+        </div>
+
+        <!-- MODULE STRUCTURE -->
+        <div class="data-flow">
+            <div class="data-flow-title">📁 Структура модулей</div>
+            <div class="code-block">
+src/callprofiler/
+  ├── __main__.py           # CLI entry point
+  ├── config.py             # Config, paths, constants
+  ├── db/                   # Database layer
+  │   ├── repository.py     # SQL queries, schema init
+  │   └── models.py         # Dataclass models
+  ├── asr/                  # Speech → Text
+  │   ├── whisper_runner.py # Transcription
+  │   └── pyannote_runner.py # Speaker diarization
+  ├── enricher/             # LLM analysis
+  │   ├── llm_client.py     # llama-server requests
+  │   ├── response_parser.py # JSON parsing
+  │   └── bulk_enrich.py    # Main pipeline
+  ├── graph/                # Knowledge graph
+  │   ├── builder.py        # Entity aggregation
+  │   ├── aggregator.py     # Metrics calculation
+  │   └── repository.py     # Graph storage
+  ├── biography/            # 8-pass book generation
+  │   ├── prompts.py        # LLM prompts v1, v2, ...
+  │   ├── extractor.py      # Pass 1-5, 7
+  │   ├── editor.py         # Pass 8 (editorial)
+  │   └── orchestrator.py   # Coordinator
+  ├── telegram/             # Bot integration
+  │   └── bot.py            # Bot commands
+  ├── dashboard/            # Web UI
+  │   ├── server.py         # FastAPI, SSE
+  │   └── static/           # HTML, CSS, JS
+  └── cli/
+      └── main.py           # Command routing
+
+tests/
+  ├── test_asr.py
+  ├── test_enricher.py
+  ├── test_graph.py
+  └── test_biography.py
+            </div>
+        </div>
+
+        <!-- KEY FILES REFERENCE -->
+        <div class="flow">
+            <div class="flow-title">📄 Ключевые файлы конфигурации</div>
+            <div class="flow-step">
+                <div class="flow-step-num">1</div>
+                <div class="flow-step-text">
+                    <strong>CLAUDE.md</strong> — Миссия, constraints, команды, пути
+                </div>
+            </div>
+            <div class="flow-step">
+                <div class="flow-step-num">2</div>
+                <div class="flow-step-text">
+                    <strong>.claude/rules/db.md</strong> — SQL правила, idempotency, user_id фильтрация
+                </div>
+            </div>
+            <div class="flow-step">
+                <div class="flow-step-num">3</div>
+                <div class="flow-step-text">
+                    <strong>.claude/rules/pipeline.md</strong> — Обработка ошибок, fallback'и, валидация
+                </div>
+            </div>
+            <div class="flow-step">
+                <div class="flow-step-num">4</div>
+                <div class="flow-step-text">
+                    <strong>.claude/rules/llm.md</strong> — LLM сервер, промпты, JSON парсинг
+                </div>
+            </div>
+            <div class="flow-step">
+                <div class="flow-step-num">5</div>
+                <div class="flow-step-text">
+                    <strong>.claude/rules/graph.md</strong> — Граф, BS-index, entity_metrics, replay
+                </div>
+            </div>
+            <div class="flow-step">
+                <div class="flow-step-num">6</div>
+                <div class="flow-step-text">
+                    <strong>.claude/rules/biography-*.md</strong> — 8-проходная pipeline, контракты промптов
+                </div>
+            </div>
+            <div class="flow-step">
+                <div class="flow-step-num">7</div>
+                <div class="flow-step-text">
+                    <strong>configs/prompts/analyze_v001.txt</strong> — Основной LLM промпт для анализа
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>CallProfiler — локальная система анализа телефонных звонков</p>
+            <p style="margin-top: 10px; font-size: 0.9em;">Последнее обновление: 2026-05-29</p>
+        </div>
+    </div>
+</body>
+</html>

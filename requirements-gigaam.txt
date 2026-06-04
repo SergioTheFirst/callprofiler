@@ -31,3 +31,21 @@ uvicorn
 jinja2
 
 # torch==2.6.0 + torchaudio==2.6.0 — ставить отдельно с cu124 index (шаг 2 выше)
+
+# ── ROLES / диаризация (определение [me]/[s2]) ──────────────────────────────
+# НЕ ставить через `pip install -r` этого файла: pyannote тянет зависимости,
+# которые ЗАТИРАЮТ cu124-torch CPU-сборкой (GPU отвалится). Поэтому ставится
+# ОТДЕЛЬНО через install-roles.bat (он переустанавливает cu124-torch после).
+#
+# БЕЗ этого стека диаризация gracefully падает в orchestrator._diarize_turns и
+# ВСЕ роли остаются UNKNOWN (транскрипт не теряется, но кто говорит — неизвестно).
+# Что нужно для ролей (всё это делает install-roles.bat):
+#   1) pip install pyannote.audio soundfile librosa  (затем fix-torch.bat!)
+#   2) HF_TOKEN в окружении: setx HF_TOKEN "hf_..."  (новый терминал)
+#   3) принять 3 gated-модели на hf.co: pyannote/segmentation-3.0,
+#      pyannote/speaker-diarization-3.1, pyannote/embedding
+#   4) эталон голоса владельца --ref-audio <owner.wav> (дефолт C:\pro\mbot\ref\manager.wav)
+# pyannote 3.3.2: в коде use_auth_token= (НЕ token=). См. .claude/rules/decisions.md.
+#   pyannote.audio==3.3.2
+#   librosa
+#   soundfile

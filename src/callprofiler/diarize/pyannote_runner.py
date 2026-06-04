@@ -3,9 +3,15 @@
 pyannote_runner.py — диаризация (разделение ролей спикеров) с референсным эмбеддингом.
 
 Использует:
-  - pyannote.audio 3.3.2 (speaker-diarization-3.1 + embedding models)
+  - pyannote.audio 3.3.x / 4.x (speaker-diarization-3.1 + embedding models)
   - Reference embedding (голос владельца) для маппинга OWNER/OTHER
   - Cosine similarity для идентификации спикера
+
+Аудио передаётся pyannote ТОЛЬКО в памяти (``{waveform, sample_rate}``).
+pyannote.audio 4.x по умолчанию декодирует файл по пути через ``torchcodec``,
+чьи DLL на Windows часто не грузятся (``Could not load libtorchcodec``) — тогда
+диаризация падает и роли остаются UNKNOWN. Подавая тензор напрямую, мы обходим
+torchcodec целиком (см. ``_read_mono16k`` / ``_waveform_dict``).
 
 Управление GPU-памятью критично (pyannote ~1.5GB + inference ~0.5GB).
 """
@@ -31,6 +37,51 @@ logger = logging.getLogger(__name__)
 # EBU R128 LUFS settings for normalization before embedding extraction
 _LOUDNORM = True
 _SAMPLE_RATE = 16000
+
+
+def _load_pretrained(loader, model_id: str, token: str):
+    """``from_pretrained`` совместимо с разными версиями pyannote.audio.
+
+    pyannote 3.3.x ждёт ``use_auth_token=``; 3.4+/4.x переименовали аргумент в
+    ``token=`` (``Pipeline.from_pretrained() got an unexpected keyword argument
+    'use_auth_token'``). Пробуем сначала ``use_auth_token``, при ``TypeError`` —
+    ``token``. Пустой токен → ``None`` (для уже скачанных / негейтед моделей).
+    """
+    auth = token or None
+    try:
+        return loader(model_id, use_auth_token=auth)
+    except TypeError:
+        return loader(model_id, token=auth)
+
+
+def _read_mono16k(path: str) -> np.ndarray:
+    """Прочитать аудио → mono float32 numpy @ 16 кГц, БЕЗ torchcodec.
+
+    Нормализованные звонки уже 16 кГц mono → читаем ``soundfile`` (без
+    torchcodec). Прочие форматы и ресемпл — ``librosa`` (тянет soundfile/
+    audioread, тоже не torchcodec). Это и есть обход битого libtorchcodec на
+    Windows: pyannote получает готовый тензор, а не путь к файлу.
+    """
+    try:
+        import soundfile as sf
+
+        data, sr = sf.read(path, dtype="float32", always_2d=True)  # [T, ch]
+        samples = data.mean(axis=1) if data.shape[1] > 1 else data[:, 0]
+    except Exception:  # noqa: BLE001 — fallback на librosa (mp3/прочее/нет sf)
+        import librosa
+
+        samples, sr = librosa.load(path, sr=None, mono=True)
+        samples = np.asarray(samples, dtype=np.float32)
+
+    if int(sr) != _SAMPLE_RATE:
+        import librosa
+
+        samples = librosa.resample(
+            np.asarray(samples, dtype=np.float32),
+            orig_sr=int(sr),
+            target_sr=_SAMPLE_RATE,
+        )
+    return np.asarray(samples, dtype=np.float32)
 
 
 class PyannoteRunner:
@@ -89,18 +140,18 @@ class PyannoteRunner:
         try:
             # Загрузить embedding модель (для cosine similarity)
             logger.debug("Загрузка pyannote/embedding...")
-            emb_model = Model.from_pretrained(
-                "pyannote/embedding",
-                use_auth_token=self.config.hf_token,
+            emb_model = _load_pretrained(
+                Model.from_pretrained, "pyannote/embedding", self.config.hf_token
             )
             self.inference = Inference(emb_model, window="whole")
             self.inference.to(self._device)
 
             # Загрузить диаризационный pipeline (для разделения спикеров)
             logger.debug("Загрузка pyannote/speaker-diarization-3.1...")
-            self.pipeline = Pipeline.from_pretrained(
+            self.pipeline = _load_pretrained(
+                Pipeline.from_pretrained,
                 "pyannote/speaker-diarization-3.1",
-                use_auth_token=self.config.hf_token,
+                self.config.hf_token,
             )
             self.pipeline.to(self._device)
 
@@ -140,8 +191,12 @@ class PyannoteRunner:
         logger.debug("Диаризация: %s", wav_path)
 
         try:
+            # Аудио в память → pyannote не зовёт torchcodec (битый на Windows).
+            file_dict = self._waveform_dict(wav_path)
+            samples = file_dict["waveform"].squeeze(0).cpu().numpy()
+
             # Запустить speaker-diarization pipeline (min/max 2 speaker)
-            diarization = self.pipeline(wav_path, min_speakers=2, max_speakers=2)
+            diarization = self.pipeline(file_dict, min_speakers=2, max_speakers=2)
 
             # Сырые сегменты из pipeline: {label: [(start, end), ...]}
             raw_segs = {}
@@ -157,7 +212,7 @@ class PyannoteRunner:
                 return []
 
             # Для каждого спикера вычислить эмбеддинг и найти наиболее похожего на ref
-            owner_label = self._find_owner_label(wav_path, raw_segs)
+            owner_label = self._find_owner_label(samples, _SAMPLE_RATE, raw_segs)
 
             # Конвертировать в output format (float сек → int мс, маппинг OWNER/OTHER)
             result = []
@@ -208,18 +263,26 @@ class PyannoteRunner:
 
     # ── Внутренние методы ──────────────────────────────────────────────────────
 
-    def _get_embedding(self, wav_path: str) -> np.ndarray:
-        """Вычислить embedding для аудиофайла и нормализовать его.
+    def _waveform_dict(self, path: str) -> dict:
+        """Загрузить аудио в память → ``{waveform: Tensor[1,T] float32,
+        sample_rate}``. Обходит torchcodec (см. модульный docstring)."""
+        samples = _read_mono16k(path)
+        wav = torch.from_numpy(np.ascontiguousarray(samples)).float().unsqueeze(0)
+        return {"waveform": wav, "sample_rate": _SAMPLE_RATE}
 
-        Параметры:
-            wav_path  — путь к WAV
-
-        Возвращает:
-            Normalized embedding (L2 norm = 1)
-        """
-        emb = np.array(self.inference(wav_path)).squeeze()
+    def _embedding_from_dict(self, file_dict: dict) -> np.ndarray:
+        """Embedding из in-memory ``{waveform, sample_rate}``, L2-нормированный."""
+        emb = np.array(self.inference(file_dict)).squeeze()
         norm = np.linalg.norm(emb)
         return emb / norm if norm > 1e-9 else emb
+
+    def _get_embedding(self, wav_path: str) -> np.ndarray:
+        """Вычислить нормализованный embedding для аудиофайла (по пути).
+
+        Аудио грузится в память и передаётся pyannote как
+        ``{waveform, sample_rate}`` — torchcodec не вызывается.
+        """
+        return self._embedding_from_dict(self._waveform_dict(wav_path))
 
     def _build_ref_embedding(self, ref_audio_path: str) -> np.ndarray:
         """Построить reference embedding из образца голоса.
@@ -251,89 +314,54 @@ class PyannoteRunner:
                 except Exception as exc:
                     logger.warning("Не удалось удалить temp файл %s: %s", ref_wav, exc)
 
-    def _find_owner_label(self, wav_path: str, raw_segs: dict) -> str:
-        """Найти label спикера, который наиболее похож на ref_embedding (OWNER).
+    def _find_owner_label(self, samples: np.ndarray, sr: int, raw_segs: dict) -> str:
+        """Найти label спикера, наиболее похожего на ref_embedding (OWNER).
 
         Алгоритм:
-          1. Для каждого label (спикер) собрать все его аудиосегменты
-          2. Конкатенировать и вычислить embedding
-          3. Вычислить cosine similarity с ref_embedding
-          4. Вернуть label с максимальной similarity
+          1. Для каждого label конкатенировать его сегменты (in-memory срезы)
+          2. Вычислить embedding через pyannote (без torchcodec/temp-файлов)
+          3. Вернуть label с максимальной cosine similarity к ref_embedding
 
         Параметры:
-            wav_path    — оригинальный аудиофайл
-            raw_segs    — {label: [(start, end), ...]}
+            samples   — всё аудио в памяти (mono float32 @ ``sr``)
+            sr        — частота дискретизации ``samples``
+            raw_segs  — {label: [(start_sec, end_sec), ...]}
 
         Возвращает:
-            label спикера, наиболее похожего на ref_embedding
+            label спикера, наиболее похожего на ref_embedding (или первый/`unknown`).
         """
-        import soundfile as sf
+        min_len = int(0.1 * sr)
+        label_embeddings: dict = {}
 
-        # Загрузить полный аудиофайл
-        try:
-            wav_data, sr = __import__("librosa").load(
-                wav_path, sr=_SAMPLE_RATE, mono=True
-            )
-        except Exception as exc:
-            logger.error("Не удалось загрузить %s для extract speaker embeddings: %s",
-                        wav_path, exc)
-            # Fallback: вернуть первый label
-            return list(raw_segs.keys())[0] if raw_segs else "unknown"
+        for lbl, segs in raw_segs.items():
+            chunks = [
+                samples[int(s * sr) : int(e * sr)]
+                for s, e in segs
+                if int(e * sr) > int(s * sr)
+            ]
+            if not chunks:
+                logger.warning("Label %s имеет пустые фрагменты, пропуск", lbl)
+                continue
+            cat = np.concatenate(chunks)
+            if cat.size < min_len:
+                continue
+            try:
+                wav = torch.from_numpy(np.ascontiguousarray(cat)).float().unsqueeze(0)
+                label_embeddings[lbl] = self._embedding_from_dict(
+                    {"waveform": wav, "sample_rate": int(sr)}
+                )
+            except Exception as exc:  # noqa: BLE001 — один label не валит диаризацию
+                logger.warning("Ошибка embedding для label %s: %s", lbl, exc)
+                continue
 
-        # Для каждого label вычислить его embedding
-        label_embeddings = {}
-        temp_files = []
+        if not label_embeddings:
+            logger.warning("Не удалось вычислить embeddings ни для одного label")
+            return next(iter(raw_segs), "unknown")
 
-        try:
-            for lbl, segs in raw_segs.items():
-                # Вырезать фрагменты данного спикера
-                chunks = [
-                    wav_data[int(s * sr) : int(e * sr)]
-                    for s, e in segs
-                    if int(e * sr) > int(s * sr)
-                ]
-
-                if not chunks:
-                    logger.warning("Label %s имеет пустые фрагменты, пропуск", lbl)
-                    continue
-
-                # Сохранить в временный файл
-                with tempfile.NamedTemporaryFile(
-                    suffix=".wav", delete=False
-                ) as tmp:
-                    tmp_path = tmp.name
-                    temp_files.append(tmp_path)
-
-                try:
-                    sf.write(tmp_path, np.concatenate(chunks), sr)
-                    emb = self._get_embedding(tmp_path)
-                    label_embeddings[lbl] = emb
-                except Exception as exc:
-                    logger.warning("Ошибка при extract embedding для label %s: %s",
-                                  lbl, exc)
-                    continue
-
-            # Найти label с максимальным cosine similarity
-            if not label_embeddings:
-                logger.warning("Не удалось вычислить embeddings ни для одного label")
-                return list(raw_segs.keys())[0] if raw_segs else "unknown"
-
-            owner_label = max(
-                label_embeddings,
-                key=lambda lbl: float(np.dot(label_embeddings[lbl], self.ref_embedding)),
-            )
-            similarity = float(
-                np.dot(label_embeddings[owner_label], self.ref_embedding)
-            )
-            logger.info("OWNER identified: %s (similarity=%.3f)", owner_label, similarity)
-            return owner_label
-
-        finally:
-            # Удалить временные файлы
-            for tmp_path in temp_files:
-                if os.path.exists(tmp_path):
-                    try:
-                        os.remove(tmp_path)
-                    except Exception as exc:
-                        logger.warning("Не удалось удалить temp файл %s: %s",
-                                      tmp_path, exc)
+        owner_label = max(
+            label_embeddings,
+            key=lambda lbl: float(np.dot(label_embeddings[lbl], self.ref_embedding)),
+        )
+        similarity = float(np.dot(label_embeddings[owner_label], self.ref_embedding))
+        logger.info("OWNER identified: %s (similarity=%.3f)", owner_label, similarity)
+        return owner_label

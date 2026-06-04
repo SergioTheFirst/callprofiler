@@ -304,3 +304,46 @@ def test_promises_isolation(repo):
         {"who": "OWNER", "what": "u1 дело", "due": None}
     ])
     assert repo.get_open_promises("u2") == []
+
+
+# ---- Crash-resume: get_stalled_calls ----
+
+def test_stalled_reclaims_normalizing_stage0(repo):
+    """Регресс: крах во время нормализации (status='normalizing', stage=0)
+    должен переподхватываться resume'ом. Прежний фильтр pipeline_stage>0
+    сиротил такие звонки навсегда (754 шт. в проде)."""
+    add_user(repo)
+    call_id, _ = add_call(repo)
+    repo.update_call_status(call_id, "normalizing")  # stage остаётся 0
+    stalled = repo.get_stalled_calls()
+    assert call_id in [c["call_id"] for c in stalled]
+
+
+def test_stalled_reclaims_midstage(repo):
+    """Звонок, упавший на середине (transcribing@stage2), тоже stalled."""
+    add_user(repo)
+    call_id, _ = add_call(repo)
+    repo.update_call_status(call_id, "transcribing")
+    repo.update_pipeline_stage(call_id, 2)
+    assert [c["call_id"] for c in repo.get_stalled_calls()] == [call_id]
+
+
+def test_stalled_excludes_terminal_and_new(repo):
+    """new/done/error — НЕ stalled (new берёт pending, done/error терминальны)."""
+    add_user(repo)
+    call_id, _ = add_call(repo)
+    assert repo.get_stalled_calls() == []  # свежесозданный = 'new'
+    repo.update_call_status(call_id, "done")
+    assert repo.get_stalled_calls() == []
+    repo.update_call_status(call_id, "error", "boom")
+    assert repo.get_stalled_calls() == []
+
+
+def test_stalled_isolated_by_user(repo):
+    add_user(repo, "u1")
+    add_user(repo, "u2")
+    c1, _ = add_call(repo, user_id="u1", md5="m1")
+    c2, _ = add_call(repo, user_id="u2", md5="m2")
+    repo.update_call_status(c1, "normalizing")
+    repo.update_call_status(c2, "normalizing")
+    assert [c["call_id"] for c in repo.get_stalled_calls(user_id="u1")] == [c1]
