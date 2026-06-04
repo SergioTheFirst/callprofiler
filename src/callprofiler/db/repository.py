@@ -480,9 +480,13 @@ class Repository:
     def get_stalled_calls(self, user_id: str | None = None) -> list[dict]:
         """Звонки, зависшие в промежуточном состоянии после краша.
 
-        Условие: ``status NOT IN ('new','done','error')`` — любой промежуточный
-        статус (normalizing/diarizing/transcribing/analyzing/delivering) значит,
-        что воркер начал, но не закончил. Фильтр по ``pipeline_stage`` НЕ
+        Условие: ``status NOT IN ('new','done','error','transcribed')`` — любой
+        промежуточный статус (normalizing/diarizing/transcribing/analyzing/
+        delivering) значит, что воркер начал, но не закончил. ``transcribed`` —
+        ТЕРМИНАЛЬНЫЙ статус Stage-1 (транскрипт в БД, LLM-анализ отложён на
+        Stage-2 при ``enable_llm_analysis=false``): он НЕ зависший, иначе
+        transcribe-only прогон реклаймил бы его бесконечно. Фильтр по
+        ``pipeline_stage`` НЕ
         применяем: ``update_call_status('normalizing')`` ставится ДО
         ``update_pipeline_stage(1)``, поэтому крах во время нормализации
         оставляет звонок на stage 0 со status='normalizing'. Прежнее условие
@@ -490,7 +494,7 @@ class Repository:
         pending (status='new'), ни этот resume. ``process_batch`` идемпотентен по
         stage, так что переподхват с stage 0 безопасен.
         """
-        where = "status NOT IN ('new','done','error')"
+        where = "status NOT IN ('new','done','error','transcribed')"
         if user_id:
             rows = self._get_conn().execute(
                 f"SELECT * FROM calls WHERE {where} AND user_id=? ORDER BY updated_at",

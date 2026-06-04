@@ -168,15 +168,21 @@ class Orchestrator:
             self._maybe_delete_normalized(norm_path)
 
             # ── Шаг 4: Analyze ───────────────────────────────
-            if self.config.features.enable_llm_analysis:
-                self.repo.update_call_status(call_id, "analyzing")
-                self._analyze_call(call_id, call, segments)
-                self.repo.update_pipeline_stage(call_id, 3)
-            else:
+            if not self.config.features.enable_llm_analysis:
+                # Stage-1 terminal: транскрипт в БД, анализ отложён на Stage-2.
+                # НЕ доставляем (карточка требует анализа) и НЕ ставим 'done'
+                # (иначе Stage-2 bulk-enrich не найдёт звонок). 'transcribed' —
+                # терминальный, get_stalled_calls его не реклаймит.
                 logger.info(
-                    "LLM analysis disabled by feature flag; skipping call_id=%d",
+                    "LLM analysis disabled; call_id=%d → transcribed (Stage-1 done)",
                     call_id,
                 )
+                self.repo.update_call_status(call_id, "transcribed")
+                return True
+
+            self.repo.update_call_status(call_id, "analyzing")
+            self._analyze_call(call_id, call, segments)
+            self.repo.update_pipeline_stage(call_id, 3)
 
             # ── Шаг 5: Deliver ───────────────────────────────
             self.repo.update_call_status(call_id, "delivering")
@@ -318,6 +324,16 @@ class Orchestrator:
         # ── Фаза 3: Analyze (LLM) ────────────────────────────────────
         if not self.config.features.enable_llm_analysis:
             logger.info("LLM analysis disabled by feature flag; skipping batch analyze phase")
+            # Stage-1 terminal: транскрибированные звонки (stage 2) завершаем как
+            # 'transcribed'. Иначе они залипают в status='transcribing' (Phase 4
+            # deliver гейтит stage<3) и get_stalled_calls реклаймит их каждый
+            # прогон = бесконечный stall-loop. Покрывает и свежие, и
+            # resume-залипшие звонки. Звонки на stage>=3 (анализ был раньше)
+            # идут в Phase 4 на доставку как обычно.
+            for call in calls_data:
+                if call.get("pipeline_stage", 0) == 2:
+                    self.repo.update_call_status(call["call_id"], "transcribed")
+                    logger.info("✓ Звонок %d → transcribed (Stage-1 done)", call["call_id"])
         else:
             for call in calls_data:
                 call_id = call["call_id"]

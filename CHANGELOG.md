@@ -8,6 +8,16 @@
 
 ## [Unreleased]
 
+### Fixed — Stage-1 transcribe-only: терминальный статус `transcribed` (2026-06-04)
+- При `enable_llm_analysis=false` `process_batch` не доводил транскрибированный звонок до
+  терминала: Pass C ставил stage 2, статус оставался `transcribing`, Phase 4 deliver гейтит
+  `stage<3` → звонок залипал и `get_stalled_calls` реклаймил его каждый прогон (вечный stall-loop,
+  дашборд вечно «transcribing»).
+- Фикс: новый терминальный статус **`transcribed`** (Stage-1 готов, LLM отложён на Stage-2).
+  `process_batch`/`process_call` ставят его при выключенном анализе; `get_stalled_calls` исключает;
+  dashboard stage-map добавляет. Покрыто `tests/test_stage1_transcribe_only.py` (3). `calls.status`
+  — свободный текст, миграция не нужна.
+
 ### Added — дашборд: переключатель профилей (user_id) в шапке (2026-06-04)
 - `db_reader.get_user_ids()` (кросс-юзер мета-листинг), `/api/users` + `/api/users/select`, поллер форсит tick при смене профиля, dropdown в шапке + reload.
 

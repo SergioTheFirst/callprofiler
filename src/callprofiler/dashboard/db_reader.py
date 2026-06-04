@@ -636,6 +636,7 @@ class DashboardDBReader:
             "normalizing": ["normalizing"],
             "diarizing": ["diarizing"],
             "transcribing": ["transcribing"],
+            "transcribed": ["transcribed"],
             "analyzing": ["analyzing"],
             "delivering": ["delivering"],
             "done": ["processed", "done"],
