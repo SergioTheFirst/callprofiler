@@ -84,6 +84,44 @@ def _read_mono16k(path: str) -> np.ndarray:
     return np.asarray(samples, dtype=np.float32)
 
 
+def _extract_annotation(result):
+    """Достать pyannote ``Annotation`` (объект с ``.itertracks``) из вывода
+    пайплайна, устойчиво к версии.
+
+    pyannote 3.x возвращает ``Annotation`` напрямую. pyannote 4.x возвращает
+    обёртку ``DiarizeOutput`` (namedtuple-подобную), где диаризация лежит в одном
+    из полей (``speaker_diarization`` и т.п.) — у самой обёртки ``.itertracks``
+    нет (отсюда ``AttributeError: 'DiarizeOutput' object has no attribute
+    'itertracks'``). Ищем поле с ``Annotation`` не угадывая жёстко имя.
+    """
+    if hasattr(result, "itertracks"):
+        return result
+    for attr in (
+        "speaker_diarization",
+        "diarization",
+        "exclusive_speaker_diarization",
+        "prediction",
+        "annotation",
+        "output",
+    ):
+        obj = getattr(result, attr, None)
+        if obj is not None and hasattr(obj, "itertracks"):
+            return obj
+    # namedtuple/dataclass — перебрать поля и найти похожее на Annotation
+    for attr in getattr(result, "_fields", ()):
+        obj = getattr(result, attr, None)
+        if hasattr(obj, "itertracks"):
+            return obj
+    if isinstance(result, (tuple, list)):
+        for obj in result:
+            if hasattr(obj, "itertracks"):
+                return obj
+    raise RuntimeError(
+        f"Не нашёл Annotation в выводе диаризации (тип {type(result).__name__}; "
+        f"поля: {getattr(result, '_fields', None)})"
+    )
+
+
 class PyannoteRunner:
     """Интерфейс к pyannote.audio для диаризации с референсным эмбеддингом.
 
@@ -195,12 +233,14 @@ class PyannoteRunner:
             file_dict = self._waveform_dict(wav_path)
             samples = file_dict["waveform"].squeeze(0).cpu().numpy()
 
-            # Запустить speaker-diarization pipeline (min/max 2 speaker)
-            diarization = self.pipeline(file_dict, min_speakers=2, max_speakers=2)
+            # Запустить speaker-diarization pipeline (min/max 2 speaker).
+            # pyannote 4.x отдаёт DiarizeOutput-обёртку → достаём Annotation.
+            diar_out = self.pipeline(file_dict, min_speakers=2, max_speakers=2)
+            annotation = _extract_annotation(diar_out)
 
             # Сырые сегменты из pipeline: {label: [(start, end), ...]}
             raw_segs = {}
-            for turn, _, lbl in diarization.itertracks(yield_label=True):
+            for turn, _, lbl in annotation.itertracks(yield_label=True):
                 # Фильтр: пропустить очень короткие (< 400мс)
                 if turn.duration >= 0.4:
                     raw_segs.setdefault(lbl, []).append(

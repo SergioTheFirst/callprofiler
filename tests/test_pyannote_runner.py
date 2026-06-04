@@ -198,3 +198,50 @@ class TestInMemoryAudio:
         raw_segs = {"SPK0": [(0.0, 1.0)], "SPK1": [(1.0, 2.0)]}
         owner = runner._find_owner_label(samples, 16000, raw_segs)
         assert owner == "SPK1"
+
+
+class TestExtractAnnotation:
+    """_extract_annotation: устойчивость к pyannote 3.x (Annotation напрямую) и
+    4.x (DiarizeOutput-обёртка без .itertracks)."""
+
+    class _FakeAnn:
+        def itertracks(self, yield_label=False):
+            return []
+
+    def test_direct_annotation_3x(self):
+        from callprofiler.diarize.pyannote_runner import _extract_annotation
+        ann = self._FakeAnn()
+        assert _extract_annotation(ann) is ann
+
+    def test_wrapper_named_attr_4x(self):
+        from callprofiler.diarize.pyannote_runner import _extract_annotation
+        ann = self._FakeAnn()
+
+        class DiarizeOutput:
+            def __init__(self, a):
+                self.speaker_diarization = a
+                self.embeddings = None
+
+        assert _extract_annotation(DiarizeOutput(ann)) is ann
+
+    def test_namedtuple_unknown_field(self):
+        from collections import namedtuple
+        from callprofiler.diarize.pyannote_runner import _extract_annotation
+        ann = self._FakeAnn()
+        do = namedtuple("DiarizeOutput", ["embeddings", "weird"])(embeddings=None, weird=ann)
+        assert _extract_annotation(do) is ann
+
+    def test_plain_tuple(self):
+        from callprofiler.diarize.pyannote_runner import _extract_annotation
+        ann = self._FakeAnn()
+        assert _extract_annotation((None, ann)) is ann
+
+    def test_raises_when_no_annotation(self):
+        import pytest
+        from callprofiler.diarize.pyannote_runner import _extract_annotation
+
+        class Empty:
+            pass
+
+        with pytest.raises(RuntimeError):
+            _extract_annotation(Empty())

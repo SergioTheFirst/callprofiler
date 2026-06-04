@@ -19,6 +19,16 @@
   эмбеддинги из in-memory срезов. GigaAM torchcodec НЕ использует (свой `prepare_wav` через
   ffmpeg) — ASR не затронут. Регресс: `test_pyannote_runner.py::TestInMemoryAudio` (4). Реальный
   pyannote-путь — проверка на боксе (деградация graceful: при сбое роли UNKNOWN + точная причина в лог).
+- **БАГ pyannote 4.x API** `diarize/pyannote_runner.py` (`_extract_annotation`) — прогон на боксе
+  подтвердил: torchcodec-обход работает (embedding dim=512, диаризация 51с на GPU), но
+  `pipeline(...)` в pyannote **4.0.4** возвращает обёртку `DiarizeOutput`, а не `Annotation` →
+  `AttributeError: 'DiarizeOutput' object has no attribute 'itertracks'` → роли UNKNOWN. Фикс:
+  `_extract_annotation` достаёт `Annotation` устойчиво к версии (известные поля → перебор
+  `_fields` → кортеж; иначе RuntimeError с типом/полями). 3.x (Annotation напрямую) тоже работает.
+  Регресс: `test_pyannote_runner.py::TestExtractAnnotation` (5).
+- **bat-раннеры** (корень репо): `sync-main.bat` (`fetch` + `reset --hard origin/main` —
+  гарантированная перезапись папки версией с GitHub), `run-one.bat "<файл>"` (один звонок
+  `process --force`, лог → `run-one.log`), `run-watch.bat` (`watch --once`, лог → `run-watch.log`).
 - **БАГ `get_stalled_calls`** `db/repository.py` — 754 звонка висели `status='normalizing'` на
   `pipeline_stage=0` и НЕ переподхватывались resume'ом: фильтр `pipeline_stage>0` их сиротил
   (`update_call_status('normalizing')` ставится ДО `update_pipeline_stage(1)` → крах во время
