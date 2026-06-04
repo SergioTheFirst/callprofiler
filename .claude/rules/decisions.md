@@ -158,3 +158,50 @@ After switching: run `graph-replay --user X` + `biography-run --user X --passes 
 - Constitution **principles** are unchanged — Ст.16 (architecture revision) NOT invoked. Only factual labels were corrected, which Ст.19.1 (continuity of truth) requires.
 - **Source-of-truth precedence:** code → CONTINUITY.md + git → ARCHITECTURE_v5 → CONSTITUTION (principles) → historical docs.
 - Trade-off: keeping v4/v3 as history (not deleting) costs a little clutter but preserves the decision trail.
+
+## Port biography resilience to call-analysis (DESIGN, 2026-06-04)
+
+**Why:** biography уже умеет то, что нужно основному пути анализа звонка на прогоне
+17k unattended. `analyze/` уже взял ВЫХОДНОЙ динамический бюджет (`output_budget.py`,
+тиры по длине транскрипта + priority×1.2, потолки n_ctx−prompt−margin и abs_max=4096) и
+клип входа (`prompt_budget.py`). НЕ взял ключевую устойчивость biography. Решение —
+портировать строго то, что окупается, и НЕ дублировать то, что уже покрыто.
+
+**Брать из biography (по приоритету ROI/риск):**
+1. **Мемоизация + retry (`ResilientLLMClient` + `bio_llm_calls`).** `AnalysisService` зовёт
+   ПЛОСКИЙ `LLMClient` — без кэша, одна попытка, при `ConnectionError` теряет анализ
+   (`status=error`). Биография: MD5(messages+temp+max_tokens+model) → cache HIT минует
+   сервер; retry 4× c backoff, НИКОГДА не падает (None → checkpoint→continue). Это и есть
+   «ядро многодневного прогона». План: вынести мемоизацию в нейтральный infra-модуль
+   `llm_cache` (таблица `llm_calls`), общий для biography и analyze (сохраняет разделение
+   graph≠biography, убирает дубль). В hash добавить `prompt_version` явно.
+2. **Пер-задачные бюджеты токенов (явный запрос пользователя).** Обобщить `output_budget`
+   в реестр TASK-профилей: каждый со своим (floor, тиры, abs_max, temperature). Задачи для
+   звонка: `triage` (≤200 out, temp 0.0), `extract` (текущие тиры, temp 0.2),
+   `deep` (≤3600, temp 0.3, только priority≥70). «Динамическая величина токенов для
+   определённых задач» становится first-class.
+3. **Разбить монолитный анализ звонка на gated-проходы (структурный перенос).** Сейчас
+   звонок = ОДИН LLM-вызов (summary+risk+promises+entities/structured_facts v2). Биография =
+   специализированные проходы. План: `P-triage` (классификация+priority, дёшево) → гейтит
+   `P-extract` (полный JSON для graph v2) → опц. `P-deep` (противоречия/реляц. факты,
+   только priority≥70/длинные). Рутинные/короткие останавливаются после triage → на 17k это
+   чистый ускоритель + качество выше на важных. Минус vs монолит: пере-подача транскрипта на
+   проход (KV-стоимость) → ветвиться только по triage/length/priority. Риск средний → за
+   флагом `analysis_multipass`, валидировать на canary-50 (parse_fail%, role-UNKNOWN%,
+   truncation%, распределение risk) ДО включения на полный прогон.
+4. **Входной бюджет как пропорциональная конкуренция (TokenBudget-lite).** Заменить плоский
+   клип: transcript(~80%) vs previous_summaries(~15%) vs metadata(~5%), неиспользованное
+   перераспределяется. Длинная история не теснит сам звонок; короткий звонок подаётся
+   целиком. Дёшево.
+5. **Версионирование промптов по задачам (PASS_VERSIONS-style).** Per-task dict версий →
+   бамп одной задачи инвалидирует только её кэш. Парно к #1 и #3.
+
+**НЕ брать (анти-оверинжиниринг, CLAUDE.md «add only non-obvious / don't duplicate»):**
+- Пер-айтемные checkpoint-таблицы — `call.status` уже даёт resume (`status NOT IN
+  ('new','done','error')` reclaim); токен-стоимость покрывает #1. Дублировать незачем.
+- Инъекцию психопрофиля в пер-звонковый анализ — это слой graph/biography, не на каждый звонок.
+- 9-секционные пропорциональные бюджеты — избыточно; хватает 3-стороннего сплита.
+
+**Порядок реализации:** #1 (мемоизация+retry) первым — макс. ROI надёжности/стоимости, мин.
+риск, переиспользует код; затем #2 (task-бюджеты, прямой пример пользователя); затем #3 за
+флагом с canary-гейтом. Реализация — после согласования ветки пользователем.

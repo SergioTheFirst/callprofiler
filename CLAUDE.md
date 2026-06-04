@@ -8,6 +8,7 @@
 - GPU sequential: Whisper+pyannote (4.5GB) → unload → LLM (10GB). Never concurrent.
 - Every SQL: `WHERE user_id = ?`. Tokens: `os.environ.get()`. Errors: log+DB+continue.
 - Push to `main` only. No feature branches.
+- **Git autonomy (user-authorized 2026-06-04):** commit+push to `main` WITHOUT per-action confirmation. Rule: record every significant step in memory files (CONTINUITY/CHANGELOG/.claude/rules/*) FIRST, then commit+push.
 
 ## Paths & Commands
 ```
