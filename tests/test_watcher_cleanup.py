@@ -10,6 +10,7 @@ class _Repo:
     def __init__(self, calls=None, by_md5=None):
         self._calls = calls or {}
         self._by_md5 = by_md5 or {}
+        self.reset_called = []
 
     def get_all_users(self):
         return []
@@ -19,6 +20,9 @@ class _Repo:
 
     def get_call_by_md5(self, user_id, md5):
         return self._by_md5.get(md5)
+
+    def reset_call(self, call_id):
+        self.reset_called.append(call_id)
 
 
 class _Ingester:
@@ -126,14 +130,17 @@ def test_scan_removes_transcribed_duplicate(tmp_path):
     assert not f.exists()             # транскрибированный дубль убран
 
 
-def test_scan_keeps_untranscribed_duplicate(tmp_path):
-    """Звонок есть, но не транскрибирован (error/завис) → исходник НЕ теряем."""
+def test_scan_keeps_untranscribed_duplicate_when_archive_present(tmp_path):
+    """Звонок есть, не транскрибирован, архив НА МЕСТЕ → не реингестим, файл цел."""
     root = tmp_path / "in"
     root.mkdir()
     f = root / "x.mp3"
     f.write_bytes(b"audio")
     md5 = FileWatcher._file_md5(f)
-    repo = _Repo(by_md5={md5: {"pipeline_stage": 0}})
+    archive = tmp_path / "arch" / "x.mp3"
+    archive.parent.mkdir(parents=True)
+    archive.write_bytes(b"audio")  # архив существует
+    repo = _Repo(by_md5={md5: {"call_id": 7, "pipeline_stage": 0, "audio_path": str(archive)}})
     ing = _Ingester()
     w = _watcher(_scan_cfg(), repo, ing)
 
@@ -141,4 +148,27 @@ def test_scan_keeps_untranscribed_duplicate(tmp_path):
 
     assert ids == []
     assert ing.calls == []
-    assert f.exists()                 # сохранён для повторной обработки
+    assert repo.reset_called == []    # не сбрасывали
+    assert f.exists()
+
+
+def test_scan_heals_missing_archive(tmp_path):
+    """Звонок есть, архив ПОТЕРЯН → восстановить из incoming + сброс на переобработку."""
+    root = tmp_path / "in"
+    root.mkdir()
+    f = root / "x.mp3"
+    f.write_bytes(b"audio-bytes")
+    md5 = FileWatcher._file_md5(f)
+    archive = tmp_path / "arch" / "2021" / "03" / "x.mp3"  # НЕ создан → потерян
+    repo = _Repo(by_md5={md5: {"call_id": 55, "pipeline_stage": 0, "audio_path": str(archive)}})
+    ing = _Ingester()
+    w = _watcher(_scan_cfg(), repo, ing)
+
+    ids = w._scan_user_dir("me", root)
+
+    assert ids == [55]                       # поставлен на переобработку
+    assert archive.exists()                  # архив восстановлен из incoming
+    assert archive.read_bytes() == b"audio-bytes"
+    assert repo.reset_called == [55]         # звонок сброшен
+    assert ing.calls == []                   # не реингестим — переиспользуем call_id
+    assert 55 in w._last_sources

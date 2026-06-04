@@ -8,6 +8,15 @@
 
 ## [Unreleased]
 
+### Fixed/Added — диагностика прогона #4 (diag.txt, 2026-06-04)
+
+- **БАГ `get_error_calls`** `db/repository.py` — параметры были `(user_id=None, max_retries=3)`, но ВСЕ вызовы передают `get_error_calls(max_retries)` позиционно → трактовалось как `user_id=3` → пустой результат. Из-за этого `retry_errors`/`reprocess`/`status` НЕ видели ошибки («Ошибок (retry): 0» при 2366 error). Сигнатура → `(max_retries=3, user_id=None)`. Теперь повтор ошибок работает (у всех 2366 retry_count=1 < 3).
+- **Self-heal потерянного аудио** `pipeline/watcher.py` + `repo.reset_call()` — диагностика показала: ошибки = «Аудиофайл не найден» (audio_path/norm не существуют после переноса D:→C:). Теперь если входящий файл совпал по MD5 со звонком, чей АРХИВ потерян → копируем входящий в архив + `reset_call` (status=new, stage=0, retry=0) + ставим на переобработку. Капнул файл обратно в `C:\calls\in` → `watch --once` сам чинит и переобрабатывает. (Если архив на месте, но звонок error — не трогаем: вероятно битый файл.)
+- **bat: `fix-torch.bat`** — переустановка torch 2.6.0+cu124 (на боксе cu124 затёрся CPU-сборкой torch 2.12 → CUDA False; GigaAM работал, но на CPU). **`install-roles.bat`** — pyannote.audio+soundfile+librosa, затем повторная установка cu124 torch + инструкция по HF_TOKEN и 3 gated-моделям pyannote.
+- Диагноз ролей: на боксе НЕ установлены pyannote.audio/soundfile/librosa и HF_TOKEN не задан → все 91942 сегмента UNKNOWN. Роли появятся после `install-roles.bat` + HF_TOKEN. Транскрибация (flat) работает уже сейчас даже на CPU (GigaAM load-test PASS).
+- `git` на боксе: «dubious ownership» → `git config --global --add safe.directory C:/pro/callprofiler`.
+- Tests: +1 self-heal (`test_scan_heals_missing_archive`); сигнатурный тест get_error_calls. 23 Stage-1 зелёные.
+
 ### Fixed/Added — фидбэк прогона #3 (2026-06-04)
 
 - **Flaky test fix** `pipeline/watcher.py` — `_is_file_settled` возвращает True при `settle_sec<=0` (на боксе Windows `age=time-mtime` выходил чуть отрицательным → `test_scan_ingests_new_file` падал `[]==[100]`). Детерминировано.

@@ -365,6 +365,18 @@ class Repository:
         )
         return dict(row) if row else None
 
+    def reset_call(self, call_id: int) -> None:
+        """Сбросить звонок на полную переобработку: status='new', stage=0,
+        retry_count=0, error_message=NULL. Используется при восстановлении
+        потерянного аудио / форс-переобработке."""
+        conn = self._get_conn()
+        conn.execute(
+            "UPDATE calls SET status='new', pipeline_stage=0, retry_count=0, "
+            "error_message=NULL WHERE call_id=?",
+            (call_id,),
+        )
+        conn.commit()
+
     def create_call(
         self,
         user_id: str,
@@ -483,7 +495,10 @@ class Repository:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def get_error_calls(self, user_id: str | None = None, max_retries: int = 3) -> list[dict]:
+    def get_error_calls(self, max_retries: int = 3, user_id: str | None = None) -> list[dict]:
+        # ВНИМАНИЕ: max_retries ПЕРВЫМ — все вызовы передают его позиционно
+        # (retry_errors/cmd_reprocess/cmd_status/dashboard). Раньше user_id был
+        # первым → get_error_calls(3) трактовался как user_id=3 → пустой результат.
         if user_id:
             rows = (
                 self._get_conn()

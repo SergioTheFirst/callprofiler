@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import shutil
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -217,20 +218,41 @@ class FileWatcher:
 
                 existing = self.repo.get_call_by_md5(user_id, md5)
                 if existing is not None:
-                    # Уже зарегистрирован. Убираем исходник ТОЛЬКО если транскрипт
-                    # готов (stage>=2) — иначе оставляем для повторной обработки.
                     stage = int(existing.get("pipeline_stage", 0) or 0)
                     if remove_on_success and stage >= _TRANSCRIBED_STAGE:
+                        # Транскрипт готов → убрать исходник из incoming
                         logger.info(
                             "Дубликат транскрибирован, убираю из incoming: %s", filename
                         )
                         self._remove_source(filepath, incoming_path)
+                        continue
+
+                    # Не транскрибирован (new/error/normalizing). Если архивная копия
+                    # ПОТЕРЯНА (частая причина error после переноса данных) —
+                    # восстановить из incoming + сбросить звонок на переобработку.
+                    archive = existing.get("audio_path") or ""
+                    call_id = existing.get("call_id")
+                    if archive and not Path(archive).exists():
+                        try:
+                            Path(archive).parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(filepath, archive)
+                            self.repo.reset_call(call_id)
+                            new_ids.append(call_id)
+                            self._last_sources[call_id] = (user_id, incoming_path, filepath)
+                            logger.info(
+                                "Восстановлен потерянный архив + сброс call_id=%s на "
+                                "переобработку: %s", call_id, filename,
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            logger.error(
+                                "Не удалось восстановить архив для %s: %s", filename, exc
+                            )
                     else:
                         logger.info(
-                            "Уже в БД (call_id=%s, status=%s, stage=%d) — не реингестим: %s. "
-                            "Для переобработки: process \"<файл>\" --user %s --force",
-                            existing.get("call_id"), existing.get("status"),
-                            stage, filename, user_id,
+                            "Уже в БД (call_id=%s, status=%s, stage=%d, архив на месте) "
+                            "— не реингестим: %s. Переобработать: "
+                            "process \"<файл>\" --user %s --force",
+                            call_id, existing.get("status"), stage, filename, user_id,
                         )
                     continue
 
