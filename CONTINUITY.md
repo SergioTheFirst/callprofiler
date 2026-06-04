@@ -22,6 +22,14 @@
 
 **State:**
 
+🟢 **СИСТЕМА ГОТОВА К ПРОДАКШН-ПРОГОНУ 17k** (2026-06-04, коммиты до 256002d). Готово:
+чистый старт `reset.bat` (бэкап БД, защищает in/source); удаление normalized после stage 2
+(`delete_normalized_after_transcribe:true`); pyannote 1 загрузка/чанк + чанки по 100 + телеметрия
+off (OTEL_SDK_DISABLED+set_telemetry_metrics(False)); роли работают; дашборд real-time (все 8 стадий,
+SSE 5с). LLM вкл (нужен поднятый llama-server — в `run-one.log` был parse_failed из-за выключенного
+сервера). НЕ сделано (Фаза 2, на реальных данных): улучшение профилей (карточки/психо/биография/граф) —
+вслепую = гадание, ждём данные. Bat'ы: sync-main/run-one/run-watch/reset/cleanup/diag.
+
 ✅ **РОЛИ РАБОТАЮТ END-TO-END НА БОКСЕ** (2026-06-04, `run-one.log`, call_id=19751 «Халит
 Мухтарович», 23-мин звонок): ingest → normalize → диаризация (405 turn'ов, OWNER=SPEAKER_01,
 sim=0.581) → GigaAM по turn'ам (403 сегмента) → `.txt` с ролями → done. Фиксы torchcodec-обход
