@@ -5,7 +5,7 @@ from typing import Dict
 VERSION = "3.0.0"
 
 # Polling / SSE
-POLL_INTERVAL_SEC = 5
+POLL_INTERVAL_SEC = 2   # как быстро поллер замечает изменение БД (live-ощущение)
 SSE_KEEPALIVE_SEC = 30
 
 # Pagination / limits

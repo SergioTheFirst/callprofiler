@@ -40,6 +40,11 @@ class ModelsConfig:
     whisper_language: str = "ru"
     llm_model: str = "local"
     llm_url: str = "http://127.0.0.1:8080/v1/chat/completions"
+    # Окно контекста llama-server на старте (флаг ``-c``). Master-ручка
+    # динамического бюджета вывода: per-call max_tokens = n_ctx - prompt - запас.
+    # Определяется VRAM на боксе (12GB → 16384 на Q8_0 безопасно). См.
+    # DYNAMIC_TOKEN_BUDGET_PLAN.md и analyze/output_budget.py.
+    llm_n_ctx: int = 16384
     asr_backend: str = "whisper"  # "whisper" | "gigaam"
     gigaam_url: str = ""          # legacy HTTP endpoint (не используется локальной моделью)
     gigaam_model_dir: str = ""    # каталог локальной GigaAM (HF, trust_remote_code)
@@ -126,6 +131,7 @@ def load_config(path: str) -> Config:
             whisper_language=m.get("whisper_language", cfg.models.whisper_language),
             llm_model=m.get("llm_model", cfg.models.llm_model),
             llm_url=m.get("llm_url", cfg.models.llm_url),
+            llm_n_ctx=int(m.get("llm_n_ctx", cfg.models.llm_n_ctx)),
             asr_backend=m.get("asr_backend", cfg.models.asr_backend),
             gigaam_url=m.get("gigaam_url", cfg.models.gigaam_url),
             gigaam_model_dir=m.get("gigaam_model_dir", cfg.models.gigaam_model_dir),

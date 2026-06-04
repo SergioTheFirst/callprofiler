@@ -29,14 +29,28 @@ class DashboardDBReader:
         self._conn: sqlite3.Connection | None = None
 
     def connect(self):
-        """Open read-only connection."""
+        """Открыть соединение, видящее ЖИВЫЕ WAL-записи пайплайна.
+
+        ВАЖНО (root cause «замёрзшего» real-time): ``?mode=ro`` в WAL-режиме НЕ
+        видит свежие коммиты — read-only коннект не подключается к WAL-индексу и
+        читает снимок до последнего checkpoint. Пайплайн пишет в WAL
+        (``repository.py`` → ``PRAGMA journal_mode=WAL``), поэтому дашборд
+        показывал устаревшие счётчики, хотя обработка шла.
+
+        Фикс: открываем обычное (read/write) соединение — оно полноценно
+        цепляется к WAL и всегда видит последний коммит — и ставим
+        ``PRAGMA query_only=ON``: писать нельзя, пайплайн не задеваем. WAL не
+        блокирует: много читателей + 1 писатель работают параллельно.
+        """
         if self._conn is None:
             self._conn = sqlite3.connect(
-                f"file:{self.db_path}?mode=ro",
-                uri=True,
+                self.db_path,
                 timeout=DB_QUERY_TIMEOUT_SEC,
+                check_same_thread=False,
             )
             self._conn.row_factory = sqlite3.Row
+            self._conn.execute("PRAGMA query_only=ON")   # read-only на уровне SQL
+            self._conn.execute("PRAGMA busy_timeout=3000")
 
     def close(self):
         """Close connection."""

@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Any
 
 from callprofiler.analyze.llm_client import LLMClient
+from callprofiler.analyze.output_budget import output_budget
+from callprofiler.analyze.prompt_budget import estimate_tokens
 from callprofiler.analyze.prompt_builder import PromptBuilder
 from callprofiler.analyze.response_parser import parse_llm_response
 from callprofiler.config import Config
@@ -40,7 +42,7 @@ class AnalysisService:
         call: dict[str, Any],
         segments: list[dict[str, Any]] | list[Any],
         *,
-        max_tokens: int = 1500,
+        max_tokens: int | None = None,
         temperature: float = 0.3,
         prompt_version: str = "v001",
     ) -> Analysis:
@@ -82,13 +84,36 @@ class AnalysisService:
         else:
             messages = [{"role": "user", "content": str(prompt)}]
 
-        # Call LLM
-        try:
-            raw_response = self.llm.generate(
-                messages=messages, temperature=temperature, max_tokens=max_tokens
+        # Динамический бюджет вывода: длинные/ценные звонки получают больше
+        # места под JSON, короткие не резервируют лишнее. Потолок — окно модели
+        # минус оценка промпта (max_tokens — это потолок, не цель; KV-кэш
+        # выделён на старте, так что это стоит времени, а не VRAM).
+        if max_tokens is None:
+            prompt_tokens = sum(estimate_tokens(m["content"]) for m in messages)
+            budget = output_budget(
+                transcript_chars=len(transcript_text),
+                prompt_tokens=prompt_tokens,
+                n_ctx=self.config.models.llm_n_ctx,
             )
+        else:
+            budget = max_tokens
+
+        # Call LLM
+        truncated = False
+        try:
+            result = self.llm.complete(
+                messages=messages, temperature=temperature, max_tokens=budget
+            )
+            raw_response = result.text or ""
+            truncated = result.truncated
+            if truncated:
+                log.warning(
+                    "[AnalysisService] call_id=%s: вывод обрезан (max_tokens=%d) — "
+                    "JSON может быть неполным",
+                    call_id, budget,
+                )
         except (ConnectionError, RuntimeError) as exc:
-            log.error("[AnalysisService] LLM unavailable for call_id=%d: %s", call_id, exc)
+            log.error("[AnalysisService] LLM unavailable for call_id=%s: %s", call_id, exc)
             raw_response = ""
 
         # Parse response
@@ -97,6 +122,12 @@ class AnalysisService:
             model=self.config.models.llm_model,
             prompt_version=prompt_version,
         )
+
+        # Пометить обрезку для ручного просмотра (pipeline.md → output_truncated),
+        # не затирая более информативный parse_failed.
+        if truncated and getattr(analysis, "parse_status", None) != "parse_failed":
+            if hasattr(analysis, "parse_status"):
+                analysis.parse_status = "output_truncated"
 
         return analysis
 

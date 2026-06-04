@@ -14,10 +14,28 @@ from __future__ import annotations
 import json
 import logging
 import time
+from dataclasses import dataclass
 
 import requests
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class LLMResult:
+    """Результат вызова LLM с метаданными завершения.
+
+    ``finish_reason`` от llama-server: ``"stop"`` — модель закончила сама,
+    ``"length"`` — упёрлась в ``max_tokens`` (вывод ОБРЕЗАН). Обрезку надо
+    ловить: иначе теряются promises/facts (см. pipeline.md → output_truncated).
+    """
+
+    text: str | None
+    finish_reason: str | None = None
+
+    @property
+    def truncated(self) -> bool:
+        return self.finish_reason == "length"
 
 
 class LLMClient:
@@ -74,22 +92,23 @@ class LLMClient:
         except requests.RequestException as exc:
             logger.warning("Предупреждение при проверке LLM сервера: %s", exc)
 
-    def generate(
+    def complete(
         self,
         messages: list[dict],
         temperature: float = 0.3,
         max_tokens: int = 1500,
-    ) -> str | None:
-        """Отправить сообщения в LLM и получить ответ.
+    ) -> LLMResult:
+        """Отправить сообщения в LLM и вернуть текст + finish_reason.
 
         Параметры:
             messages     — список сообщений в формате OpenAI API
                           [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}]
             temperature  — параметр температуры (0.0-2.0), по умолчанию 0.3 для консистентного JSON
-            max_tokens   — максимальное число токенов в ответе (1500 для полного JSON)
+            max_tokens   — максимальное число токенов в ответе (потолок, не цель)
 
         Возвращает:
-            Полный ответ модели (текст или JSON), или None при ошибке
+            LLMResult(text, finish_reason). ``text=None`` при ошибке подключения
+            или невалидном ответе. ``finish_reason="length"`` → вывод обрезан.
         """
         logger.debug(
             "Отправка промпта в LLM сервер (сообщений: %d, max_tokens: %d)",
@@ -112,11 +131,14 @@ class LLMClient:
 
                 try:
                     result = response.json()
-                    # OpenAI API format: response["choices"][0]["message"]["content"]
-                    return result["choices"][0]["message"]["content"]
+                    # OpenAI API format: choices[0].message.content + finish_reason
+                    choice = result["choices"][0]
+                    content = choice["message"]["content"]
+                    finish_reason = choice.get("finish_reason")
+                    return LLMResult(text=content, finish_reason=finish_reason)
                 except (json.JSONDecodeError, KeyError, IndexError):
                     logger.error("Невалидный ответ от LLM сервера: %s", response.text[:200])
-                    return None  # не ретраим: ответ пришёл, но невалидный JSON
+                    return LLMResult(text=None)  # не ретраим: ответ пришёл, но невалидный JSON
 
             except (requests.Timeout, requests.ConnectionError) as exc:
                 last_exc = exc
@@ -129,12 +151,26 @@ class LLMClient:
                     time.sleep(delay)
             except requests.RequestException as exc:
                 logger.error("Ошибка при запросе к LLM серверу: %s", exc)
-                return None  # не ретраим: не transient error
+                return LLMResult(text=None)  # не ретраим: не transient error
 
         logger.error(
             "LLM недоступен после 3 попыток (timeout=%ds): %s", self.timeout, last_exc
         )
-        return None
+        return LLMResult(text=None)
+
+    def generate(
+        self,
+        messages: list[dict],
+        temperature: float = 0.3,
+        max_tokens: int = 1500,
+    ) -> str | None:
+        """Обратно-совместимая обёртка над :meth:`complete` — только текст ответа.
+
+        Существующие вызовы (biography, graph и т.д.) продолжают получать
+        ``str | None``. Новый код, которому нужен ``finish_reason``, зовёт
+        :meth:`complete`.
+        """
+        return self.complete(messages, temperature, max_tokens).text
 
 
 # Для обратной совместимости (если что-то ещё использует OllamaClient)

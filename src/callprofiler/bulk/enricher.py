@@ -20,6 +20,7 @@ from callprofiler.analyze.response_parser import parse_llm_response
 from callprofiler.config import load_config
 from callprofiler.db.repository import Repository
 from callprofiler.analyze.prompt_budget import estimate_tokens, clip_transcript_for_llm
+from callprofiler.analyze.output_budget import output_budget
 from callprofiler.models import Analysis
 
 log = logging.getLogger(__name__)
@@ -388,22 +389,40 @@ def bulk_enrich(
                         f"Стенограмма:\n{transcript_text}"
                     )
 
+                    # Динамический бюджет вывода: длинный/ценный звонок получает
+                    # больше места под JSON, короткий не резервирует лишнее.
+                    # Потолок — окно модели минус оценка промпта (см. output_budget).
+                    prompt_tokens = estimate_tokens(prompt_template) + estimate_tokens(user_message)
+                    budget = output_budget(
+                        transcript_chars=len(transcript_text),
+                        prompt_tokens=prompt_tokens,
+                        n_ctx=cfg.models.llm_n_ctx,
+                    )
+
                     llm_start = time.time()
-                    llm_response = llm.generate(
+                    llm_result = llm.complete(
                         messages=[
                             {"role": "system", "content": prompt_template},
                             {"role": "user", "content": user_message},
                         ],
                         temperature=0.3,
-                        max_tokens=1500,
+                        max_tokens=budget,
                     )
                     llm_elapsed = time.time() - llm_start
+                    llm_response = llm_result.text
 
                     # Если LLM вернул None — ошибка подключения/timeout
                     if llm_response is None:
                         log.error("[enricher] ERR call_id=%d: LLM вернул None (ошибка/timeout)", call_id)
                         stats["failed"] += 1
                         continue
+
+                    if llm_result.truncated:
+                        log.warning(
+                            "[enricher] call_id=%d: вывод обрезан (max_tokens=%d) — "
+                            "JSON может быть неполным",
+                            call_id, budget,
+                        )
 
                     llm_times.append(llm_elapsed)
                     est_tokens = max(1, len(llm_response) // 4)
@@ -413,6 +432,14 @@ def bulk_enrich(
                     analysis = parse_llm_response(llm_response)
                     is_partial = not analysis.summary  # Если summary пусто — парсинг частичный
                     parse_status = getattr(analysis, "parse_status", "unknown")
+
+                    # Пометить обрезку вывода для ручного просмотра
+                    # (pipeline.md → output_truncated), не затирая parse_failed.
+                    if llm_result.truncated and parse_status != "parse_failed":
+                        if hasattr(analysis, "parse_status"):
+                            analysis.parse_status = "output_truncated"
+                        parse_status = "output_truncated"
+                        is_partial = True
 
                     # ETA по всем завершённым (включая skipped/failed)
                     completed = stats["processed"] + stats["partial"] + stats["skipped"] + stats["failed"]

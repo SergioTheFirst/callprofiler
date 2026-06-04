@@ -89,6 +89,18 @@ None currently identified.
 
 ## Recent Fixes (Closed)
 
+✅ **Дашборд не показывал real-time — `?mode=ro` не видит WAL-записи** (2026-06-04)
+- **Root cause (non-obvious):** пайплайн пишет в WAL (`repository.py` → `PRAGMA
+  journal_mode=WAL`), а `dashboard/db_reader.py` открывал БД через
+  `file:...?mode=ro`. Read-only коннект в WAL НЕ цепляется к WAL-индексу и читает
+  снимок до последнего checkpoint → счётчики «замёрзшие», хотя обработка шла.
+  Свежий reader на каждый тик поллера не спасал — `mode=ro` каждый раз даёт старый
+  снимок. Бэкенд (`updated_at` бампается) и фронт (EventSource `/api/sse`) исправны.
+- **Fix:** обычный read/write коннект (видит живой WAL) + `PRAGMA query_only=ON`
+  (без записи, не мешает пайплайну; WAL = N читателей + 1 писатель без блокировок).
+  `POLL_INTERVAL_SEC` 5→2. Проба живости: `dash-check.bat` / `dash_check.py`.
+- **Status:** RESOLVED код (2026-06-04). Проверка на боксе во время прогона.
+
 ✅ **Роли UNKNOWN даже при готовом окружении — pyannote 4.x декодирует через torchcodec** (2026-06-04)
 - **Root cause (non-obvious):** diag #5 — env на боксе ПОЛНОСТЬЮ готов (py3.12, torch 2.6+cu124,
   CUDA True, HF_TOKEN задан, pyannote.audio **4.0.4**, GigaAM на GPU). Легко решить, что роли

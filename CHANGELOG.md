@@ -8,6 +8,32 @@
 
 ## [Unreleased]
 
+### Fixed — дашборд real-time: read-коннект не видел WAL-записи (2026-06-04)
+
+- **`dashboard/db_reader.py`** — `?mode=ro` в WAL-режиме читал снимок до последнего
+  checkpoint → счётчики «замерзали», хотя пайплайн работал. Теперь обычный
+  read/write коннект (видит живой WAL) + `PRAGMA query_only=ON` (без записи, не
+  мешает пайплайну). `dashboard/config.py`: `POLL_INTERVAL_SEC` 5→2.
+- Инструменты на боксе: `dash.bat` (запуск дашборда), `dash-check.bat` +
+  `dash_check.py` (проба живости БД во время прогона). См. `.claude/rules/bugs.md`.
+
+### Added — динамический бюджет выходных токенов LLM-анализа (2026-06-04)
+
+- **`analyze/output_budget.py`** — `output_budget(transcript_chars, prompt_tokens, n_ctx)`:
+  заменяет статический `max_tokens=1500`. Тиры по длине транскрипта (700/1500/2600/3600),
+  ×1.2 для контакта с `priority>=70`. Два потолка: hardware (`n_ctx − prompt − 512`) и
+  policy (`abs_max=4096`). Идея: `max_tokens` — потолок, не цель; KV-кэш выделён на старте
+  (`-c`), потому это стоит времени декодирования, а не VRAM. Длинные ценные звонки больше не
+  обрезаются (теряли promises/facts → ломали граф/biography). 16 unit-тестов.
+- **`LLMClient.complete()` + `LLMResult(text, finish_reason)`** в `analyze/llm_client.py` —
+  ловим `finish_reason="length"` (обрезку). `generate()` оставлен как обёртка (`str|None`,
+  обратная совместимость для biography/graph).
+- **`ModelsConfig.llm_n_ctx`** (default 16384) — master-ручка бюджета, из YAML `models.llm_n_ctx`.
+- Подключено в обоих путях анализа: `analyze/service.py` (живой orchestrator-путь,
+  `analyze_one_call`, `max_tokens=None` → авто-бюджет) и `bulk/enricher.py`. Обрезка вывода →
+  `parse_status="output_truncated"` (pipeline.md), не затирая `parse_failed`.
+- План: `DYNAMIC_TOKEN_BUDGET_PLAN.md`.
+
 ### Changed — подготовка к массовому прогону (17k) + телеметрия off (2026-06-04)
 
 - **pyannote грузится ОДИН раз на батч** `pipeline/orchestrator.py` (`_diarize_batch`) — было:
