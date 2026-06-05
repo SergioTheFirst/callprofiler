@@ -8,6 +8,14 @@
 
 ## [Unreleased]
 
+### Changed — reset.py = чистый лист (защита in+source, снос всей data) (2026-06-05)
+- `reset.py` переписан: сносит ВСЁ производное (вся `C:\calls\data` = БД+профили+logs+biography,
+  `C:\calls\text`, `C:\calls\sync`) КРОМЕ `C:\calls\in` (вход) и `C:\calls\source` (мастер).
+  Затем bootstrap (юзер me, incoming=in). После — `startprocess.bat` прогоняет in с нуля.
+- Бэкап БД теперь ВНЕ data (`C:\calls\callprofiler.db.bak-<ts>`) — переживает снос. dry-run по
+  умолчанию, `--apply` сносит, `--no-backup` опц. Убран `--keep-files`. `reset.bat` usage обновлён.
+- Семантика «священно vs расходник» зафиксирована в `.claude/rules/decisions.md`.
+
 ### Changed — pipeline: удаление normalized wav + карта стадий + правила памяти (2026-06-05)
 - `delete_normalized_after_transcribe: true` подтверждён в `base.yaml` (wav сносится после stage 2;
   регенерируется из mp3-архива; экономит ~1.9 MB/мин диска на 17k; скорость НЕ меняет).

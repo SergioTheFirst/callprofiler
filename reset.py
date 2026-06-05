@@ -1,21 +1,28 @@
 # -*- coding: utf-8 -*-
 """
-reset.py — ЧИСТЫЙ СТАРТ: бэкап старой БД → удалить БД и производные данные →
-пересоздать пустую БД + папки + юзера `me` (через bootstrap).
+reset.py — ЧИСТЫЙ ЛИСТ: снести ВСЕ производные данные → пересоздать пустую
+БД + папки + юзера `me` (через bootstrap). После reset запусти startprocess.bat —
+обработка пойдёт заново на файлах из C:\\calls\\in.
 
-ПО УМОЛЧАНИЮ DRY-RUN: печатает, что будет снесено, и НИЧЕГО не трогает.
-Реальная очистка — только с флагом --apply.
+ЗАЩИЩЕНО (НЕ трогаем НИКОГДА):
+  - C:\\calls\\in      — входящие аудио (вход обработки; startprocess их прогонит)
+  - C:\\calls\\source  — мастер-архив исходников
 
-НИКОГДА не трогает источники: C:\\calls\\in и C:\\calls\\source.
-Сносит ТОЛЬКО производное: БД, C:\\calls\\data\\users\\* (originals-копии +
-normalized), C:\\calls\\text, C:\\calls\\sync. Старая БД бэкапится перед удалением.
+СНОСИМ (всё кроме защищённого):
+  - C:\\calls\\data    — ВСЯ: БД, все профили users/* (originals+normalized),
+                         logs, biography — всё
+  - C:\\calls\\text    — .txt транскрипты
+  - C:\\calls\\sync    — caller cards
+
+ПО УМОЛЧАНИЮ DRY-RUN: печатает план, НИЧЕГО не трогает. Реальный снос — только --apply.
+БД бэкапится ВНЕ data (рядом, в C:\\calls\\) перед сносом — переживает wipe.
 
   python reset.py            # dry-run (показать план)
-  python reset.py --apply     # снести и пересоздать (bootstrap)
-  python reset.py --apply --keep-files   # снести только БД, data-файлы оставить
+  python reset.py --apply     # снести всё → пустая БД + юзер me (bootstrap)
+  python reset.py --apply --no-backup   # без бэкапа БД
 
 Опции:
-  --data-dir PATH (default C:\\calls\\data)
+  --data-dir PATH (default C:\\calls\\data)   — сносится ЦЕЛИКОМ
   --text-dir  PATH (default C:\\calls\\text)
   --sync-dir  PATH (default C:\\calls\\sync)
 """
@@ -38,7 +45,7 @@ except Exception:
 DEFAULT_DATA = r"C:\calls\data"
 DEFAULT_TEXT = r"C:\calls\text"
 DEFAULT_SYNC = r"C:\calls\sync"
-# Источники — НЕ трогаем ни при каких условиях.
+# Вход обработки и мастер-архив — НЕ трогаем ни при каких условиях.
 PROTECTED = {r"c:\calls\in", r"c:\calls\source"}
 
 
@@ -66,8 +73,8 @@ def _mb(n: int) -> str:
 
 
 def _overlaps_protected(path: str) -> bool:
-    """True, если path == источник, ВНУТРИ источника, или СОДЕРЖИТ источник
-    (последнее = rmtree снёс бы источники). Защита от --data-dir C:\\calls и т.п."""
+    """True, если path == защищённый, ВНУТРИ него, или СОДЕРЖИТ его (rmtree снёс бы
+    in/source). Защита от --data-dir C:\\calls и подобных промахов."""
     t = os.path.normpath(os.path.abspath(path)).lower().rstrip("\\")
     for prot in PROTECTED:
         pr = os.path.normpath(prot).lower().rstrip("\\")
@@ -95,67 +102,63 @@ def _count_calls(db: str) -> str:
 
 
 def main(argv=None) -> int:
-    p = argparse.ArgumentParser(description="Чистый старт CallProfiler (dry-run по умолчанию).")
+    p = argparse.ArgumentParser(description="Чистый лист CallProfiler (dry-run по умолчанию).")
     p.add_argument("--apply", action="store_true", help="реально снести и пересоздать (иначе dry-run)")
-    p.add_argument("--keep-files", action="store_true", help="снести только БД, data-файлы оставить")
+    p.add_argument("--no-backup", action="store_true", help="не бэкапить БД перед сносом")
     p.add_argument("--data-dir", default=DEFAULT_DATA)
     p.add_argument("--text-dir", default=DEFAULT_TEXT)
     p.add_argument("--sync-dir", default=DEFAULT_SYNC)
     args = p.parse_args(argv)
 
     db = _db_path(args.data_dir)
-    users_dir = os.path.join(args.data_dir, "users")
-    targets = [users_dir, args.text_dir, args.sync_dir]
+    targets = [args.data_dir, args.text_dir, args.sync_dir]
 
-    print("== ЧИСТЫЙ СТАРТ ==")
+    print("== ЧИСТЫЙ ЛИСТ ==")
     print(f"  БД: {db} | {_count_calls(db)} | "
           f"{_mb(os.path.getsize(db)) if os.path.isfile(db) else 'нет файла'}")
-    if not args.keep_files:
-        for t in targets:
-            files, size = _dir_stats(t)
-            print(f"  data: {t} | файлов: {files} | {_mb(size)}")
-    print(f"  ИСТОЧНИКИ (НЕ трогаем): {', '.join(sorted(PROTECTED))}")
+    print("  СНОСИМ (всё кроме защищённого):")
+    for t in targets:
+        files, size = _dir_stats(t)
+        print(f"    {t} | файлов: {files} | {_mb(size)}")
+    print(f"  ЗАЩИЩЕНО (НЕ трогаем): {', '.join(sorted(PROTECTED))}")
 
-    # Guard: ни одна цель не должна пересекаться с источниками (in/source)
-    for t in [db] + (targets if not args.keep_files else []):
+    # Guard: ни одна цель не должна пересекаться с in/source.
+    for t in targets:
         if _overlaps_protected(t):
-            print(f"[СТОП] цель пересекается с источником (in/source): {t}")
+            print(f"[СТОП] цель пересекается с защищённым (in/source): {t}")
             return 2
 
     if not args.apply:
         print("\n  Это DRY-RUN. Ничего не снесено.")
-        print("  Реальный чистый старт: reset.bat --apply")
+        print("  Реальный чистый лист: reset.bat --apply")
         return 0
 
-    # 1) Бэкап БД
-    if os.path.isfile(db):
-        bak = f"{db}.bak-{time.strftime('%Y%m%d-%H%M%S')}"
-        shutil.copy2(db, bak)
-        print(f"\n[1] Бэкап БД → {bak}")
-        for ext in ("", "-wal", "-shm"):
+    # 1) Бэкап БД ВНЕ data_dir (иначе снесётся вместе с data).
+    if os.path.isfile(db) and not args.no_backup:
+        backup_root = os.path.dirname(os.path.normpath(args.data_dir)) or "."
+        bak = os.path.join(backup_root, f"callprofiler.db.bak-{time.strftime('%Y%m%d-%H%M%S')}")
+        try:
+            shutil.copy2(db, bak)
+            print(f"\n[1] Бэкап БД → {bak}")
+        except OSError as exc:
+            print(f"\n[1] [!] не удалось бэкапить БД ({exc}) — продолжаю без бэкапа")
+    elif args.no_backup:
+        print("\n[1] --no-backup: бэкап БД пропущен")
+    else:
+        print("\n[1] БД не было — бэкап не нужен")
+
+    # 2) Снести всё производное (data целиком + text + sync).
+    for t in targets:
+        if os.path.isdir(t):
             try:
-                if os.path.isfile(db + ext):
-                    os.remove(db + ext)
+                shutil.rmtree(t)
+                print(f"[2] Снесено: {t}")
             except OSError as exc:
-                print(f"    [!] не удалить {db + ext}: {exc}")
-        print("[2] Старая БД удалена")
-    else:
-        print("\n[1-2] БД не было — пропуск")
+                print(f"    [!] не снести {t}: {exc}")
 
-    # 2) Снести производные data-файлы
-    if not args.keep_files:
-        for t in targets:
-            if os.path.isdir(t):
-                try:
-                    shutil.rmtree(t)
-                    print(f"[3] Снесено: {t}")
-                except OSError as exc:
-                    print(f"    [!] не снести {t}: {exc}")
-    else:
-        print("[3] --keep-files: data-файлы оставлены")
-
-    # 3) Пересоздать пустую БД + папки + юзера me (через bootstrap)
-    print("[4] bootstrap (пустая БД + папки + юзер me)...")
+    # 3) Пересоздать пустую БД + папки + юзера me (bootstrap, дефолты:
+    #    user=me, incoming=C:\calls\in, sync=C:\calls\sync).
+    print("[3] bootstrap (пустая БД + папки + юзер me, incoming=C:\\calls\\in)...")
     env = dict(os.environ)
     env["PYTHONPATH"] = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src")
     rc = subprocess.run(
@@ -165,7 +168,8 @@ def main(argv=None) -> int:
         print(f"[ОШИБКА] bootstrap вернул {rc}. Запусти вручную: python -m callprofiler bootstrap")
         return rc
 
-    print("\n[OK] Чистый старт готов. Клади источники в C:\\calls\\in и запускай run-watch.bat")
+    print("\n[OK] Чистый лист готов. БД пустая, профили снесены, in/source целы.")
+    print("     Запусти startprocess.bat — обработка пойдёт заново на файлах из C:\\calls\\in.")
     return 0
 
 

@@ -31,6 +31,11 @@
 архив/удаление файлов. Источник ответов про конвейер: НЕ перечитывать код. Правила «кратко/память-first/
 commit-push main» прописаны в `CLAUDE.md` (Communication + Memory Protocol).
 
+🟢 **reset.py = чистый лист** (2026-06-05). Сносит ВСЁ кроме `C:\calls\in` (вход) и `C:\calls\source`
+(мастер): вся `data` (БД+профили+logs+biography)+`text`+`sync` → bootstrap (me, incoming=in) →
+`startprocess.bat` прогоняет in с нуля. Бэкап БД ВНЕ data. dry-run по умолч., `--apply` сносит.
+WHY/священно-vs-расходник — `.claude/rules/decisions.md`.
+
 🟢 **Дашборд: переключатель профилей (user_id)** — рабочие данные под юзером `me` (~16645 done); `serhio` битый.
 
 **Prod-данные на боксе:** ~16645 done под `me`, 2349 error, 754 normalizing(stage0); `serhio` битый

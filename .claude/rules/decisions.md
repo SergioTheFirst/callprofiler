@@ -232,3 +232,22 @@ speaker-спанов pyannote на уже сохранённые `transcripts.st
 
 **Отложить:** LLM-анализ (Stage-2 bulk-enrich над `transcribed`), граф v2/профили/биография,
 biography→analysis resilience, чистку error/serhio, VAD/overlap на стыках окон.
+
+## reset.py = «чистый лист»: что священно, что расходник (2026-06-05)
+
+**Решение пользователя:** `reset.py` сносит ВСЁ производное кроме двух папок, затем bootstrap →
+`startprocess.bat` (watch) прогоняет обработку заново.
+
+**Священно (reset НЕ трогает, `PROTECTED`):**
+- `C:\calls\in` — **вход обработки** (watch читает `users.incoming_dir`, дефолт = in). Исходники для
+  перепрогона лежат ЗДЕСЬ (выбор пользователя 2026-06-05: «аудио уже в in»). Снести = нечего обрабатывать.
+- `C:\calls\source` — мастер-архив исходников (вне кода, ручной).
+
+**Расходник (reset сносит ЦЕЛИКОМ):** вся `C:\calls\data` (БД + все профили `users/*` с
+originals+normalized + logs + biography) + `C:\calls\text` + `C:\calls\sync`. Профильные `originals/` —
+КОПИИ входа, не мастер; мастер = in/source. Поэтому их снос безопасен.
+
+**Non-obvious:** БД лежит ВНУТРИ data (`data/db/callprofiler.db`) → бэкап делается ВНЕ data
+(`C:\calls\callprofiler.db.bak-<ts>`), иначе снёсся бы вместе с data. dry-run по умолчанию (необратимо,
+16645+ звонков): реальный снос только `--apply`. bootstrap-дефолты (`user=me`, `incoming=C:\calls\in`)
+восстанавливают рабочий стейт без аргументов.
