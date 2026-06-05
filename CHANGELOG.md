@@ -8,13 +8,17 @@
 
 ## [Unreleased]
 
-### Perf — диаризация: батчевый инференс pyannote (2026-06-05)
+### Perf — диаризация: батч pyannote + диагностика (2026-06-05)
 - Симптом: ~25-30с/звонок. Причина НЕ регресс кода: раньше pyannote молча падала (torchcodec
   DLL на Windows) → мгновенный UNKNOWN → «быстро»; теперь окружение настроено, диаризация реально
   работает. Узкое место — серийный per-window инференс (pyannote по умолчанию батчит ~по 1).
-- Фикс: `segmentation_batch_size`/`embedding_batch_size` = `config.models.pyannote_batch_size`
-  (дефолт 32) в `PyannoteRunner.load` (guarded, settable в 3.1/4.x) → инференс одним проходом,
-  в разы быстрее. + WARNING, если pyannote на CPU (`torch.cuda.is_available()=False`).
+- Батч: `pyannote_batch_size` (дефолт 32) применяется ко ВСЕМ `*_batch_size` на pipeline и
+  под-шагах (`_apply_batch_size`, имена различаются 3.1↔4.x) + к нашему `Inference`. Логируются
+  РЕАЛЬНО применённые (прежний лог врал `batch=32` при 0 применённых → «не помогло»).
+- Owner-эмбеддинг капнут `_MAX_OWNER_EMB_SEC=30` (был whole-audio на минутах = медленно).
+- **Тайминг по стадиям** в `diarize()`: `pipeline=%.1fs owner_emb=%.1fs device=%s` — лог теперь
+  точно показывает, где время. + WARNING при CPU. Лог-файл: `configs/base.yaml log_file` →
+  `C:\Users\SERGE\Desktop\rez.txt` (FileHandler в `setup_logging`).
 
 ### Fixed — ffmpeg EINVAL(-22) на нормализации после атомарной записи (2026-06-05)
 - Атомарный temp `{dst}.wav.part` ломал выбор выходного мукса ffmpeg (он берёт формат из

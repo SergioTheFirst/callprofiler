@@ -22,6 +22,7 @@ import gc
 import logging
 import os
 import tempfile
+import time
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -37,6 +38,10 @@ logger = logging.getLogger(__name__)
 # EBU R128 LUFS settings for normalization before embedding extraction
 _LOUDNORM = True
 _SAMPLE_RATE = 16000
+
+# Cap на длительность аудио для owner-эмбеддинга (идентификация спикера).
+# Больше — медленнее без выигрыша в точности (см. _find_owner_label).
+_MAX_OWNER_EMB_SEC = 30.0
 
 # pyannote.audio 4.x по умолчанию шлёт OpenTelemetry-метрики на otel.pyannote.ai.
 # Проект — 100% local (CLAUDE.md): глушим телеметрию ещё ДО импорта pyannote —
@@ -214,21 +219,31 @@ class PyannoteRunner:
             self.pipeline.to(self._device)
 
             # ── Perf: батчевый инференс (главный рычаг скорости) ──────────────
-            # Узкое место диаризации — серийный per-window инференс segmentation+
-            # embedding. По умолчанию pyannote батчит ~по 1 → на звонке с десятками
-            # turn'ов это десятки последовательных GPU-вызовов = 25-30с/звонок.
-            # Батч 32 объединяет их в один проход → в разы быстрее. Атрибуты
-            # settable в 3.1/4.x; guarded на случай иной версии. Тюнится
-            # config.models.pyannote_batch_size.
+            # Узкое место — серийный per-window инференс. По умолчанию pyannote
+            # батчит ~по 1 → на звонке с десятками turn'ов десятки последовательных
+            # GPU-вызовов. Имена атрибутов отличаются по версиям (3.1 vs 4.x) →
+            # ищем ЛЮБОЙ ``*_batch_size`` на pipeline и на вложенных шагах и
+            # выставляем. Логируем РЕАЛЬНО применённые (раньше лог писал batch=32,
+            # даже когда ничего не применилось — отсюда «скорость не изменилась»).
             batch_size = int(getattr(self.config.models, "pyannote_batch_size", 32) or 32)
-            for attr in ("segmentation_batch_size", "embedding_batch_size"):
-                if hasattr(self.pipeline, attr):
-                    try:
-                        setattr(self.pipeline, attr, batch_size)
-                    except Exception:  # noqa: BLE001 — не критично для работы
-                        logger.debug("Не удалось задать %s=%d", attr, batch_size)
+            applied = self._apply_batch_size(self.pipeline, batch_size)
+            # Наш embedding-Inference (owner-label) тоже батчим.
+            if hasattr(self.inference, "batch_size"):
+                try:
+                    self.inference.batch_size = batch_size
+                    applied.append(f"inference.batch_size={batch_size}")
+                except Exception:  # noqa: BLE001
+                    pass
 
-            logger.info("Pyannote модели загружены успешно (batch=%d)", batch_size)
+            if applied:
+                logger.info("Pyannote batch применён: %s", ", ".join(applied))
+            else:
+                logger.warning(
+                    "Pyannote: не найдено НИ ОДНОГО *_batch_size атрибута "
+                    "(версия %s?) — инференс серийный, диаризация будет медленной.",
+                    getattr(__import__("pyannote.audio"), "__version__", "?"),
+                )
+            logger.info("Pyannote модели загружены успешно")
 
         except Exception as exc:
             raise RuntimeError(f"Ошибка при загрузке pyannote: {exc}") from exc
@@ -267,11 +282,14 @@ class PyannoteRunner:
             # Аудио в память → pyannote не зовёт torchcodec (битый на Windows).
             file_dict = self._waveform_dict(wav_path)
             samples = file_dict["waveform"].squeeze(0).cpu().numpy()
+            audio_sec = samples.shape[0] / float(_SAMPLE_RATE)
 
             # Запустить speaker-diarization pipeline (min/max 2 speaker).
             # pyannote 4.x отдаёт DiarizeOutput-обёртку → достаём Annotation.
+            t0 = time.perf_counter()
             diar_out = self.pipeline(file_dict, min_speakers=2, max_speakers=2)
             annotation = _extract_annotation(diar_out)
+            t_pipe = time.perf_counter() - t0
 
             # Сырые сегменты из pipeline: {label: [(start, end), ...]}
             raw_segs = {}
@@ -287,7 +305,9 @@ class PyannoteRunner:
                 return []
 
             # Для каждого спикера вычислить эмбеддинг и найти наиболее похожего на ref
+            t1 = time.perf_counter()
             owner_label = self._find_owner_label(samples, _SAMPLE_RATE, raw_segs)
+            t_owner = time.perf_counter() - t1
 
             # Конвертировать в output format (float сек → int мс, маппинг OWNER/OTHER)
             result = []
@@ -301,7 +321,12 @@ class PyannoteRunner:
                     })
 
             result.sort(key=lambda x: x["start_ms"])
-            logger.info("Диаризация завершена: %d сегментов", len(result))
+            dev = self._device.type if self._device is not None else "?"
+            logger.info(
+                "Диаризация завершена: %d сегментов | audio=%.0fs pipeline=%.1fs "
+                "owner_emb=%.1fs device=%s",
+                len(result), audio_sec, t_pipe, t_owner, dev,
+            )
             return result
 
         except Exception as exc:
@@ -337,6 +362,37 @@ class PyannoteRunner:
             logger.error("Ошибка при выгрузке Pyannote: %s", exc)
 
     # ── Внутренние методы ──────────────────────────────────────────────────────
+
+    def _apply_batch_size(self, obj, batch_size: int, _depth: int = 0) -> list[str]:
+        """Выставить любой ``*_batch_size`` на pipeline и его вложенных шагах.
+
+        Имена/расположение батч-параметра отличаются между pyannote 3.1 и 4.x
+        (на самом pipeline и/или на под-объектах сегментации/эмбеддинга). Ищем
+        атрибуты по суффиксу и спускаемся на 1 уровень во вложенные pyannote-
+        объекты. Возвращает список применённых ``name=value`` для лога.
+        """
+        applied: list[str] = []
+        if obj is None or _depth > 2:
+            return applied
+        for name in dir(obj):
+            if not name.endswith("_batch_size"):
+                continue
+            try:
+                cur = getattr(obj, name)
+            except Exception:  # noqa: BLE001 — некоторые property бросают
+                continue
+            if isinstance(cur, int):
+                try:
+                    setattr(obj, name, batch_size)
+                    applied.append(f"{name}={batch_size}")
+                except Exception:  # noqa: BLE001 — read-only атрибут
+                    pass
+        # Спуститься во вложенные pyannote-шаги (segmentation/embedding и т.п.)
+        for sub in ("_segmentation", "_embedding", "segmentation", "embedding"):
+            child = getattr(obj, sub, None)
+            if child is not None and child is not obj:
+                applied.extend(self._apply_batch_size(child, batch_size, _depth + 1))
+        return applied
 
     def _waveform_dict(self, path: str) -> dict:
         """Загрузить аудио в память → ``{waveform: Tensor[1,T] float32,
@@ -406,6 +462,10 @@ class PyannoteRunner:
             label спикера, наиболее похожего на ref_embedding (или первый/`unknown`).
         """
         min_len = int(0.1 * sr)
+        # Cap: эмбеддинг для ИДЕНТИФИКАЦИИ спикера не требует всех минут речи.
+        # window="whole" на минутах конкатенированного аудио = медленный forward
+        # (и хуже вектор — модель обучена на ~секундных окнах). 30с достаточно.
+        max_emb = int(_MAX_OWNER_EMB_SEC * sr)
         label_embeddings: dict = {}
 
         for lbl, segs in raw_segs.items():
@@ -420,6 +480,8 @@ class PyannoteRunner:
             cat = np.concatenate(chunks)
             if cat.size < min_len:
                 continue
+            if cat.size > max_emb:
+                cat = cat[:max_emb]  # обрезать до cap (скорость + качество вектора)
             try:
                 wav = torch.from_numpy(np.ascontiguousarray(cat)).float().unsqueeze(0)
                 label_embeddings[lbl] = self._embedding_from_dict(
