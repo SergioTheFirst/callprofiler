@@ -2,6 +2,12 @@
 
 **Mission:** audio → transcript → local LLM → Telegram/Android. Think a lot, show little.
 
+## Communication (user-authorized 2026-06-05)
+- Отвечать пользователю **кратко, по делу, без воды**. Без преамбул/пересказа/«могу ещё».
+- Не перечитывать весь код на простой вопрос. Ответы про pipeline/db/graph/llm брать из
+  `.claude/rules/*` карт; код читать ТОЛЬКО если карта не покрывает (и тогда обновить карту).
+- В конце задачи: обновить память → `commit` + `push origin main`. Затем короткий итог.
+
 ## Hard Constraints
 - 100% local. No cloud / Docker / Redis / Celery / ORM / Ollama.
 - LLM: `llama-server.exe -m "C:\models\Qwen3.5-9B.Q8_0.gguf" -ngl 99 -c 16384` → `http://127.0.0.1:8080/v1/chat/completions`
@@ -60,12 +66,15 @@ If `.codegraph/` missing → `codegraph init -i` first.
 | Architecture | `architecture-patterns` |
 | Security | `007` |
 
-## Memory Protocol
+## Memory Protocol (обновлять ПОСТОЯННО, не в конце — по ходу работы)
 - `CONTINUITY.md` — current state + next step only. **Overwrite** each session (not append).
 - `CHANGELOG.md` — one line per logical change. Append only.
-- `.claude/rules/bugs.md` — non-obvious root cause + regression test ref. One block per bug.
-- `.claude/rules/decisions.md` — architectural WHY only. One paragraph per decision.
+- `.claude/rules/pipeline.md` → **Pipeline Map** — стадии/статусы/файлы. Менять при смене конвейера.
+- `.claude/rules/bugs.md` — non-obvious root cause + regression test ref + **способ решения**. One block per bug.
+- `.claude/rules/decisions.md` — architectural WHY + **планы**. One paragraph per decision.
+- Хуки/способы решения проблем → в профильный `.claude/rules/*` (pipeline/db/graph/llm), не в код-комменты.
 - **Rule: add only non-obvious facts. Never duplicate what's already in code or rules.**
+- **Каждый значимый шаг: сперва в память (эти файлы), потом `commit`+`push origin main`.**
 
 ## Domain
 - `[me]` = Сергей Медведев (always owner). `[s2]` = other. Roles may be swapped — LLM determines.

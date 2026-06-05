@@ -8,6 +8,14 @@
 
 ## [Unreleased]
 
+### Changed — pipeline: удаление normalized wav + карта стадий + правила памяти (2026-06-05)
+- `delete_normalized_after_transcribe: true` подтверждён в `base.yaml` (wav сносится после stage 2;
+  регенерируется из mp3-архива; экономит ~1.9 MB/мин диска на 17k; скорость НЕ меняет).
+- `.claude/rules/pipeline.md` → новая секция **Pipeline Map** (watcher cycle, stage/status таблица,
+  архив/удаление файлов, терминалы) — источник ответов про pipeline, чтоб не перечитывать код.
+- `CLAUDE.md`: секция **Communication** (кратко без воды; rules-карты вместо чтения кода; в конце
+  commit+push main) + усилен **Memory Protocol** (обновлять постоянно; хуки/способы/планы в rules).
+
 ### Fixed — Stage-1 transcribe-only: терминальный статус `transcribed` (2026-06-04)
 - При `enable_llm_analysis=false` `process_batch` не доводил транскрибированный звонок до
   терминала: Pass C ставил stage 2, статус оставался `transcribing`, Phase 4 deliver гейтит

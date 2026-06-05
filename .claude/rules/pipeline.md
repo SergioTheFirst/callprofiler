@@ -1,5 +1,46 @@
 # Pipeline Rules & Error Handling
 
+## Pipeline Map (READ THIS FIRST — не перечитывать код на вопрос про pipeline)
+
+> Источник истины для «как обрабатывается файл». Обновлять при смене стадий/статусов.
+> Код: `pipeline/watcher.py`, `pipeline/orchestrator.py`, `config.py`.
+
+**Watcher cycle** (`FileWatcher.run_loop`, каждые `watch_interval_sec`):
+```
+1. scan_all_users()   — обойти users.incoming_dir (из БД; дефолт C:\calls\in), рекурсивно
+2. process_batch(new) — прогнать новые звонки по стадиям
+3. cleanup_sources()  — убрать исходник из incoming ТОЛЬКО при pipeline_stage>=2
+4. retry_errors()
+```
+scan: MD5-дедуп (`get_call_by_md5`). Новый → ingest = КОПИЯ в архив
+`users/{uid}/audio/originals/YYYY/MM` (на ВХОДЕ, до обработки). Файл-ещё-пишется →
+ждать (`file_settle_sec`). Битый архив у существующего → восстановить из incoming + reset.
+
+**Stages** (`pipeline_stage` / `status`):
+| stage | status | действие | файл |
+|---|---|---|---|
+| 0 | new | зарегистрирован (ingest, mp3 в архив) | originals/YYYY/MM |
+| 1 | normalizing | `normalize()` mp3→16k/mono/wav | …/normalized/ |
+| – | diarizing | только если `enable_diarization` (pyannote) | — |
+| 2 | transcribing | ASR (GigaAM) → `save_transcripts` (текст в БД) + .txt (`text_export_dir`) | wav УДАЛЯЕТСЯ если `delete_normalized_after_transcribe` |
+| — | **transcribed** | ТЕРМИНАЛ Stage-1, если `enable_llm_analysis=false`. LLM не зовётся | — |
+| 3 | analyzing | локальная LLM (llama-server) | — |
+| 4 | delivering→**done** | карточка + Telegram | sync/ |
+
+**Терминальные статусы:** `done` (полный путь), `transcribed` (Stage-1, LLM off), `error`.
+`get_stalled_calls` реклаймит `status NOT IN (new,done,error,transcribed)`.
+
+**Файлы/удаление:**
+- mp3 источник: incoming → удаляется в `cleanup_sources` ТОЛЬКО при stage>=2 (`remove_source_on_success`); копия в `originals/YYYY/MM` остаётся = источник истины.
+- normalized wav: удаляется сразу после stage 2 если `delete_normalized_after_transcribe:true` (base.yaml, ON для 17k — экономия диска ~1.9 MB/мин). Регенерируется из mp3 (ffmpeg) — потеря невозможна.
+- Удаление wav скорость НЕ меняет (ASR на GPU = 95% времени; unlink = микросекунды); страхует диск от переполнения на больших прогонах.
+
+**GPU sequential:** ASR-модель load→unload → потом LLM. Никогда одновременно. LLM читает текст из БД, не аудио → удалённый wav ей не нужен.
+
+**Флаги (configs/):** `features.yaml` = `enable_diarization` / `enable_llm_analysis` (Stage-1: оба false). `base.yaml` `pipeline:` = `remove_source_on_success` / `delete_normalized_after_transcribe` / `text_export_dir`.
+
+---
+
 ## Diarization Failure Handling
 
 **Rule:** IF diarization fails OR returns 0 segments:
