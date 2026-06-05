@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -81,10 +82,25 @@ def normalize(
 
     Path(dst_path).parent.mkdir(parents=True, exist_ok=True)
 
-    if loudnorm:
-        _normalize_two_pass(str(src), dst_path, sample_rate, channels)
-    else:
-        _convert_raw(str(src), dst_path, sample_rate, channels)
+    # Атомарная запись: ffmpeg пишет во временный .part, затем os.replace.
+    # Иначе крах ffmpeg/процесса посреди записи оставляет битый wav по целевому
+    # пути, а skip-if-exists в orchestrator принял бы его за валидный и подал в
+    # ASR (мусорный транскрипт). Существование dst_path ⟺ нормализация дошла до
+    # конца. .part при сбое подчищается.
+    tmp_path = f"{dst_path}.part"
+    try:
+        if loudnorm:
+            _normalize_two_pass(str(src), tmp_path, sample_rate, channels)
+        else:
+            _convert_raw(str(src), tmp_path, sample_rate, channels)
+        os.replace(tmp_path, dst_path)
+    except BaseException:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
 
     logger.debug("normalize: %s → %s", src.name, Path(dst_path).name)
 

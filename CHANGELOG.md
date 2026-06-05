@@ -8,6 +8,18 @@
 
 ## [Unreleased]
 
+### Changed — normalized wav: имя по источнику + resume-skip + немедленное удаление (2026-06-05)
+- **Имя wav = `{call_id}__{safe(источник)}.wav`** (`norm_wav_path` в orchestrator). call_id
+  префиксом = уникальность (нет подмены аудио при одинаковых basename) + парсинг в
+  `cleanup_normalized`. `watcher` парсит `stem.split("__")[0]` (back-compat со старым `{call_id}.wav`).
+- **Resume без пере-нормализации:** перед `normalize()` (оба пути) проверка `Path(norm_path).exists()`
+  → ffmpeg пропускается. Безопасно: `normalizer.normalize` пишет атомарно (`.part`→`os.replace`),
+  существование ⟺ нормализация завершена; битый `.part` при крахе подчищается.
+- **Удаление wav сразу после текста КАЖДОГО файла:** batch Pass B+C объединён —
+  `save_transcripts`+stage2+`_maybe_delete_normalized` в одном цикле сразу за ASR звонка (а не
+  «весь батч, потом удаление»). ASR-модель по-прежнему грузится раз на батч.
+- Regression: `tests/test_norm_wav_naming.py` (4). Сюит 523 зелёных.
+
 ### Changed — диаризация ON + чистый лист = reset (не keep-only) (2026-06-05)
 - **Диаризация обратно ON** (запрос юзера: роли [me]/[s2] обязательны). `features.yaml`
   `enable_diarization:true` — реверс OFF из 96d1ec6. Код-путь `_diarize_batch` проверен:

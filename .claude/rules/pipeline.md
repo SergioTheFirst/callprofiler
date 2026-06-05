@@ -20,7 +20,7 @@ scan: MD5-дедуп (`get_call_by_md5`). Новый → ingest = КОПИЯ в 
 | stage | status | действие | файл |
 |---|---|---|---|
 | 0 | new | зарегистрирован (ingest, mp3 в архив) | originals/YYYY/MM |
-| 1 | normalizing | `normalize()` mp3→16k/mono/wav | …/normalized/ |
+| 1 | normalizing | `normalize()` mp3→16k/mono/wav (атомарно: `.part`→`os.replace`) | …/normalized/`{call_id}__{источник}.wav` |
 | – | diarizing | только если `enable_diarization` (pyannote) | — |
 | 2 | transcribing | ASR (GigaAM) → `save_transcripts` (текст в БД) + .txt (`text_export_dir`) | wav УДАЛЯЕТСЯ если `delete_normalized_after_transcribe` |
 | — | **transcribed** | ТЕРМИНАЛ Stage-1, если `enable_llm_analysis=false`. LLM не зовётся | — |
@@ -32,8 +32,9 @@ scan: MD5-дедуп (`get_call_by_md5`). Новый → ingest = КОПИЯ в 
 
 **Файлы/удаление:**
 - mp3 источник: incoming → удаляется в `cleanup_sources` ТОЛЬКО при stage>=2 (`remove_source_on_success`); копия в `originals/YYYY/MM` остаётся = источник истины.
-- normalized wav: удаляется сразу после stage 2 если `delete_normalized_after_transcribe:true` (base.yaml, ON для 17k — экономия диска ~1.9 MB/мин). Регенерируется из mp3 (ffmpeg) — потеря невозможна.
-- Удаление wav скорость НЕ меняет (ASR на GPU = 95% времени; unlink = микросекунды); страхует диск от переполнения на больших прогонах.
+- normalized wav: имя = `{call_id}__{safe(источник)}.wav` (`norm_wav_path`). call_id префиксом — уникальность (нет коллизий аудио при одинаковых basename) + парсинг в `cleanup_normalized` (`stem.split("__")[0]`, back-compat со старым `{call_id}.wav`).
+- **Resume без пере-нормализации:** перед `normalize()` orchestrator (оба пути) проверяет `Path(norm_path).exists()` → если есть, ffmpeg пропускается. Безопасно т.к. wav пишется атомарно (`.part`→`replace`): существование ⟺ нормализация завершена (битый `.part` не подхватится). Окно полезности = wav нормализован, но звонок прерван ДО транскрибации (после неё wav удалён).
+- **Удаление сразу после текста КАЖДОГО файла:** в batch объединён Pass B+C — `save_transcripts`+stage2+`_maybe_delete_normalized` в одном цикле сразу после ASR звонка (ASR-модель грузится раз на батч). Не «весь батч, потом удаление»: wav сносится в момент готовности его текста. Гейт `delete_normalized_after_transcribe:true` (base.yaml). Регенерируется из mp3 — потеря невозможна. Подстраховка-sweep: `watcher.cleanup_normalized` ловит орфаны.
 
 **GPU sequential:** ASR-модель load→unload → потом LLM. Никогда одновременно. LLM читает текст из БД, не аудио → удалённый wav ей не нужен.
 

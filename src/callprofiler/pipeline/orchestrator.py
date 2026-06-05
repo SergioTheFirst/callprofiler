@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -42,6 +43,32 @@ if TYPE_CHECKING:
     from callprofiler.db.repository import Repository
 
 logger = logging.getLogger(__name__)
+
+
+_SAFE_STEM_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _safe_stem(name: str, *, max_len: int = 60) -> str:
+    """Очистить имя источника до безопасного для ФС хвоста (без расширения)."""
+    stem = Path(name).stem
+    stem = _SAFE_STEM_RE.sub("_", stem).strip("._")
+    return stem[:max_len] if stem else ""
+
+
+def norm_wav_path(norm_dir: Path, call_id: int, source_filename: str | None) -> Path:
+    """Детерминированный путь normalized .wav: ``{call_id}__{имя_источника}.wav``.
+
+    Имя источника в названии (а не просто ``{call_id}.wav``) — чтобы при крахе
+    массового прогона уже нормализованный файл узнавался и НЕ пере-нормализовался
+    (orchestrator проверяет существование этого пути). ``call_id`` остаётся
+    префиксом для уникальности (разные звонки с одинаковым basename источника не
+    коллизируют и не подменяют друг другу аудио) и для парсинга в
+    ``watcher.cleanup_normalized`` (``stem.split("__")[0]``). Совместимо со старым
+    чистым ``{call_id}.wav``.
+    """
+    stem = _safe_stem(source_filename or "")
+    name = f"{call_id}__{stem}.wav" if stem else f"{call_id}.wav"
+    return norm_dir / name
 
 
 def _format_transcript(segments: list[Segment]) -> str:
@@ -132,9 +159,16 @@ class Orchestrator:
                 Path(self.config.data_dir) / "users" / user_id / "audio" / "normalized"
             )
             norm_dir.mkdir(parents=True, exist_ok=True)
-            norm_path = str(norm_dir / f"{call_id}.wav")
+            norm_path = str(
+                norm_wav_path(norm_dir, call_id, call.get("source_filename"))
+            )
 
-            normalize(audio_path, norm_path)
+            if Path(norm_path).exists():
+                # Уже нормализован (резюм после прерывания): wav пишется атомарно,
+                # существование ⟺ готов → пропускаем ffmpeg, переиспользуем.
+                logger.info("Resume: call_id=%d пропуск normalize (wav есть)", call_id)
+            else:
+                normalize(audio_path, norm_path)
             duration_sec = get_duration_sec(norm_path)
             self.repo.update_call_paths(call_id, norm_path, duration_sec)
             self.repo.update_pipeline_stage(call_id, 1)
@@ -245,8 +279,15 @@ class Orchestrator:
                     Path(self.config.data_dir) / "users" / user_id / "audio" / "normalized"
                 )
                 norm_dir.mkdir(parents=True, exist_ok=True)
-                norm_path = str(norm_dir / f"{call_id}.wav")
-                normalize(call["audio_path"], norm_path)
+                norm_path = str(
+                    norm_wav_path(norm_dir, call_id, call.get("source_filename"))
+                )
+                if Path(norm_path).exists():
+                    logger.info(
+                        "Resume: call_id=%d пропуск normalize (wav есть)", call_id
+                    )
+                else:
+                    normalize(call["audio_path"], norm_path)
                 duration_sec = get_duration_sec(norm_path)
                 self.repo.update_call_paths(call_id, norm_path, duration_sec)
                 self.repo.update_pipeline_stage(call_id, 1)
@@ -290,36 +331,32 @@ class Orchestrator:
             # перезагрузка моделей съедает часы. Сбой → [] (роли UNKNOWN).
             turns_map = self._diarize_batch(needs_transcribe, users_cache)
 
-            # Pass B: ASR — модель грузится ОДИН раз на весь батч
+            # Pass B+C: ASR грузится ОДИН раз на батч, но текст каждого звонка
+            # сразу сохраняется и его normalized .wav УДАЛЯЕТСЯ немедленно (а не
+            # после транскрибации всего батча) — wav после ASR больше не нужен
+            # (save работает с сегментами в памяти), на больших прогонах это не
+            # даёт wav копиться. Diarize (Pass A) уже отработал по wav выше.
             self.asr_runner.load()
-            for call in needs_transcribe:
-                call_id = call["call_id"]
-                try:
-                    self.repo.update_call_status(call_id, "transcribing")
-                    segs = self._asr_transcribe(
-                        call["_norm_path"], turns_map.get(call_id, [])
-                    )
-                    segments_map[call_id] = segs
-                    logger.info("Transcribe: call_id=%d, %d сегментов", call_id, len(segs))
-                except Exception as exc:
-                    logger.error("Ошибка транскрибирования call_id=%d: %s", call_id, exc)
-                    self.repo.update_call_status(call_id, "error", str(exc))
-            self.asr_runner.unload()
-
-            # Pass C: сохранить транскрипт (БД) + .txt + stage 2
-            for call in needs_transcribe:
-                call_id = call["call_id"]
-                if call_id not in segments_map:
-                    continue
-                try:
-                    self.repo.save_transcripts(call_id, segments_map[call_id])
-                    self._export_text(call, segments_map[call_id])
-                    self.repo.update_pipeline_stage(call_id, 2)
-                    self._maybe_delete_normalized(call.get("_norm_path", ""))
-                    call["pipeline_stage"] = 2
-                except Exception as exc:
-                    logger.error("Ошибка транскрипта call_id=%d: %s", call_id, exc)
-                    self.repo.update_call_status(call_id, "error", str(exc))
+            try:
+                for call in needs_transcribe:
+                    call_id = call["call_id"]
+                    try:
+                        self.repo.update_call_status(call_id, "transcribing")
+                        segs = self._asr_transcribe(
+                            call["_norm_path"], turns_map.get(call_id, [])
+                        )
+                        segments_map[call_id] = segs
+                        logger.info("Transcribe: call_id=%d, %d сегментов", call_id, len(segs))
+                        self.repo.save_transcripts(call_id, segs)
+                        self._export_text(call, segs)
+                        self.repo.update_pipeline_stage(call_id, 2)
+                        self._maybe_delete_normalized(call.get("_norm_path", ""))
+                        call["pipeline_stage"] = 2
+                    except Exception as exc:
+                        logger.error("Ошибка транскрибирования call_id=%d: %s", call_id, exc)
+                        self.repo.update_call_status(call_id, "error", str(exc))
+            finally:
+                self.asr_runner.unload()
 
         # ── Фаза 3: Analyze (LLM) ────────────────────────────────────
         if not self.config.features.enable_llm_analysis:

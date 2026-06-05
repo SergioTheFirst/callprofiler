@@ -197,8 +197,9 @@ class FileWatcher:
             if not norm_dir.is_dir():
                 continue
             for wav in norm_dir.glob("*.wav"):
+                # Имя: "{call_id}__{источник}.wav" (или старое "{call_id}.wav").
                 try:
-                    call_id = int(wav.stem)
+                    call_id = int(wav.stem.split("__", 1)[0])
                 except ValueError:
                     continue
                 call = self.repo.get_call(uid, call_id)
