@@ -92,9 +92,18 @@
         es.onmessage = function(evt) {
             try {
                 var data = JSON.parse(evt.data);
-                if (data.type === 'tick' && state.activeTab === 'overview') {
-                    updateStatCards(data.status);
+                if (data.type !== 'tick') return;
+                // Real-time: обновлять АКТИВНУЮ вкладку, не только overview.
+                updateStatCards(data.status);            // карточки-счётчики всегда
+                if (state.activeTab === 'overview') {
+                    renderPipeline(data.by_stage || {});  // степпер живьём
                     addFeedItem(data.status);
+                } else if (state.activeTab === 'calls') {
+                    loadCalls();
+                } else if (state.activeTab === 'entities') {
+                    loadEntities();
+                } else if (state.activeTab === 'system') {
+                    loadSystem();
                 }
             } catch (e) { /* ignore parse errors */ }
         };

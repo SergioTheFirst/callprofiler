@@ -267,6 +267,17 @@ originals+normalized + logs + biography) + `C:\calls\text` + `C:\calls\sync`. П
 переиспользовали `purge_user` (мин. риск). Защита: keeper обязан существовать (`ValueError` → отказ), иначе
 пустой/опечатанный keeper снёс бы ВСЕХ. Dry-run по умолчанию (как reset/cleanup).
 
+## Полный GPU-пайплайн (диаризация OFF) + GPU-обязательность (2026-06-05)
+
+**Запрос юзера:** «GPU модели нужны и должны использоваться — GigaAM и LLM Qwen 3.5 9B Q8_0 по назначению».
+Названы РОВНО две модели. Решение: `enable_llm_analysis:true` + `enable_diarization:false` → пайплайн =
+GigaAM(GPU ASR) → Qwen(GPU LLM). pyannote (3-я GPU-модель) НЕ названа, на Windows ломается через torchcodec
+(см. bugs.md) и тянет per-turn путь → OFF. Роли не теряем: позже наложением pyannote-спанов на
+`transcripts.start_ms/end_ms` без ре-ASR (flat-first решение из Stage-1). Реверс — один флаг.
+**GPU-обязательность:** `gigaam_runner` при `gigaam_device=cuda` без CUDA теперь РАЗДАЁТ `RuntimeError`, а не
+молча падает на CPU (20-50× медленнее = тихая деградация многочасового прогона, decisions B1). «Должны
+использоваться» = если GPU нет — стоп с понятным сообщением, а не делать вид, что работает.
+
 **Non-obvious — bio-пробел в purge_user:** `purge_user` НЕ трогал `bio_*` (создаются `apply_biography_schema`
 отдельно, не в `init_db`). Для удаляемого юзера bio-сцены/сущности/главы сиротели. Дополнил: 12 bio-таблиц с
 `user_id` + junction `bio_scene_entities` (без user_id → чистка по `scene_id IN (SELECT … FROM bio_scenes …)`).

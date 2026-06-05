@@ -8,5 +8,5 @@
 - If parse fails completely: save raw_llm, return Analysis with defaults, mark as partial
 - Timeout: 120 seconds per request
 - Roles in transcript: [me]=owner, [s2]=other. Roles may be swapped.
-- "Сергей/Серёжа/Серёж/Медведев" = ALWAYS owner regardless of label.
+- "Сергей/Серёжа/Серёж/Медведев/Сергей Станиславович" = ALWAYS owner (Сергей Станиславович Медведев) regardless of label.
 - Max input: if transcript > 3000 chars → first 1500 + "[...]" + last 1500

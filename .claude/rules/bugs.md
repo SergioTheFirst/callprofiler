@@ -89,6 +89,27 @@ None currently identified.
 
 ## Recent Fixes (Closed)
 
+✅ **Дашборд «устаревшие данные» — SSE-тик гейтился вкладкой overview** (2026-06-05)
+- **Root cause (non-obvious):** бэкенд real-time исправен (poller свежий reader + `MAX(updated_at)`,
+  `update_call_status`/`update_pipeline_stage` бампают `updated_at`, db_reader с WAL-фиксом). НО фронт
+  `app.js` в `es.onmessage`: `if (data.type==='tick' && state.activeTab==='overview')` — живой тик применялся
+  ТОЛЬКО на вкладке overview и только к карточкам (`updateStatCards`), даже не к степперу. На Calls/Entities/
+  System и на самом степпере — ничего не обновлялось → данные замерзали на снимке загрузки (`/api/overview`
+  при входе работает → выглядит как «устаревшие»). Бэкенд ни при чём — искать в JS-обработчике, не в Python.
+- **Fix:** тик обновляет АКТИВНУЮ вкладку (`loadCalls/loadEntities/loadSystem`) + `renderPipeline(by_stage)` на
+  overview; карточки — всегда. `POLL_INTERVAL_SEC=2` уже стоял.
+- **Status:** RESOLVED код (2026-06-05). Визуальная проверка — на боксе во время прогона.
+
+✅ **normalized .wav накапливаются — удаление только на success-пути той же партии** (2026-06-05)
+- **Root cause (non-obvious):** `_maybe_delete_normalized` зовётся в orchestrator лишь сразу после save_transcripts
+  (stage 2) В ТОЙ ЖЕ обработке. Звонки, упавшие в `error` ДО stage 2 (norm wav уже создан), и resume-звонки
+  (stage>=2 на входе в батч → Phase 2 transcribe пропущена → delete не зовётся) оставляют wav навсегда → копится
+  на больших прогонах. wav при этом всегда регенерируется из mp3-архива (`originals/YYYY/MM`) → его снос безопасен.
+- **Fix:** `watcher.cleanup_normalized()` — sweep каждый цикл: по всем `users/{uid}/audio/normalized/*.wav`
+  парсит call_id, и если звонок stage>=2 или терминальный (done/transcribed/error) → unlink. Гейт
+  `delete_normalized_after_transcribe`. Ловит все орфаны независимо от пути.
+- **Status:** RESOLVED (2026-06-05).
+
 ✅ **Дашборд не показывал real-time — `?mode=ro` не видит WAL-записи** (2026-06-04)
 - **Root cause (non-obvious):** пайплайн пишет в WAL (`repository.py` → `PRAGMA
   journal_mode=WAL`), а `dashboard/db_reader.py` открывал БД через

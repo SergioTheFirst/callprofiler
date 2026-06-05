@@ -87,10 +87,10 @@ Bump individual pass version to invalidate only that pass's memoization.
 
 ## Owner identity
 
-- Owner = Сергей Медведев (user_id=`me`). Legacy `serhio` consolidated into `me`
-  and purged (2026-06-05, `cleanup.bat keep-only --user me`); single profile going forward.
+- Owner = Сергей Станиславович Медведев (user_id=`me`). Legacy `serhio` consolidated
+  into `me` and purged (2026-06-05, `cleanup.bat keep-only --user me`); single profile.
 - In transcripts: always `[me]` / `OWNER`
-- In prose: third person, full name Сергей Медведев
+- In prose: third person, full name Сергей Станиславович Медведев (or Сергей Медведев)
 - Cannot talk to himself — Сергей Медведев ≠ any other Сергей in the data
 
 ## See also

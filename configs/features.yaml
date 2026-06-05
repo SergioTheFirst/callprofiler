@@ -12,7 +12,9 @@
 # ON: сначала диаризация → turn'ы, затем GigaAM транскрибирует КАЖДЫЙ turn →
 # текст по ролям. Сбой/нет ref_audio → graceful fallback на speaker=UNKNOWN
 # (транскрипт не теряется). OFF → плоский текст без ролей.
-enable_diarization: true
+# OFF: только GigaAM (ASR) + Qwen (LLM) — две GPU-модели по назначению. pyannote
+# не используется (Windows-flaky, торможение); роли — позже наложением спанов без ре-ASR.
+enable_diarization: false
 
 # LLM-анализ через llama-server. Если выключен — звонки получают пустой
 # Analysis (только транскрипт + метаданные).

@@ -8,6 +8,21 @@
 
 ## [Unreleased]
 
+### Fixed — полный GPU-пайплайн + live-дашборд + wav-sweep (2026-06-05)
+- **GPU-модели по назначению.** `features.yaml`: `enable_diarization:false` →
+  пайплайн = GigaAM(GPU ASR) → Qwen(GPU LLM). pyannote не используется (не названа
+  юзером, Windows-flaky). `enable_llm_analysis` остаётся `true`.
+- **GigaAM GPU обязателен.** `gigaam_runner`: `gigaam_device=cuda` + CUDA недоступна
+  → `RuntimeError` (был молчаливый CPU, 20-50× медленнее = деградация прогона).
+- **Дашборд real-time (root cause).** `app.js`: SSE-тик обновлял UI только на
+  вкладке overview (и только карточки) → прочие вкладки/степпер застывали =
+  «устаревшие сведения». Теперь тик обновляет АКТИВНУЮ вкладку (calls/entities/
+  system) + pipeline-степпер.
+- **wav не копятся.** `watcher.cleanup_normalized()` — каждый цикл сносит normalized
+  `.wav` звонков стадии>=2/терминальных (done/transcribed/error). wav регенерируется
+  из mp3-архива → безопасно. Ловит wav, не удалённые orchestrator'ом (resume/error).
+- Имя владельца → **Сергей Станиславович Медведев** (CLAUDE.md, llm.md, biography).
+
 ### Added — keep-only: консолидация в один профиль `me` (2026-06-05)
 - `cleanup.bat keep-only --user me [--apply]` — снести ВСЕХ юзеров, кроме keeper
   (инверсия `purge-user`). Dry-run по умолчанию; защита: keeper обязан существовать

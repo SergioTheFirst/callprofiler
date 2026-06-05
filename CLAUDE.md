@@ -77,7 +77,7 @@ If `.codegraph/` missing → `codegraph init -i` first.
 - **Каждый значимый шаг: сперва в память (эти файлы), потом `commit`+`push origin main`.**
 
 ## Domain
-- `[me]` = Сергей Медведев (always owner). `[s2]` = other. Roles may be swapped — LLM determines.
+- `[me]` = Сергей Станиславович Медведев (always owner). `[s2]` = other. Roles may be swapped — LLM determines.
 - Output: ≤300 chars/item, ≤3 facts/item. Never show counts/durations to user.
 
 ## Prohibited

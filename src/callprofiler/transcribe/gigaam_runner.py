@@ -116,8 +116,11 @@ class GigaAMRunner:
 
         device = getattr(self.config.models, "gigaam_device", "cuda") or "cuda"
         if device == "cuda" and not torch.cuda.is_available():
-            logger.warning("CUDA недоступна — GigaAM на CPU (будет медленно)")
-            device = "cpu"
+            # GPU обязателен: молчаливый CPU в 20-50× медленнее = деградация прогона.
+            raise RuntimeError(
+                "GigaAM: gigaam_device=cuda, но CUDA недоступна. Нужен torch+cu124 "
+                "(RUN_STAGE1.md) либо явно gigaam_device: cpu в base.yaml."
+            )
 
         model = model.to(device).eval()
         self._model = model

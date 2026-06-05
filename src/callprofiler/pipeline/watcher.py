@@ -122,6 +122,7 @@ class FileWatcher:
         # process_pending обрабатывает и только что зарегистрированные, и зависшие
         self.orchestrator.process_pending()
         self.cleanup_sources()
+        self.cleanup_normalized()
         self.orchestrator.retry_errors()
         return len(new_ids)
 
@@ -139,6 +140,8 @@ class FileWatcher:
 
                 # Убрать исходники успешно транскрибированных
                 self.cleanup_sources()
+                # Подчистить normalized .wav (стадия>=2/терминальные) — не копятся
+                self.cleanup_normalized()
 
                 # Повторить ошибочные
                 self.orchestrator.retry_errors()
@@ -176,6 +179,40 @@ class FileWatcher:
 
         if removed:
             logger.info("Убрано исходников из incoming: %d", removed)
+        return removed
+
+    def cleanup_normalized(self) -> int:
+        """Снести normalized .wav звонков, прошедших транскрибацию (stage>=2) или
+        терминальных (done/transcribed/error). wav регенерируется из mp3-архива →
+        снос безопасен. Подстраховка: ловит wav, не удалённые в orchestrator
+        (resume/error/сбой), чтобы они не накапливались на больших прогонах.
+        """
+        if not getattr(self.config.pipeline, "delete_normalized_after_transcribe", False):
+            return 0
+        terminal = {"done", "transcribed", "error"}
+        removed = 0
+        for user in self.repo.get_all_users():
+            uid = user["user_id"]
+            norm_dir = Path(self.config.data_dir) / "users" / uid / "audio" / "normalized"
+            if not norm_dir.is_dir():
+                continue
+            for wav in norm_dir.glob("*.wav"):
+                try:
+                    call_id = int(wav.stem)
+                except ValueError:
+                    continue
+                call = self.repo.get_call(uid, call_id)
+                if not call:
+                    continue
+                stage = int(call.get("pipeline_stage", 0) or 0)
+                if stage >= _TRANSCRIBED_STAGE or call.get("status") in terminal:
+                    try:
+                        wav.unlink()
+                        removed += 1
+                    except OSError as exc:
+                        logger.warning("Не удалить normalized %s: %s", wav, exc)
+        if removed:
+            logger.info("Подчищено normalized wav: %d", removed)
         return removed
 
     # ── Внутренние методы ──────────────────────────────────────────────
