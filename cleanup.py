@@ -2,16 +2,20 @@
 """
 cleanup.py — безопасная чистка БД (запускается на рабочей машине, как diag.py).
 
-ДВА режима. Оба по умолчанию DRY-RUN: печатают, что будет удалено, и НИЧЕГО не
+ТРИ режима. Все по умолчанию DRY-RUN: печатают, что будет удалено, и НИЧЕГО не
 трогают. Реальное удаление — только с флагом --apply.
 
   # 1) Снести мёртвые error-звонки (оригинал аудио отсутствует на диске):
   python cleanup.py prune-missing --user me            # dry-run (показать план)
   python cleanup.py prune-missing --user me --apply     # удалить
 
-  # 2) Полностью снести юзера и все его данные:
+  # 2) Полностью снести ОДНОГО юзера и все его данные:
   python cleanup.py purge-user --user serhio            # dry-run (показать план)
   python cleanup.py purge-user --user serhio --apply     # удалить
+
+  # 3) Оставить ТОЛЬКО одного юзера, снести всех остальных (консолидация профиля):
+  python cleanup.py keep-only --user me                 # dry-run (показать план)
+  python cleanup.py keep-only --user me --apply          # снести всех, кроме me
 
 Опции:
   --db PATH   путь к БД (по умолчанию C:\\calls\\data\\db\\callprofiler.db)
@@ -113,6 +117,47 @@ def cmd_purge_user(args) -> int:
     return 0
 
 
+def cmd_keep_only(args) -> int:
+    """Оставить ТОЛЬКО одного юзера (keeper), снести всех остальных.
+
+    Инверсия purge-user: для прогона «все работы в одном профиле». Защита —
+    keeper ОБЯЗАН существовать (иначе отказ, чтобы не снести всех)."""
+    repo = _repo(args.db)
+    keeper = args.user
+    print(f"== keep-only (оставить ТОЛЬКО '{keeper}', снести остальных) ==")
+    ids = sorted(u["user_id"] for u in repo.get_all_users())
+    print(f"  Юзеров в БД: {len(ids)} → {', '.join(ids) or '(нет)'}")
+
+    try:
+        result = repo.purge_other_users(keeper, apply=args.apply)
+    except ValueError as exc:
+        print(f"[СТОП] {exc}")
+        print("       Отказ — иначе снёс бы всех. Проверьте --user.")
+        return 2
+
+    if not result:
+        print(f"  Только '{keeper}' и есть — удалять некого. ✓")
+        return 0
+
+    grand: dict[str, int] = {}
+    for uid in sorted(result):
+        counts = result[uid]
+        print(f"\n  [{'УДАЛЁН' if args.apply else 'БУДЕТ удалён (dry-run)'}] {uid}:")
+        _print_counts(counts)
+        for k, v in counts.items():
+            grand[k] = grand.get(k, 0) + v
+
+    print("\n  ── ИТОГО по удаляемым юзерам ──")
+    _print_counts(grand)
+    print(f"  Удаляемых юзеров: {len(result)} → {', '.join(sorted(result))}")
+    if not args.apply:
+        print(f"\n  → Повторите с --apply, чтобы НЕОБРАТИМО оставить ТОЛЬКО '{keeper}'.")
+    else:
+        left = sorted(u["user_id"] for u in repo.get_all_users())
+        print(f"\n  [OK] Осталось юзеров: {len(left)} → {', '.join(left)}")
+    return 0
+
+
 def main(argv=None) -> int:
     # Общие опции (--db/--apply принимаются ПОСЛЕ подкоманды через parents=)
     common = argparse.ArgumentParser(add_help=False)
@@ -129,6 +174,16 @@ def main(argv=None) -> int:
     pu = sub.add_parser("purge-user", parents=[common], help="полностью снести юзера и все его данные")
     pu.add_argument("--user", required=True, help="user_id для удаления")
     pu.set_defaults(func=cmd_purge_user)
+
+    ko = sub.add_parser(
+        "keep-only", parents=[common],
+        help="снести ВСЕХ юзеров, кроме одного (--user, default me)",
+    )
+    ko.add_argument(
+        "--user", default="me",
+        help="user_id, которого ОСТАВИТЬ (все прочие удаляются; default: me)",
+    )
+    ko.set_defaults(func=cmd_keep_only)
 
     args = p.parse_args(argv)
     return args.func(args)

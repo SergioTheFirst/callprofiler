@@ -613,9 +613,11 @@ class Repository:
 
         ``apply=False`` — только счётчики. ``apply=True`` — удаляет в одной
         транзакции: analyses/transcripts (по call_id юзера) → events/promises →
-        calls → граф (entities/relations/entity_metrics/entity_merges_log) →
+        bio_* (если biography запускалась) → calls → граф
+        (entities/relations/entity_metrics/entity_merges_log) →
         contact_summaries → contacts → users. FTS-строки удаляются до transcripts.
-        Графовые таблицы могут отсутствовать (apply_graph_schema не вызывали) — пропускаем.
+        Графовые и bio_* таблицы могут отсутствовать (apply_graph_schema /
+        apply_biography_schema не вызывали) — пропускаем по _table_exists.
         """
         conn = self._get_conn()
         sub = "(SELECT call_id FROM calls WHERE user_id=?)"
@@ -634,7 +636,28 @@ class Repository:
         # Таблицы с прямым user_id (графовые — только если существуют)
         user_tables = ["events", "promises", "contact_summaries", "contacts"]
         graph_tables = ["entities", "relations", "entity_metrics", "entity_merges_log"]
+        # bio_* (если biography запускалась). 12 таблиц с колонкой user_id;
+        # bio_scene_entities — junction (scene_id, entity_id) без user_id, чистится
+        # по scene_id. Порядок: ссылающиеся на bio_entities → bio_scenes/bio_entities
+        # ПОСЛЕДНИМИ, чтобы DELETE был FK-safe при foreign_keys=ON.
+        bio_tables = [
+            "bio_threads", "bio_portraits", "bio_behavior_patterns",
+            "bio_contradictions", "bio_arcs", "bio_chapters", "bio_books",
+            "bio_checkpoints", "bio_checkpoint_items", "bio_llm_calls",
+            "bio_scenes", "bio_entities",
+        ]
         for tbl in user_tables + graph_tables:
+            if self._table_exists(conn, tbl):
+                counts[tbl] = _count(f"SELECT COUNT(*) FROM {tbl} WHERE user_id=?")
+        if self._table_exists(conn, "bio_scene_entities") and self._table_exists(
+            conn, "bio_scenes"
+        ):
+            counts["bio_scene_entities"] = conn.execute(
+                "SELECT COUNT(*) FROM bio_scene_entities WHERE scene_id IN "
+                "(SELECT scene_id FROM bio_scenes WHERE user_id=?)",
+                (user_id,),
+            ).fetchone()[0]
+        for tbl in bio_tables:
             if self._table_exists(conn, tbl):
                 counts[tbl] = _count(f"SELECT COUNT(*) FROM {tbl} WHERE user_id=?")
         counts["users"] = _count("SELECT COUNT(*) FROM users WHERE user_id=?")
@@ -659,12 +682,48 @@ class Repository:
             conn.execute(f"DELETE FROM transcripts WHERE call_id IN {sub}", (user_id,))
             for tbl in ("events", "promises"):
                 conn.execute(f"DELETE FROM {tbl} WHERE user_id=?", (user_id,))
+            # bio_* ДО calls/contacts/users (bio_scenes→calls, bio_entities→contacts,
+            # все→users): junction по scene_id → прочие → bio_scenes/bio_entities.
+            if self._table_exists(conn, "bio_scene_entities") and self._table_exists(
+                conn, "bio_scenes"
+            ):
+                conn.execute(
+                    "DELETE FROM bio_scene_entities WHERE scene_id IN "
+                    "(SELECT scene_id FROM bio_scenes WHERE user_id=?)",
+                    (user_id,),
+                )
+            for tbl in bio_tables:
+                if self._table_exists(conn, tbl):
+                    conn.execute(f"DELETE FROM {tbl} WHERE user_id=?", (user_id,))
             conn.execute("DELETE FROM calls WHERE user_id=?", (user_id,))
             for tbl in graph_tables + ["contact_summaries", "contacts", "users"]:
                 if self._table_exists(conn, tbl):
                     conn.execute(f"DELETE FROM {tbl} WHERE user_id=?", (user_id,))
             conn.commit()
         return counts
+
+    def purge_other_users(
+        self, keeper_id: str, apply: bool = False
+    ) -> dict[str, dict[str, int]]:
+        """Снести ВСЕХ юзеров, кроме ``keeper_id`` (инверсия :meth:`purge_user`).
+
+        Возвращает ``{user_id: counts}`` по каждому УДАЛЯЕМОМУ юзеру. ``apply=False``
+        — только счётчики (ничего не трогает). ``apply=True`` — необратимо сносит
+        каждого не-keeper через ``purge_user`` (каждый в своей транзакции).
+
+        ``ValueError``, если ``keeper_id`` нет в БД — защита: иначе снесли бы ВСЕХ.
+        """
+        ids = [u["user_id"] for u in self.get_all_users()]
+        if keeper_id not in ids:
+            raise ValueError(
+                f"keeper '{keeper_id}' не найден среди юзеров: {sorted(ids)}"
+            )
+        result: dict[str, dict[str, int]] = {}
+        for uid in ids:
+            if uid == keeper_id:
+                continue
+            result[uid] = self.purge_user(uid, apply=apply)
+        return result
 
     def get_call_count_for_contact(self, user_id: str, contact_id: int) -> int:
         row = (

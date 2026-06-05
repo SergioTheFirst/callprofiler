@@ -8,6 +8,17 @@
 
 ## [Unreleased]
 
+### Added — keep-only: консолидация в один профиль `me` (2026-06-05)
+- `cleanup.bat keep-only --user me [--apply]` — снести ВСЕХ юзеров, кроме keeper
+  (инверсия `purge-user`). Dry-run по умолчанию; защита: keeper обязан существовать
+  (иначе отказ — не снести всех). Repo-метод `purge_other_users(keeper)`.
+- `purge_user` теперь покрывает `bio_*` (12 user_id-таблиц + junction
+  `bio_scene_entities` по scene_id; FK-safe порядок; guarded `_table_exists` —
+  no-op если biography не запускалась). Раньше bio-данные удаляемого юзера сиротели.
+- Legacy `serhio` (старый owner-id того же человека) → purge; единый профиль `me`.
+  Поправлен устаревший `biography/CLAUDE.md` (owner user_id serhio→me).
+- Tests: `test_cleanup.py` +4 (keep-only keeper/dry-run/guard + bio purge); 42 зелёных.
+
 ### Changed — reset.py = чистый лист (защита in+source, снос всей data) (2026-06-05)
 - `reset.py` переписан: сносит ВСЁ производное (вся `C:\calls\data` = БД+профили+logs+biography,
   `C:\calls\text`, `C:\calls\sync`) КРОМЕ `C:\calls\in` (вход) и `C:\calls\source` (мастер).

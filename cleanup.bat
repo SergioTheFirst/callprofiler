@@ -4,6 +4,8 @@ REM   cleanup.bat prune-missing --user me
 REM   cleanup.bat prune-missing --user me --apply
 REM   cleanup.bat purge-user --user serhio
 REM   cleanup.bat purge-user --user serhio --apply
+REM   cleanup.bat keep-only --user me            (delete all except me; dry-run)
+REM   cleanup.bat keep-only --user me --apply
 setlocal
 set PYTHONPATH=%~dp0src
 python "%~dp0cleanup.py" %*

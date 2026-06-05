@@ -251,3 +251,26 @@ originals+normalized + logs + biography) + `C:\calls\text` + `C:\calls\sync`. П
 (`C:\calls\callprofiler.db.bak-<ts>`), иначе снёсся бы вместе с data. dry-run по умолчанию (необратимо,
 16645+ звонков): реальный снос только `--apply`. bootstrap-дефолты (`user=me`, `incoming=C:\calls\in`)
 восстанавливают рабочий стейт без аргументов.
+
+## Один профиль `me`: keep-only + bio-охват purge_user (2026-06-05)
+
+**Решение пользователя:** «удалить всех user, оставить только `me`; все работы будут в его профиле». Система
+из мультиюзерной де-факто становится одно-профильной. `serhio` — НЕ другой человек, а старый owner-id
+того же Сергея Медведева (так было в `biography/CLAUDE.md`: «owner user_id=serhio»); данные пересобраны под
+`me` (~16645 done), `serhio` остался битым хвостом. Главный CLAUDE.md: `[me]` = Сергей Медведев = always owner.
+Источник истины CONTINUITY > модульный CLAUDE.md → keeper = `me`, `serhio` под снос. `serhio` в КОДЕ — только
+докстринги-примеры (ingester/card_generator/telegram_bot/bulk/psychology_profiler), runtime не хардкодит →
+снос ничего не ломает; устаревший `biography/CLAUDE.md` поправлен (serhio→me).
+
+**Инструмент:** `cleanup.py keep-only --user me` (инверсия `purge-user`) через repo-метод
+`purge_other_users(keeper)` = цикл проверенного `purge_user` по не-keeper'ам. Новый SQL удаления НЕ писали —
+переиспользовали `purge_user` (мин. риск). Защита: keeper обязан существовать (`ValueError` → отказ), иначе
+пустой/опечатанный keeper снёс бы ВСЕХ. Dry-run по умолчанию (как reset/cleanup).
+
+**Non-obvious — bio-пробел в purge_user:** `purge_user` НЕ трогал `bio_*` (создаются `apply_biography_schema`
+отдельно, не в `init_db`). Для удаляемого юзера bio-сцены/сущности/главы сиротели. Дополнил: 12 bio-таблиц с
+`user_id` + junction `bio_scene_entities` (без user_id → чистка по `scene_id IN (SELECT … FROM bio_scenes …)`).
+Порядок DELETE FK-safe при `foreign_keys=ON`: junction → ссылающиеся на bio_entities → `bio_scenes`/`bio_entities`
+ПОСЛЕДНИМИ, и весь bio-блок ДО `calls`/`contacts`/`users` (bio_scenes→calls, bio_entities→contacts, все→users).
+Всё guarded `_table_exists` → no-op, если biography не запускалась (текущий бокс). Regression: `test_cleanup.py`
+(`test_purge_user_removes_bio_rows` + 3× `purge_other_users`).

@@ -38,10 +38,17 @@ WHY/священно-vs-расходник — `.claude/rules/decisions.md`.
 
 🟢 **Дашборд: переключатель профилей (user_id)** — рабочие данные под юзером `me` (~16645 done); `serhio` битый.
 
+🟢 **keep-only: один профиль `me`** (2026-06-05). `cleanup.bat keep-only --user me [--apply]` сносит
+ВСЕХ юзеров кроме keeper (инверсия purge-user, dry-run по умолч., guard «keeper обязан быть»).
+`purge_user` теперь чистит и `bio_*` (junction по scene_id, FK-safe). Legacy `serhio` = старый owner-id
+того же человека → под снос. «Все работы в одном профиле» (решение юзера 2026-06-05).
+
 **Prod-данные на боксе:** ~16645 done под `me`, 2349 error, 754 normalizing(stage0); `serhio` битый
-(кандидат на `cleanup.bat purge-user`). Legacy-транскрипты speaker=UNKNOWN.
+(под снос: `cleanup.bat keep-only --user me --apply`). Legacy-транскрипты speaker=UNKNOWN.
 
 **Next:**
+- На боксе консолидировать профиль: `cleanup.bat keep-only --user me` (dry-run → проверить план) →
+  `--apply` (снести `serhio` и прочих, оставить `me`). Затем дашборд/обработка — один профиль.
 - На боксе Stage-1: `enable_llm_analysis:false`+`enable_diarization:false`, файлы в `C:\calls\in`,
   `startprocess.bat` (watch). Цель: audio → транскрипты в БД + `.txt`, терминал `transcribed`, wav сносится.
 - ПОТОМ (Stage-2): llama-server → bulk-enrich над `status='transcribed'`; затем роли (без ре-ASR:

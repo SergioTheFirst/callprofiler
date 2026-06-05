@@ -144,3 +144,75 @@ def test_purge_user_isolated(repo):
     assert repo.get_transcript(c2)
     assert repo.search_transcripts("u2", "второйюзер")
     assert repo.search_transcripts("u1", "первыйюзер") == []
+
+
+def test_purge_user_removes_bio_rows(repo):
+    """purge_user сносит и bio_* (сцены, сущности, junction), если схема применена."""
+    from callprofiler.biography.schema import apply_biography_schema
+
+    conn = repo._get_conn()
+    apply_biography_schema(conn)
+    _add_user(repo)
+    call_id, _ = _add_call(repo)
+    conn.execute(
+        "INSERT INTO bio_scenes (user_id, call_id, synopsis) VALUES (?,?,?)",
+        ("user1", call_id, "сцена"),
+    )
+    scene_id = conn.execute(
+        "SELECT scene_id FROM bio_scenes WHERE user_id=?", ("user1",)
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO bio_entities (user_id, canonical_name, entity_type) VALUES (?,?,?)",
+        ("user1", "Вася", "PERSON"),
+    )
+    entity_id = conn.execute(
+        "SELECT entity_id FROM bio_entities WHERE user_id=?", ("user1",)
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO bio_scene_entities (scene_id, entity_id) VALUES (?,?)",
+        (scene_id, entity_id),
+    )
+    conn.commit()
+
+    counts = repo.purge_user("user1", apply=False)  # dry-run считает bio
+    assert counts["bio_scenes"] == 1
+    assert counts["bio_entities"] == 1
+    assert counts["bio_scene_entities"] == 1
+
+    repo.purge_user("user1", apply=True)  # FK-safe: junction → scenes/entities → calls
+    assert conn.execute("SELECT COUNT(*) FROM bio_scenes").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM bio_entities").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM bio_scene_entities").fetchone()[0] == 0
+
+
+# ── purge_other_users (keep-only) ───────────────────────────────────────────
+
+def test_purge_other_users_keeps_only_keeper(repo):
+    _add_user(repo, "me")
+    _add_user(repo, "serhio")
+    _add_user(repo, "junk")
+    c_me, _ = _add_call(repo, user_id="me", md5="me1", text="мояработа")
+    _add_call(repo, user_id="serhio", md5="s1", text="чужое")
+    result = repo.purge_other_users("me", apply=True)
+    assert set(result) == {"serhio", "junk"}  # keeper не в отчёте
+    assert [u["user_id"] for u in repo.get_all_users()] == ["me"]
+    assert repo.get_transcript(c_me)  # данные keeper целы
+    assert repo.search_transcripts("me", "мояработа")
+    assert repo.search_transcripts("serhio", "чужое") == []
+
+
+def test_purge_other_users_dryrun_changes_nothing(repo):
+    _add_user(repo, "me")
+    _add_user(repo, "serhio")
+    result = repo.purge_other_users("me", apply=False)
+    assert set(result) == {"serhio"}
+    assert result["serhio"]["users"] == 1  # счётчик есть
+    # ничего не снесено
+    assert {u["user_id"] for u in repo.get_all_users()} == {"me", "serhio"}
+
+
+def test_purge_other_users_missing_keeper_raises(repo):
+    _add_user(repo, "serhio")
+    with pytest.raises(ValueError):
+        repo.purge_other_users("me", apply=True)
+    assert repo.get_user("serhio") is not None  # ничего не тронуто при отказе
