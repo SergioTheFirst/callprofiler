@@ -89,6 +89,13 @@ None currently identified.
 
 ## Recent Fixes (Closed)
 
+ℹ️ **«Файл не найден …originals…» после cleanup+startprocess — не баг, неверный инструмент** (2026-06-05)
+- **Симптом:** `[ERROR] нормализация call_id=NNNN: Файл не найден: …\users\me\audio\originals\YYYY\MM\*.mp3`.
+- **Причина:** `cleanup keep-only` СОХРАНЯЕТ данные `me`; у части звонков оригиналы пропали → watch реклеймит →
+  normalize не находит mp3. Для «чистого листа / нового компа» нужен `reset.bat --apply` (сносит всю data,
+  пустая БД + me), НЕ keep-only. Подробно — `.claude/rules/decisions.md` («cleanup keep-only ≠ reset»).
+- **Status:** РАЗЪЯСНЕНО (2026-06-05). reset.py закоммичен в main.
+
 ✅ **Дашборд «устаревшие данные» — SSE-тик гейтился вкладкой overview** (2026-06-05)
 - **Root cause (non-obvious):** бэкенд real-time исправен (poller свежий reader + `MAX(updated_at)`,
   `update_call_status`/`update_pipeline_stage` бампают `updated_at`, db_reader с WAL-фиксом). НО фронт

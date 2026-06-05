@@ -19,11 +19,16 @@
 
 **State (2026-06-05):**
 
-🎯 **ПОЛНЫЙ ПАЙПЛАЙН (2026-06-05, запрос юзера):** GigaAM(GPU ASR) → Qwen 9B Q8_0(GPU LLM).
-`features.yaml`: `enable_llm_analysis:true`, `enable_diarization:false` (pyannote не названа,
-Windows-flaky; роли позже наложением спанов без ре-ASR). `gigaam_runner` падает, если
-`gigaam_device=cuda` а CUDA нет (GPU обязателен, не молчаливый CPU). На боксе: llama-server
-с `C:\models\Qwen3.5-9B.Q8_0.gguf` ДОЛЖЕН быть поднят перед watch (иначе анализ = error).
+🎯 **ПОЛНЫЙ ПАЙПЛАЙН (2026-06-05, запрос юзера):** pyannote-роли → GigaAM(GPU ASR) → Qwen 9B Q8_0(GPU LLM).
+`features.yaml`: `enable_llm_analysis:true`, `enable_diarization:true` (роли [me]/[s2] обязательны).
+`gigaam_runner` падает, если `gigaam_device=cuda` а CUDA нет (GPU обязателен). На боксе перед watch:
+(а) llama-server с `C:\models\Qwen3.5-9B.Q8_0.gguf`; (б) для ролей — pyannote+HF_TOKEN+принятые
+gated-модели+`C:\pro\mbot\ref\manager.wav` (иначе роли graceful UNKNOWN + `_warn_once` в лог).
+
+🧹 **ЧИСТЫЙ ЛИСТ («новый комп») = `reset.bat --apply`, НЕ `cleanup keep-only`.** keep-only ОСТАВЛЯЕТ
+данные `me`; reset сносит всю `data` (БД+originals+wav) → пустая БД + `me` (ref_audio дефолтом) →
+ноль во всех профилях → startprocess реобрабатывает `C:\calls\in` с нуля. Останови watch/dashboard
+перед reset. Фантомные «Файл не найден …originals…» = старые записи me после keep-only.
 
 🟢 **Pipeline: удаление normalized wav** — `delete_normalized_after_transcribe:true` в `base.yaml`
 (подтверждено 2026-06-05). wav сносится после stage 2, регенерируется из mp3-архива (`originals/YYYY/MM`),
@@ -51,9 +56,11 @@ WHY/священно-vs-расходник — `.claude/rules/decisions.md`.
 **Next:**
 - На боксе консолидировать профиль: `cleanup.bat keep-only --user me` (dry-run → проверить план) →
   `--apply` (снести `serhio` и прочих, оставить `me`). Затем дашборд/обработка — один профиль.
-- На боксе полный прогон: (1) поднять llama-server (Qwen 9B Q8_0); (2) файлы в `C:\calls\in`;
-  (3) `startprocess.bat` (watch). Путь: audio → GigaAM(GPU) → текст в БД+`.txt` → Qwen LLM-анализ →
-  `done`. wav сносится сразу (+ sweep `cleanup_normalized` каждый цикл). Дашборд — real-time все вкладки.
+- На боксе чистый прогон: (0) ОСТАНОВИТЬ watch/dashboard → `reset.bat --apply` (чистый лист) →
+  убедиться: дашборд ноль; (1) поднять llama-server (Qwen 9B Q8_0); (2) для ролей — install-roles.bat
+  + `setx HF_TOKEN …` + принять gated pyannote-модели + проверить `C:\pro\mbot\ref\manager.wav`;
+  (3) аудио в `C:\calls\in`; (4) `startprocess.bat`. Путь: pyannote-роли → GigaAM(GPU) → текст в БД+`.txt`
+  → Qwen LLM-анализ → `done`. wav сносится сразу (+ sweep). Дашборд real-time все вкладки.
 - ПОТОМ (Stage-2): llama-server → bulk-enrich над `status='transcribed'`; затем роли (без ре-ASR:
   наложение pyannote-спанов на `transcripts.start_ms/end_ms`), граф v2, профили, биография.
 - biography→analysis resilience (`.claude/rules/decisions.md` «Port biography resilience…»): мемоизация+retry,

@@ -8,6 +8,19 @@
 
 ## [Unreleased]
 
+### Changed — диаризация ON + чистый лист = reset (не keep-only) (2026-06-05)
+- **Диаризация обратно ON** (запрос юзера: роли [me]/[s2] обязательны). `features.yaml`
+  `enable_diarization:true` — реверс OFF из 96d1ec6. Код-путь `_diarize_batch` проверен:
+  pyannote load→`finally:unload()` ДО загрузки ASR (VRAM-sequential, не одновременно),
+  любой сбой → graceful UNKNOWN + `_warn_once` (что чинить). После reset у `me`
+  ref_audio=`C:\pro\mbot\ref\manager.wav` (bootstrap default).
+- **Чистый лист = `reset.bat --apply`, НЕ `cleanup keep-only`.** Симптом: после cleanup+
+  startprocess сыпались «Файл не найден: …originals\2021\03\*.mp3». Причина: `keep-only`
+  по дизайну ОСТАВЛЯЕТ данные `me` (16645 звонков); у части оригиналы пропали → watch
+  пытается переобработать → error. `reset.py` сносит ВСЮ `data` (БД+originals+wav) →
+  пустая БД + `me` → дашборд ноль везде → startprocess реобрабатывает `C:\calls\in` с нуля.
+- `reset.py` закоммичен (был uncommitted 2 сессии) — инструмент чистого листа теперь в main.
+
 ### Fixed — полный GPU-пайплайн + live-дашборд + wav-sweep (2026-06-05)
 - **GPU-модели по назначению.** `features.yaml`: `enable_diarization:false` →
   пайплайн = GigaAM(GPU ASR) → Qwen(GPU LLM). pyannote не используется (не названа

@@ -1,30 +1,31 @@
 # -*- coding: utf-8 -*-
 """
-reset.py — ЧИСТЫЙ ЛИСТ: снести ВСЕ производные данные → пересоздать пустую
-БД + папки + юзера `me` (через bootstrap). После reset запусти startprocess.bat —
+reset.py — ЧИСТЫЙ ЛИСТ: снести ВСЕ производные файлы в C:\\calls → пересоздать
+пустую БД + папки + юзера `me` (через bootstrap). После reset запусти startprocess.bat —
 обработка пойдёт заново на файлах из C:\\calls\\in.
 
 ЗАЩИЩЕНО (НЕ трогаем НИКОГДА):
   - C:\\calls\\in      — входящие аудио (вход обработки; startprocess их прогонит)
   - C:\\calls\\source  — мастер-архив исходников
 
-СНОСИМ (всё кроме защищённого):
+СНОСИМ (рекурсивно ВСЕ файлы в C:\\calls, кроме защищённого):
   - C:\\calls\\data    — ВСЯ: БД, все профили users/* (originals+normalized),
-                         logs, biography — всё
+                         logs, biography
   - C:\\calls\\text    — .txt транскрипты
   - C:\\calls\\sync    — caller cards
+  - Все остальные остатки обработки
 
 ПО УМОЛЧАНИЮ DRY-RUN: печатает план, НИЧЕГО не трогает. Реальный снос — только --apply.
 БД бэкапится ВНЕ data (рядом, в C:\\calls\\) перед сносом — переживает wipe.
 
   python reset.py            # dry-run (показать план)
-  python reset.py --apply     # снести всё → пустая БД + юзер me (bootstrap)
+  python reset.py --apply     # снести ВСЕ файлы (кроме in/source) → пустая БД + юзер me
   python reset.py --apply --no-backup   # без бэкапа БД
 
 Опции:
-  --data-dir PATH (default C:\\calls\\data)   — сносится ЦЕЛИКОМ
-  --text-dir  PATH (default C:\\calls\\text)
-  --sync-dir  PATH (default C:\\calls\\sync)
+  --data-dir PATH (default C:\\calls\\data)   — используется для локации БД
+  --text-dir  PATH (default C:\\calls\\text)  — (legacy, для dry-run статистики)
+  --sync-dir  PATH (default C:\\calls\\sync)  — (legacy, для dry-run статистики)
 """
 from __future__ import annotations
 
@@ -83,6 +84,47 @@ def _overlaps_protected(path: str) -> bool:
     return False
 
 
+def _walk_and_remove(root_path: str, protected: set[str]) -> int:
+    """Рекурсивно удалить ВСЕ файлы и пустые папки в root_path, кроме PROTECTED.
+    Вернуть кол-во удалённых файлов."""
+    if not os.path.isdir(root_path):
+        return 0
+
+    protected_abs = {os.path.normpath(os.path.abspath(p)).lower() for p in protected}
+    removed = 0
+
+    # topdown=False: обходим листья → родителей (можем удалять папки)
+    for dirpath, dirnames, filenames in os.walk(root_path, topdown=False):
+        dirpath_norm = os.path.normpath(os.path.abspath(dirpath)).lower()
+
+        # Пропустить, если текущая папка ВНУТРИ защищённой
+        is_protected = any(
+            dirpath_norm == pr or dirpath_norm.startswith(pr + "\\")
+            for pr in protected_abs
+        )
+        if is_protected:
+            continue
+
+        # Удалить файлы в текущей папке
+        for fname in filenames:
+            fpath = os.path.join(dirpath, fname)
+            try:
+                os.remove(fpath)
+                removed += 1
+            except OSError as e:
+                print(f"  [!] не удалить {fpath}: {e}")
+
+        # Удалить пустую папку (если не root и не защищённая)
+        if dirpath != root_path:
+            try:
+                if not os.listdir(dirpath):
+                    os.rmdir(dirpath)
+            except OSError:
+                pass
+
+    return removed
+
+
 def _count_calls(db: str) -> str:
     if not os.path.isfile(db):
         return "нет БД"
@@ -111,22 +153,21 @@ def main(argv=None) -> int:
     args = p.parse_args(argv)
 
     db = _db_path(args.data_dir)
+    calls_root = os.path.dirname(os.path.normpath(args.data_dir))
     targets = [args.data_dir, args.text_dir, args.sync_dir]
 
     print("== ЧИСТЫЙ ЛИСТ ==")
     print(f"  БД: {db} | {_count_calls(db)} | "
           f"{_mb(os.path.getsize(db)) if os.path.isfile(db) else 'нет файла'}")
-    print("  СНОСИМ (всё кроме защищённого):")
-    for t in targets:
-        files, size = _dir_stats(t)
-        print(f"    {t} | файлов: {files} | {_mb(size)}")
+    print(f"  СНОСИМ (ВСЕ файлы рекурсивно в {calls_root}, кроме защищённого):")
+    files, size = _dir_stats(calls_root)
+    print(f"    {calls_root} | файлов: {files} | {_mb(size)}")
     print(f"  ЗАЩИЩЕНО (НЕ трогаем): {', '.join(sorted(PROTECTED))}")
 
-    # Guard: ни одна цель не должна пересекаться с in/source.
-    for t in targets:
-        if _overlaps_protected(t):
-            print(f"[СТОП] цель пересекается с защищённым (in/source): {t}")
-            return 2
+    # Guard: корневая папка не должна быть защищённой.
+    if _overlaps_protected(calls_root):
+        print(f"[СТОП] корневая папка {calls_root} совпадает с защищённой!")
+        return 2
 
     if not args.apply:
         print("\n  Это DRY-RUN. Ничего не снесено.")
@@ -147,14 +188,11 @@ def main(argv=None) -> int:
     else:
         print("\n[1] БД не было — бэкап не нужен")
 
-    # 2) Снести всё производное (data целиком + text + sync).
-    for t in targets:
-        if os.path.isdir(t):
-            try:
-                shutil.rmtree(t)
-                print(f"[2] Снесено: {t}")
-            except OSError as exc:
-                print(f"    [!] не снести {t}: {exc}")
+    # 2) Снести ВСЕ файлы в C:\calls рекурсивно, кроме PROTECTED (in/, source/).
+    calls_root = os.path.dirname(os.path.normpath(args.data_dir))
+    print(f"[2] Удаляю файлы в {calls_root} (кроме {', '.join(sorted(PROTECTED))})...")
+    removed = _walk_and_remove(calls_root, PROTECTED)
+    print(f"    Удалено файлов: {removed}")
 
     # 3) Пересоздать пустую БД + папки + юзера me (bootstrap, дефолты:
     #    user=me, incoming=C:\calls\in, sync=C:\calls\sync).
@@ -168,7 +206,8 @@ def main(argv=None) -> int:
         print(f"[ОШИБКА] bootstrap вернул {rc}. Запусти вручную: python -m callprofiler bootstrap")
         return rc
 
-    print("\n[OK] Чистый лист готов. БД пустая, профили снесены, in/source целы.")
+    print("\n[OK] Чистый лист готов. ВСЕ файлы в C:\\calls удалены (кроме in/source),")
+    print("     БД пересоздана, юзер 'me' готов к работе.")
     print("     Запусти startprocess.bat — обработка пойдёт заново на файлах из C:\\calls\\in.")
     return 0
 

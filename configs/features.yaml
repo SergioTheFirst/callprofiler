@@ -12,9 +12,10 @@
 # ON: сначала диаризация → turn'ы, затем GigaAM транскрибирует КАЖДЫЙ turn →
 # текст по ролям. Сбой/нет ref_audio → graceful fallback на speaker=UNKNOWN
 # (транскрипт не теряется). OFF → плоский текст без ролей.
-# OFF: только GigaAM (ASR) + Qwen (LLM) — две GPU-модели по назначению. pyannote
-# не используется (Windows-flaky, торможение); роли — позже наложением спанов без ре-ASR.
-enable_diarization: false
+# ON (запрос юзера 2026-06-05): распределение по ролям [me]/[s2] обязательно.
+# Требует на боксе: pyannote.audio + HF_TOKEN + принятые gated-модели + ref_audio юзера.
+# Сбой любой из причин → graceful UNKNOWN + _warn_once в лог (что именно чинить).
+enable_diarization: true
 
 # LLM-анализ через llama-server. Если выключен — звонки получают пустой
 # Analysis (только транскрипт + метаданные).
