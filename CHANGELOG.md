@@ -8,6 +8,14 @@
 
 ## [Unreleased]
 
+### Perf — диаризация: батчевый инференс pyannote (2026-06-05)
+- Симптом: ~25-30с/звонок. Причина НЕ регресс кода: раньше pyannote молча падала (torchcodec
+  DLL на Windows) → мгновенный UNKNOWN → «быстро»; теперь окружение настроено, диаризация реально
+  работает. Узкое место — серийный per-window инференс (pyannote по умолчанию батчит ~по 1).
+- Фикс: `segmentation_batch_size`/`embedding_batch_size` = `config.models.pyannote_batch_size`
+  (дефолт 32) в `PyannoteRunner.load` (guarded, settable в 3.1/4.x) → инференс одним проходом,
+  в разы быстрее. + WARNING, если pyannote на CPU (`torch.cuda.is_available()=False`).
+
 ### Fixed — ffmpeg EINVAL(-22) на нормализации после атомарной записи (2026-06-05)
 - Атомарный temp `{dst}.wav.part` ломал выбор выходного мукса ffmpeg (он берёт формат из
   расширения; `.part` неизвестно → `AVERROR(EINVAL)` = код 4294967274). Фикс: `-f wav` явно в

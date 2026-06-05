@@ -51,6 +51,7 @@ class ModelsConfig:
     gigaam_device: str = "cuda"   # "cuda" | "cpu"
     gigaam_chunk_sec: float = 20.0    # длина окна нарезки (<25с, ограничение модели)
     gigaam_overlap_sec: float = 0.0   # перекрытие окон (0 = без дублей на стыках)
+    pyannote_batch_size: int = 32     # батч инференса диаризации (1=серийно/медленно)
 
 
 @dataclass
@@ -138,6 +139,7 @@ def load_config(path: str) -> Config:
             gigaam_device=m.get("gigaam_device", cfg.models.gigaam_device),
             gigaam_chunk_sec=float(m.get("gigaam_chunk_sec", cfg.models.gigaam_chunk_sec)),
             gigaam_overlap_sec=float(m.get("gigaam_overlap_sec", cfg.models.gigaam_overlap_sec)),
+            pyannote_batch_size=int(m.get("pyannote_batch_size", cfg.models.pyannote_batch_size)),
         )
 
     if "pipeline" in raw:

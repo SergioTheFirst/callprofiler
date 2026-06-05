@@ -1,5 +1,18 @@
 # Architecture Decisions
 
+## Диаризация «стала медленной» — на деле раньше падала; рычаг = batch_size (2026-06-05)
+
+**Симптом юзера:** ~25-30с/звонок, «ранее быстрей». **Non-obvious:** это НЕ регресс скорости.
+Раньше pyannote молча падала на Windows (torchcodec DLL → исключение → graceful UNKNOWN мгновенно) —
+«быстро», потому что НЕ делала ничего. После настройки окружения на боксе диаризация реально
+работает, и проявилась её настоящая стоимость. Узкое место — **серийный per-window инференс**:
+pyannote по умолчанию батчит сегментацию/эмбеддинги ~по 1, звонок с десятками turn'ов = десятки
+последовательных GPU-вызовов. **Рычаг:** `pipeline.segmentation_batch_size` +
+`embedding_batch_size` = `config.models.pyannote_batch_size` (дефолт 32) в `PyannoteRunner.load`
+(guarded, атрибуты settable в 3.1/4.x) → один проход. + WARNING при CPU (cuda недоступна = ещё
+10-30× медленнее, тихая деградация многочасового прогона). Дополнительные 2 whole-audio эмбеддинга
+в `_find_owner_label` оставлены (минорно vs per-window батч; не плодим сложность).
+
 ## ASR Backend: Whisper → GigaAM v3 RNN-T (2026-06-01)
 
 **Decision:** Replace Whisper (faster-whisper) with GigaAM v3 RNN-T as the primary ASR backend.

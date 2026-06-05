@@ -188,6 +188,12 @@ class PyannoteRunner:
         # Определить device
         self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.info("Pyannote device: %s", self._device.type.upper())
+        if self._device.type != "cuda":
+            logger.warning(
+                "Pyannote на CPU (torch.cuda.is_available()=False) — диаризация "
+                "будет в 10-30x медленнее. Поставьте torch с CUDA (requirements-"
+                "gigaam.txt: torch==2.6.0+cu124)."
+            )
 
         try:
             # Загрузить embedding модель (для cosine similarity)
@@ -207,7 +213,22 @@ class PyannoteRunner:
             )
             self.pipeline.to(self._device)
 
-            logger.info("Pyannote модели загружены успешно")
+            # ── Perf: батчевый инференс (главный рычаг скорости) ──────────────
+            # Узкое место диаризации — серийный per-window инференс segmentation+
+            # embedding. По умолчанию pyannote батчит ~по 1 → на звонке с десятками
+            # turn'ов это десятки последовательных GPU-вызовов = 25-30с/звонок.
+            # Батч 32 объединяет их в один проход → в разы быстрее. Атрибуты
+            # settable в 3.1/4.x; guarded на случай иной версии. Тюнится
+            # config.models.pyannote_batch_size.
+            batch_size = int(getattr(self.config.models, "pyannote_batch_size", 32) or 32)
+            for attr in ("segmentation_batch_size", "embedding_batch_size"):
+                if hasattr(self.pipeline, attr):
+                    try:
+                        setattr(self.pipeline, attr, batch_size)
+                    except Exception:  # noqa: BLE001 — не критично для работы
+                        logger.debug("Не удалось задать %s=%d", attr, batch_size)
+
+            logger.info("Pyannote модели загружены успешно (batch=%d)", batch_size)
 
         except Exception as exc:
             raise RuntimeError(f"Ошибка при загрузке pyannote: {exc}") from exc
