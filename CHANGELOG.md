@@ -8,6 +8,11 @@
 
 ## [Unreleased]
 
+### Fixed — ffmpeg EINVAL(-22) на нормализации после атомарной записи (2026-06-05)
+- Атомарный temp `{dst}.wav.part` ломал выбор выходного мукса ffmpeg (он берёт формат из
+  расширения; `.part` неизвестно → `AVERROR(EINVAL)` = код 4294967274). Фикс: `-f wav` явно в
+  `_convert_raw` + `_normalize_two_pass`. Атомарность сохранена. Regress: `test_normalizer_atomic.py`.
+
 ### Changed — normalized wav: имя по источнику + resume-skip + немедленное удаление (2026-06-05)
 - **Имя wav = `{call_id}__{safe(источник)}.wav`** (`norm_wav_path` в orchestrator). call_id
   префиксом = уникальность (нет подмены аудио при одинаковых basename) + парсинг в

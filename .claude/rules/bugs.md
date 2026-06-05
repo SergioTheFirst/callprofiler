@@ -89,6 +89,22 @@ None currently identified.
 
 ## Recent Fixes (Closed)
 
+✅ **ffmpeg код 4294967274 на нормализации — атомарный `.part` ломает выбор мукса** (2026-06-05)
+- **Симптом:** `[ERROR] нормализация call_id=NNNN: ffmpeg завершился с кодом 4294967274 для …mp3`,
+  раньше нормализация проходила ОК. Регресс ВНЁС я в тот же день (атомарная запись wav).
+- **Root cause (non-obvious):** `4294967274` = unsigned(-22) = `AVERROR(EINVAL)`. Я добавил
+  атомарную запись: ffmpeg стал писать выход во временный `{dst}.wav.part`. ffmpeg выбирает
+  выходной **мукс по расширению файла** → `.part` неизвестно → `av_guess_format` фейлит →
+  "Unable to find a suitable output format" → EINVAL(-22). Имя/спецсимволы источника ни при чём
+  (sanitize корректен); единственное отличие от рабочего пути — суффикс `.part` на выходе.
+- **Fix:** форсировать формат ЯВНО — `-f wav` перед `dst` в обоих ffmpeg-командах
+  (`_convert_raw` + `_normalize_two_pass` pass-2). Расширение temp теперь не важно. Атомарность
+  (`.part`→`os.replace`) сохранена — она нужна для skip-if-exists (битый `.part` не подхватится).
+- **Regression:** `tests/test_normalizer_atomic.py` (реальный ffmpeg, skip без него; пишет в
+  `.wav` с temp `.part`, проверяет RIFF/WAVE + отсутствие `.part`-орфана). Локально skip (нет
+  ffmpeg) — отработает на боксе.
+- **Status:** RESOLVED код (2026-06-05). Проверка на боксе при следующем прогоне.
+
 ℹ️ **«Файл не найден …originals…» после cleanup+startprocess — не баг, неверный инструмент** (2026-06-05)
 - **Симптом:** `[ERROR] нормализация call_id=NNNN: Файл не найден: …\users\me\audio\originals\YYYY\MM\*.mp3`.
 - **Причина:** `cleanup keep-only` СОХРАНЯЕТ данные `me`; у части звонков оригиналы пропали → watch реклеймит →

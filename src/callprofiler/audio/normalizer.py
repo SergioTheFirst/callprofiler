@@ -141,7 +141,8 @@ def _convert_raw(src: str, dst: str, sample_rate: int, channels: int) -> None:
         "-ac", str(channels),
         "-ar", str(sample_rate),
         "-sample_fmt", "s16",
-        dst,
+        "-f", "wav",  # формат ЯВНО: dst пишется как .part (атомарность) — иначе
+        dst,          # ffmpeg выбирает мукс по расширению .part → EINVAL (-22)
     ]
     _run_ffmpeg(cmd, src)
 
@@ -198,6 +199,7 @@ def _normalize_two_pass(src: str, dst: str, sample_rate: int, channels: int) -> 
         "-ac", str(channels),
         "-ar", str(sample_rate),
         "-sample_fmt", "s16",
+        "-f", "wav",  # см. _convert_raw: dst=.part, формат задаём явно (EINVAL fix)
         dst,
     ]
     _run_ffmpeg(cmd2, src)
