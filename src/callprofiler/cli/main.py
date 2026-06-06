@@ -65,6 +65,11 @@ from callprofiler.cli.commands.graph import (  # noqa: E402
     cmd_graph_audit, cmd_graph_health,
 )
 
+# ---- insight commands ----
+from callprofiler.cli.commands.insight import (  # noqa: E402
+    cmd_features_build, cmd_archetypes_fit,
+)
+
 # cmd_graph_audit -> cli/commands/graph.py
 
 
@@ -502,6 +507,28 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Идентификатор пользователя",
     )
 
+    # ── insight: features-build / archetypes-fit ───────────────────
+    p_feat = sub.add_parser(
+        "features-build",
+        help="Insight: посчитать по-контактные поведенческие фичи",
+    )
+    p_feat.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_arch = sub.add_parser(
+        "archetypes-fit",
+        help="Insight: кластеризовать контакты в архетипы",
+    )
+    p_arch.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_arch.add_argument(
+        "--version", default="arch-v1", metavar="VER",
+        help="Версия модели архетипов (по умолчанию: arch-v1)",
+    )
+
     # ── biography-status ───────────────────────────────────────────
     p_bio_status = sub.add_parser(
         "biography-status",
@@ -580,6 +607,8 @@ def main() -> None:
         "reenrich-v2": cmd_reenrich_v2,
         "graph-replay": cmd_graph_replay,
         "graph-stats": cmd_graph_stats,
+        "features-build": cmd_features_build,
+        "archetypes-fit": cmd_archetypes_fit,
         "entity-merge": cmd_entity_merge,
         "entity-unmerge": cmd_entity_unmerge,
         "graph-audit": cmd_graph_audit,
