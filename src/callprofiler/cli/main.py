@@ -67,7 +67,7 @@ from callprofiler.cli.commands.graph import (  # noqa: E402
 
 # ---- insight commands ----
 from callprofiler.cli.commands.insight import (  # noqa: E402
-    cmd_features_build, cmd_archetypes_fit,
+    cmd_features_build, cmd_archetypes_fit, cmd_person_archetype,
 )
 
 # cmd_graph_audit -> cli/commands/graph.py
@@ -528,6 +528,21 @@ def _build_parser() -> argparse.ArgumentParser:
         "--version", default="arch-v1", metavar="VER",
         help="Версия модели архетипов (по умолчанию: arch-v1)",
     )
+    p_person_arch = sub.add_parser(
+        "person-archetype",
+        help="Insight: карточка архетипа контакта",
+    )
+    p_person_arch.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_person_arch.add_argument(
+        "--contact", dest="contact_id", required=True, type=int, metavar="CONTACT_ID",
+        help="ID контакта",
+    )
+    p_person_arch.add_argument(
+        "--json", action="store_true", help="Вывести как JSON",
+    )
 
     # ── biography-status ───────────────────────────────────────────
     p_bio_status = sub.add_parser(
@@ -609,6 +624,7 @@ def main() -> None:
         "graph-stats": cmd_graph_stats,
         "features-build": cmd_features_build,
         "archetypes-fit": cmd_archetypes_fit,
+        "person-archetype": cmd_person_archetype,
         "entity-merge": cmd_entity_merge,
         "entity-unmerge": cmd_entity_unmerge,
         "graph-audit": cmd_graph_audit,

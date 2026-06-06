@@ -8,6 +8,15 @@
 
 ## [Unreleased]
 
+### Added — Insight Engine: Фаза 5-6 — имена кластеров + карточка person-archetype (2026-06-06)
+- `insight/labels.py` (FEATURE_LABELS: фичи→человеческие фразы) + `insight/cards.py` (build_card).
+- `archetypes-fit` теперь пишет: детерм. имя кластера (топ-|mean z| осей), membership (1/(1+dist до
+  PCA-центроида)), distinctive_dims (топ-|z| контакта с фразами), confidence (по total_calls).
+- CLI `person-archetype --user X --contact Y [--json]` — читаемая карточка (архетип/близость/черты/темы).
+  **Первый видимый пользователю результат.** Имена детерминированные; LLM-уточнение — шов на боксе.
+- Review-агенты: code-reviewer APPROVE; security-reviewer 1 MEDIUM (try/except на JSON distinctive_dims)
+  — исправлено. **617 passed, 2 skipped.**
+
 ### Added — Insight Engine: Фаза 3 affective/topical фичи (2026-06-06)
 - `features/affective.py` (mean_risk/risk_volatility/max_risk/profanity_mean) + `features/topical.py`
   (topic_diversity/topic_focus Herfindahl) из таблицы `analyses`. Tier.AFFECTIVE.

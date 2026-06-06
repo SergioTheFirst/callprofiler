@@ -2,11 +2,40 @@
 
 Отделена от argparse — чтобы тестировать без подпроцесса.
 """
+import numpy as np
+
 from . import repository as repo
 from .feature_store import build_contact_features, assemble_matrix, standardize
 from .archetypes import fit_archetypes
+from .labels import cluster_label, describe_dim
 
 _MIN_CONTACTS = 4  # ниже — кластеризация бессмысленна
+_DISTINCT_Z = 0.8   # порог |z| для «отличительной» оси
+_MAX_DISTINCT = 5
+
+
+def _confidence(total_calls):
+    if total_calls >= 20:
+        return "high"
+    if total_calls >= 6:
+        return "medium"
+    return "low"
+
+
+def _distinctive_dims(zrow, names):
+    """Топ-оси контакта по |z| (≥ порога) с человеческими фразами."""
+    order = sorted(range(len(names)), key=lambda j: abs(zrow[j]), reverse=True)
+    out = []
+    for j in order:
+        z = float(zrow[j])
+        if abs(z) < _DISTINCT_Z:
+            break
+        phrase = describe_dim(names[j], z, thr=_DISTINCT_Z)
+        if phrase:
+            out.append({"dim": names[j], "z": round(z, 2), "phrase": phrase})
+        if len(out) >= _MAX_DISTINCT:
+            break
+    return out
 
 
 def run_features_build(conn, user_id, reference_now=None):
@@ -39,16 +68,34 @@ def run_archetypes_fit(conn, user_id, version="arch-v1", reference_now=None):
         return {"k": 0, "silhouette": 0.0, "n_assigned": 0}
     Z = standardize(X, w)
     res = fit_archetypes(Z, k_range=range(2, 8), seed=0)
+    labels, Zp, centroids, k = res["labels"], res["projection"], res["centroids"], res["k"]
+
+    # Имена кластеров из профиля в фич-пространстве (top-|mean z|)
+    cluster_names = {}
+    for c in range(k):
+        mask = labels == c
+        if not mask.any():
+            cluster_names[c] = f"кластер {c}"
+            continue
+        prof = Z[mask].mean(axis=0)
+        top = sorted(range(len(names)), key=lambda j: abs(prof[j]), reverse=True)[:3]
+        cluster_names[c] = cluster_label([(names[j], float(prof[j])) for j in top])
+
     mid = repo.save_archetype_model(
-        conn, user_id, version=version, k=res["k"], silhouette=res["silhouette"],
+        conn, user_id, version=version, k=k, silhouette=res["silhouette"],
         n_contacts=len(cids), feature_list=names,
-        centroids=[c.tolist() for c in res["centroids"]],
-        labels={str(i): f"cluster_{i}" for i in range(res["k"])},
+        centroids=[c.tolist() for c in centroids],
+        labels={str(c): cluster_names[c] for c in range(k)},
     )
-    for cid, lab in zip(cids, res["labels"]):
+    for i, cid in enumerate(cids):
+        c = int(labels[i])
+        dist = float(np.linalg.norm(Zp[i] - centroids[c]))
+        membership = round(1.0 / (1.0 + dist), 3)
+        tc = per_contact[cid].get("total_calls")
+        conf = _confidence(tc.value if tc else 0)
         repo.save_contact_archetype(
-            conn, user_id, contact_id=cid, model_id=mid, cluster_idx=int(lab),
-            label=f"cluster_{int(lab)}", membership=1.0,
-            distinctive_dims=[], confidence="medium", evidence=[],
+            conn, user_id, contact_id=cid, model_id=mid, cluster_idx=c,
+            label=cluster_names[c], membership=membership,
+            distinctive_dims=_distinctive_dims(Z[i], names), confidence=conf, evidence=[],
         )
-    return {"k": res["k"], "silhouette": res["silhouette"], "n_assigned": len(cids)}
+    return {"k": k, "silhouette": res["silhouette"], "n_assigned": len(cids)}
