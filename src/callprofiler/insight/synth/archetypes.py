@@ -25,6 +25,11 @@ class ArchetypeTemplate:
     directive: float = 0.2  # доля директив-вставок
     we: float = 0.2         # доля «мы»-вставок
     verbosity: int = 10      # ~слов в реплике контакта
+    # Affective registers (Phase 3)
+    risk_mu: float = 30.0      # среднее risk_score (0-100)
+    risk_sigma: float = 10.0   # std dev risk_score
+    profanity_mu: float = 0.05  # средняя profanity_density
+    topics: tuple = ("default",)  # key_topics для анализов
 
     def sample_calls(self, rng: "np.random.Generator", end_date):
         n = int(rng.integers(self.n_calls[0], self.n_calls[1] + 1))
@@ -108,22 +113,95 @@ class ArchetypeTemplate:
 
         return segments
 
+    def sample_analysis(self, rng: "np.random.Generator") -> dict:
+        """Генерирует dict для INSERT в analyses(risk_score, profanity_density, call_type, key_topics).
+
+        Returns:
+            dict с ключами risk_score (0-100), profanity_density (float),
+                       call_type (TEXT), key_topics (list[str])
+        """
+        # Sample risk_score from normal distribution, clamp to [0, 100]
+        risk_score = float(np.clip(rng.normal(self.risk_mu, self.risk_sigma), 0, 100))
+
+        # Sample profanity_density from normal distribution, clamp to [0, 1]
+        profanity_density = float(np.clip(rng.normal(self.profanity_mu, 0.05), 0, 1))
+
+        # call_type (categorical placeholder, can be "business", "personal", etc.)
+        call_type = "business"  # Default for now; could sample if varied
+
+        # key_topics: select 1-3 from template's topics
+        n_topics = int(rng.integers(1, min(4, len(self.topics) + 1)))
+        key_topics = list(rng.choice(self.topics, size=n_topics, replace=False))
+
+        return {
+            "risk_score": risk_score,
+            "profanity_density": profanity_density,
+            "call_type": call_type,
+            "key_topics": key_topics,
+        }
+
 
 DEFAULT_TEMPLATES = (
     ArchetypeTemplate("night_dependent", (25, 45), (40, 90),
                       hours=(21, 22, 23, 0, 1), p_weekend=0.5, p_out=0.15,
                       dur_mu=600, dur_sigma=0.6, cadence_trend=1.2,
-                      formality=0.10, hedge=0.55, directive=0.10, we=0.20, verbosity=14),
+                      formality=0.10, hedge=0.55, directive=0.10, we=0.20, verbosity=14,
+                      risk_mu=45, risk_sigma=15, profanity_mu=0.08,
+                      topics=("позвонить", "ночные звонки", "частный контакт")),
     ArchetypeTemplate("business_transactional", (15, 35), (120, 300),
                       hours=(10, 11, 14, 15, 16), p_weekend=0.02, p_out=0.5,
                       dur_mu=180, dur_sigma=0.5, cadence_trend=0.0,
-                      formality=0.90, hedge=0.10, directive=0.60, we=0.30, verbosity=9),
+                      formality=0.90, hedge=0.10, directive=0.60, we=0.30, verbosity=9,
+                      risk_mu=35, risk_sigma=12, profanity_mu=0.03,
+                      topics=("договор", "оплата", "сроки", "сделка")),
     ArchetypeTemplate("fading_tie", (6, 14), (200, 400),
                       hours=(12, 13, 18), p_weekend=0.2, p_out=0.5,
                       dur_mu=120, dur_sigma=0.5, cadence_trend=-1.2,
-                      formality=0.55, hedge=0.70, directive=0.10, we=0.10, verbosity=7),
+                      formality=0.55, hedge=0.70, directive=0.10, we=0.10, verbosity=7,
+                      risk_mu=40, risk_sigma=14, profanity_mu=0.04,
+                      topics=("давние отношения", "воспоминания", "редкие контакты")),
     ArchetypeTemplate("intimate_frequent", (30, 60), (150, 350),
                       hours=(19, 20, 21), p_weekend=0.6, p_out=0.5,
                       dur_mu=900, dur_sigma=0.7, cadence_trend=0.3,
-                      formality=0.05, hedge=0.20, directive=0.25, we=0.60, verbosity=14),
+                      formality=0.05, hedge=0.20, directive=0.25, we=0.60, verbosity=14,
+                      risk_mu=25, risk_sigma=10, profanity_mu=0.02,
+                      topics=("личное", "отношения", "близкие люди", "эмоции")),
+)
+
+# Phase 3: AFFECTIVE_TEMPLATES — для доказательства маргинальной ценности аффективных фич.
+# Включает volatile_client (twin business по метаданным/тексту, отличим только по affective).
+AFFECTIVE_TEMPLATES = (
+    ArchetypeTemplate("night_dependent", (25, 45), (40, 90),
+                      hours=(21, 22, 23, 0, 1), p_weekend=0.5, p_out=0.15,
+                      dur_mu=600, dur_sigma=0.6, cadence_trend=1.2,
+                      formality=0.10, hedge=0.55, directive=0.10, we=0.20, verbosity=14,
+                      risk_mu=45, risk_sigma=15, profanity_mu=0.08,
+                      topics=("позвонить", "ночные звонки", "частный контакт")),
+    ArchetypeTemplate("business_transactional", (15, 35), (120, 300),
+                      hours=(10, 11, 14, 15, 16), p_weekend=0.02, p_out=0.5,
+                      dur_mu=180, dur_sigma=0.5, cadence_trend=0.0,
+                      formality=0.90, hedge=0.10, directive=0.60, we=0.30, verbosity=9,
+                      risk_mu=35, risk_sigma=12, profanity_mu=0.03,
+                      topics=("договор", "оплата", "сроки", "сделка")),
+    ArchetypeTemplate("fading_tie", (6, 14), (200, 400),
+                      hours=(12, 13, 18), p_weekend=0.2, p_out=0.5,
+                      dur_mu=120, dur_sigma=0.5, cadence_trend=-1.2,
+                      formality=0.55, hedge=0.70, directive=0.10, we=0.10, verbosity=7,
+                      risk_mu=40, risk_sigma=14, profanity_mu=0.04,
+                      topics=("давние отношения", "воспоминания", "редкие контакты")),
+    ArchetypeTemplate("intimate_frequent", (30, 60), (150, 350),
+                      hours=(19, 20, 21), p_weekend=0.6, p_out=0.5,
+                      dur_mu=900, dur_sigma=0.7, cadence_trend=0.3,
+                      formality=0.05, hedge=0.20, directive=0.25, we=0.60, verbosity=14,
+                      risk_mu=25, risk_sigma=10, profanity_mu=0.02,
+                      topics=("личное", "отношения", "близкие люди", "эмоции")),
+    # volatile_client: IDENTICAL metadata+text to business, but EXTREME affective contrast
+    # Business: risk_mu=35, profanity_mu=0.03
+    # Volatile: risk_mu=95, profanity_mu=0.35 (extreme high-risk, profane)
+    ArchetypeTemplate("volatile_client", (15, 35), (120, 300),
+                      hours=(10, 11, 14, 15, 16), p_weekend=0.02, p_out=0.5,
+                      dur_mu=180, dur_sigma=0.5, cadence_trend=0.0,
+                      formality=0.90, hedge=0.10, directive=0.60, we=0.30, verbosity=9,
+                      risk_mu=95, risk_sigma=15, profanity_mu=0.35,
+                      topics=("договор", "оплата", "сроки", "сделка")),
 )

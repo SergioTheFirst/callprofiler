@@ -10,6 +10,8 @@ from .features.trajectory import compute_trajectory
 from .features.linguistic import compute_linguistic
 from .features.formality import compute_formality
 from .features.pronouns import compute_pronouns
+from .features.affective import compute_affective
+from .features.topical import compute_topical
 
 TIER_WEIGHTS = {
     Tier.IMMUNE: 1.0,
@@ -21,6 +23,7 @@ TIER_WEIGHTS = {
 _META_FNS = (compute_temporal, compute_reciprocity, compute_trajectory)
 _IMMUNE_FNS = _META_FNS  # alias for backward compat
 _TEXT_FNS = (compute_linguistic, compute_formality, compute_pronouns)
+_AFFECTIVE_FNS = (compute_affective, compute_topical)
 
 
 def assemble_matrix(per_contact_features, support_floor: int = 2):
@@ -61,14 +64,14 @@ def build_contact_features(conn, user_id, feature_fns=None, reference_now=None):
     Args:
         conn: sqlite3.Connection
         user_id: str
-        feature_fns: tuple of feature functions, default = _META_FNS + _TEXT_FNS
+        feature_fns: tuple of feature functions, default = _META_FNS + _TEXT_FNS + _AFFECTIVE_FNS
         reference_now: для временных фич
 
     Returns:
         {contact_id: {name: Feature}}
     """
     if feature_fns is None:
-        feature_fns = _META_FNS + _TEXT_FNS
+        feature_fns = _META_FNS + _TEXT_FNS + _AFFECTIVE_FNS
 
     conn.row_factory = sqlite3.Row
     contact_ids = [r[0] for r in conn.execute(
@@ -94,6 +97,16 @@ def build_contact_features(conn, user_id, feature_fns=None, reference_now=None):
         ).fetchall()
         segments = [dict(r) for r in seg_rows]
 
+        # Читаем анализы (для аффективных фич)
+        ana_rows = conn.execute(
+            "SELECT a.risk_score, a.profanity_density, a.call_type, a.key_topics "
+            "FROM analyses a "
+            "JOIN calls c ON c.call_id = a.call_id "
+            "WHERE c.user_id = ? AND c.contact_id = ?",
+            (user_id, cid),
+        ).fetchall()
+        analyses = [dict(r) for r in ana_rows]
+
         feats = {}
 
         # Запускаем мета-фичи (используют calls)
@@ -105,6 +118,11 @@ def build_contact_features(conn, user_id, feature_fns=None, reference_now=None):
         for fn in feature_fns:
             if fn in _TEXT_FNS:
                 feats.update(fn(segments, reference_now=reference_now))
+
+        # Запускаем аффективные фичи (используют analyses)
+        for fn in feature_fns:
+            if fn in _AFFECTIVE_FNS:
+                feats.update(fn(analyses, reference_now=reference_now))
 
         if feats:
             out[cid] = feats

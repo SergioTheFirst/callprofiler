@@ -8,6 +8,17 @@
 
 ## [Unreleased]
 
+### Added — Insight Engine: Фаза 3 affective/topical фичи (2026-06-06)
+- `features/affective.py` (mean_risk/risk_volatility/max_risk/profanity_mean) + `features/topical.py`
+  (topic_diversity/topic_focus Herfindahl) из таблицы `analyses`. Tier.AFFECTIVE.
+- Синт-корпус генерит `analyses` per call по аффективным регистрам; `AFFECTIVE_TEMPLATES`
+  (+`volatile_client` — twin business по мета+тексту, отличим лишь по risk/profanity) для value-теста.
+- `build_contact_features` default = META+TEXT+AFFECTIVE (дочитывает analyses per contact).
+- **Доказано при истинном k=5:** affective восстанавливает twin — text-only ARI 0.71 → +affective 1.0.
+  Силуэт-авто-k сливает близнецов (k=4) → вклад тира меряется при контроле k (`test_phase3_affective_value`).
+- **После subagent-реализации:** фичи верны, но тест агента мерил value через авто-k (выбор k маскирует
+  вклад) → переписал на fixed-true-k; убрал scratch `debug_phase3.py`. **610 passed, 2 skipped.**
+
 ### Added — Insight Engine: Фаза 2 текст-фичи (разводят business/fading) (2026-06-06)
 - ROBUST текст-фичи: `linguistic.py` (hedge/directive/question/lexical), `formality.py` (ты/вы),
   `pronouns.py` (we/i); `features/base.py` +tokenize/count_markers; `synth/phrasebank.py`.

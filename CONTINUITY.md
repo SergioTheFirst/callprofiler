@@ -20,14 +20,16 @@
 
 **State (2026-06-06):**
 
-🧠 **Insight Engine — архетипы личности (этот ПК, офлайн). Фазы 0-1-2 СОБРАНЫ.**
-Карта: `.claude/rules/insight.md`. **595 passed, 2 skipped** (72 insight, numpy-only, синт ground-truth).
-Конвейер: `features-build`→`archetypes-fit`. Единица = `contact`.
-**Фаза 2 (текст-фичи) РАЗВЕЛА business/fading:** только метаданные k=3/ARI0.71 → +текст k=4/**ARI=1.0**
-(noise0.3→0.968). hedge/directive/formality(ты-вы)/pronouns по речи контакта (fallback «все сегменты»).
-**Урок про агентов:** реализацию Фазы 2 делал subagent — фичи ВЕРНЫ, НО он выдал зелёные тесты на
-СВОЕЙ сломанной ARI (>1) + дубль `kmeans.py`. Поймал независимой проверкой канонической ARI; переписал
-тесты на `archetypes.adjusted_rand_index`, снёс дубль. **Всегда верифицировать метрики агента.**
+🧠 **Insight Engine — архетипы личности (этот ПК, офлайн). Фазы 0-1-2-3 СОБРАНЫ.**
+Карта: `.claude/rules/insight.md`. **610 passed, 2 skipped** (87 insight, numpy-only, синт ground-truth).
+Конвейер: `features-build`→`archetypes-fit`. Единица = `contact`. Фичи: META(метаданные)+TEXT(речь)+
+AFFECTIVE(risk/profanity/темы из `analyses`).
+**Фаза 2:** текст развёл business/fading (мета k=3/0.71 → +текст k=4/ARI=1.0, noise0.3→0.968).
+**Фаза 3:** affective восстановил twin (volatile≡business по мета+тексту, отличим лишь по risk) — при
+истинном k=5: text 0.71 → +affective **1.0**. Силуэт-авто-k сливает близнецов → вклад мерим при true-k.
+**Уроки про агентов (оба раза ловил независимой проверкой ARI):** (1) Ф2 — агент выдал свою ARI>1 +
+дубль kmeans; (2) Ф3 — мерил value через авто-k, где выбор k маскирует вклад фичи. Фичи агента ОБА раза
+верны; ломались его ТЕСТЫ. **Пересчитывать ключевую метрику каноникой + при контроле k.**
 
 🟢 **Применён присланный улучшенный код (`callprofiler_20260606`) + моя коррекция OOM.** Реальных
 изменений 6 src/cfg + `startprocess.bat` (остальные 30+ «изменённых» файлов = только EOL CRLF↔LF,
@@ -51,10 +53,9 @@
 обязательны). НЕ менялся этой сессией.
 
 **Next (этот ПК — Insight):**
-- Фаза 3: affective/topical фичи (risk-распр/profanity/call_type из `analyses`, TF-IDF тем,
-  centrality из `relations`/`entity_metrics`). Расширить синт-корпус analyses-полями.
-- ИЛИ запуск на боксе на РЕАЛЬНЫХ данных: `features-build --user me` → `archetypes-fit --user me`
-  (на реале роли часто UNKNOWN → текст-фичи берут fallback «все сегменты»; recency осмыслен).
+- Фаза 4: dominance (talk-ratio/turns из ролей, gated по доле UNKNOWN) — последний тир фич.
+- ИЛИ Фаза 5-6: именование кластеров (LLM на боксе) + карточки `person-archetype` (польза СЕЙЧАС).
+- ИЛИ запуск на боксе на РЕАЛЬНЫХ 16k: `features-build --user me` → `archetypes-fit --user me`.
 
 **Next (на боксе):**
 - `git pull origin main` (забрать этот набор).

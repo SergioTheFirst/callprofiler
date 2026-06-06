@@ -1,4 +1,5 @@
 """Schema-accurate синтетическая БД для офлайн-разработки и валидации."""
+import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -66,6 +67,16 @@ class SyntheticCorpus:
                             (call_id, seg["speaker"], text, start_ms, end_ms)
                         )
                         start_ms = end_ms
+
+                    # Генерируем анализ (Phase 3)
+                    analysis = tmpl.sample_analysis(rng)
+                    conn.execute(
+                        "INSERT INTO analyses(call_id, risk_score, profanity_density, "
+                        "call_type, key_topics) "
+                        "VALUES (?,?,?,?,?)",
+                        (call_id, analysis["risk_score"], analysis["profanity_density"],
+                         analysis["call_type"], json.dumps(analysis["key_topics"])),
+                    )
 
         conn.commit()
         return conn
