@@ -1,0 +1,51 @@
+"""Schema-accurate синтетическая БД для офлайн-разработки и валидации."""
+import sqlite3
+from datetime import datetime
+from pathlib import Path
+
+import numpy as np
+
+from callprofiler.insight.repository import apply_insight_schema
+from callprofiler.insight.synth.archetypes import DEFAULT_TEMPLATES
+
+# .../insight/synth/corpus.py -> parents[1]=insight, .parent=callprofiler
+_BASE_SCHEMA = Path(__file__).resolve().parents[1].parent / "db" / "schema.sql"
+
+
+class SyntheticCorpus:
+    def __init__(self, seed: int = 0):
+        self.seed = seed
+        self.ground_truth = {}
+
+    def build(self, path: str = ":memory:", n_per: int = 20,
+              user_id: str = "me", templates=DEFAULT_TEMPLATES,
+              end_date=datetime(2026, 6, 1)) -> sqlite3.Connection:
+        conn = sqlite3.connect(path)
+        conn.executescript(_BASE_SCHEMA.read_text(encoding="utf-8"))
+        apply_insight_schema(conn)
+        conn.execute(
+            "INSERT INTO users(user_id, display_name, incoming_dir, sync_dir, ref_audio) "
+            "VALUES (?,?,?,?,?)",
+            (user_id, "Synthetic", "in", "sync", "ref.wav"),
+        )
+        rng = np.random.default_rng(self.seed)
+        self.ground_truth = {}
+        for tmpl in templates:
+            for _ in range(n_per):
+                cur = conn.execute(
+                    "INSERT INTO contacts(user_id, display_name) VALUES (?,?)",
+                    (user_id, f"{tmpl.name}_{int(rng.integers(1_000_000))}"),
+                )
+                contact_id = cur.lastrowid
+                self.ground_truth[contact_id] = tmpl.name
+                for i, call in enumerate(tmpl.sample_calls(rng, end_date)):
+                    conn.execute(
+                        "INSERT INTO calls(user_id, contact_id, direction, call_datetime, "
+                        "source_filename, source_md5, duration_sec, status) "
+                        "VALUES (?,?,?,?,?,?,?, 'done')",
+                        (user_id, contact_id, call["direction"], call["call_datetime"],
+                         f"c{contact_id}_{i}.mp3", f"md5-{contact_id}-{i}",
+                         call["duration_sec"]),
+                    )
+        conn.commit()
+        return conn
