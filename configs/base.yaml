@@ -1,5 +1,5 @@
 data_dir: "C:\\calls\\data"
-log_file: "C:\\Users\\SERGE\\Desktop\\rez.txt"   # весь отчёт о запуске (лог + стадии + ошибки)
+log_file: "C:\\calls\\callprofiler.log"   # весь отчёт о запуске (лог + стадии + ошибки)
 
 models:
   # ── ASR ──────────────────────────────────────────────────────────────

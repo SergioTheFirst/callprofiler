@@ -89,6 +89,53 @@ None currently identified.
 
 ## Recent Fixes (Closed)
 
+✅ **WAV копились: `load_config` не читал 2 поля из YAML** (2026-06-06)
+- **Root cause (non-obvious):** `delete_normalized_after_transcribe` и `batch_chunk_size` объявлены
+  в датаклассе `PipelineConfig` И в `base.yaml`, но конструктор `PipelineConfig(...)` в `load_config`
+  их не присваивал → бралось дефолтное `False`/значение датакласса → флаг удаления wav всегда False
+  → normalized .wav не удалялись никогда. Выглядело как «удаление не работает», хотя
+  `_maybe_delete_normalized` исправен — он лишь гейтится этим флагом.
+- **Fix:** чтение обоих полей в `PipelineConfig(...)` (`config.py` load_config). `_maybe_delete_normalized`
+  также сдвинут ПОСЛЕ `update_call_status` в терминальных путях `process_call`.
+- **Status:** RESOLVED (2026-06-06).
+
+✅ **Дашборд показывал нули — запросы по несуществующим статусам** (2026-06-06)
+- **Root cause (non-obvious):** `DashboardTools.get_status` считал `WHERE status='pending'` и
+  `status='processed'`. Таких статусов в пайплайне НЕТ (реальные: new/normalizing/diarizing/
+  transcribing/analyzing/delivering/done/transcribed/error) → оба COUNT всегда 0 → дашборд «пустой»
+  даже при идущей обработке. Бэкенд real-time (updated_at/SSE) при этом исправен — искать в SQL tools.
+- **Fix:** pending = `status NOT IN ('done','error','transcribed')` (все не-терминальные),
+  processed = `status='done'`. Regress: `test_dashboard_tools.py::test_counts_different_statuses`
+  (реальные статусы). `dashboard/tools.py`.
+- **Status:** RESOLVED (2026-06-06).
+
+✅ **watch не возобновлял зависшие + сиротские WAV копились** (2026-06-06)
+- **Root cause:** (1) `run_loop` звал только `process_batch(new_ids)` — звонки с готовым wav, но
+  не-терминальным статусом (краш до анализа) не подхватывались → залипали навсегда, wav оставался.
+  (2) `cleanup_normalized` пропускал wav без call-записи в БД (краш до/во время ingest) → сироты копились.
+- **Fix:** (1) `process_pending()` каждый цикл `run_loop`. (2) нет call → `wav.unlink()` (сирота).
+  Regress: `test_watcher_cleanup.py`. `watcher.py`.
+- **Status:** RESOLVED (2026-06-06).
+
+✅ **reset.py не сносил C:\calls — защита блокировала родителя** (2026-06-06)
+- **Root cause (non-obvious):** `_overlaps_protected(C:\calls)` → True из-за ветки `pr.startswith(t+"\\")`
+  («путь СОДЕРЖИТ защищённый in/source»). Корень data в `C:\calls`, который содержит защищённые
+  `in`/`source` → reset отказывался чистить родителя → «чистый лист» не срабатывал.
+- **Fix:** блокировать только `path==protected` или `path ВНУТРИ protected`; родительские папки
+  разрешены — `_walk_and_remove` сама пропускает защищённые подпапки. + bootstrap через env `PYTHON312`
+  (py3.12+cu124). `reset.py`.
+- **Status:** RESOLVED (2026-06-06).
+
+✅ **OOM-риск: выгрузка ASR/pyannote ПОСЛЕ LLM-фазы (в присланном коде)** (2026-06-06)
+- **Root cause (non-obvious):** в `callprofiler_20260606` `_unload_models()` стоял после Фазы 4 →
+  GigaAM+pyannote (~5GB) висели в VRAM во время Фазы 3 (llama-server Qwen 9B **Q8_0** ~10GB) →
+  15GB > 12GB RTX 3060 → OOM. Автор заложил «llama ≤7GB» — для Q8_0 неверно. Нарушение Hard
+  Constraint «GPU sequential, never concurrent».
+- **Fix:** выгрузка перенесена в `finally` Фазы 2 — ДО Фазы 3. Ко-резидентность GigaAM+pyannote
+  сохранена ВНУТРИ Фазы 2 (без LLM, ~5GB < 12GB). Regress: `test_orchestrator_roles.py`
+  (`_diarize_batch`→unload=0; `_unload_models()`→unload=1). `orchestrator.py`.
+- **Status:** RESOLVED код (2026-06-06). Реальный VRAM — проверка на боксе.
+
 ✅ **ffmpeg код 4294967274 на нормализации — атомарный `.part` ломает выбор мукса** (2026-06-05)
 - **Симптом:** `[ERROR] нормализация call_id=NNNN: ffmpeg завершился с кодом 4294967274 для …mp3`,
   раньше нормализация проходила ОК. Регресс ВНЁС я в тот же день (атомарная запись wav).

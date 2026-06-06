@@ -199,19 +199,11 @@ class Orchestrator:
             self.repo.save_transcripts(call_id, segments)
             self._export_text(call, segments)
             self.repo.update_pipeline_stage(call_id, 2)
-            self._maybe_delete_normalized(norm_path)
 
             # ── Шаг 4: Analyze ───────────────────────────────
             if not self.config.features.enable_llm_analysis:
-                # Stage-1 terminal: транскрипт в БД, анализ отложён на Stage-2.
-                # НЕ доставляем (карточка требует анализа) и НЕ ставим 'done'
-                # (иначе Stage-2 bulk-enrich не найдёт звонок). 'transcribed' —
-                # терминальный, get_stalled_calls его не реклаймит.
-                logger.info(
-                    "LLM analysis disabled; call_id=%d → transcribed (Stage-1 done)",
-                    call_id,
-                )
                 self.repo.update_call_status(call_id, "transcribed")
+                self._maybe_delete_normalized(norm_path)
                 return True
 
             self.repo.update_call_status(call_id, "analyzing")
@@ -225,6 +217,7 @@ class Orchestrator:
 
             # ── Готово ────────────────────────────────────────
             self.repo.update_call_status(call_id, "done")
+            self._maybe_delete_normalized(norm_path)
             logger.info("✓ Звонок %d обработан полностью", call_id)
             return True
 
@@ -264,40 +257,60 @@ class Orchestrator:
             if uid not in users_cache:
                 users_cache[uid] = self.repo.get_user(uid)
 
-        # ── Фаза 1: Normalize ────────────────────────────────────────
+        # ── Фаза 1: Normalize (параллельный ffmpeg, I/O-bound) ──────────
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        norm_tasks: list[dict] = []  # calls needing normalize
         for call in calls_data:
             call_id = call["call_id"]
             stage = call.get("pipeline_stage", 0)
             if stage >= 1:
                 call["_norm_path"] = call.get("norm_path", "")
-                logger.info("Resume: call_id=%d пропуск normalize (stage=%d)", call_id, stage)
                 continue
-            try:
-                self.repo.update_call_status(call_id, "normalizing")
-                user_id = call["user_id"]
-                norm_dir = (
-                    Path(self.config.data_dir) / "users" / user_id / "audio" / "normalized"
-                )
-                norm_dir.mkdir(parents=True, exist_ok=True)
-                norm_path = str(
-                    norm_wav_path(norm_dir, call_id, call.get("source_filename"))
-                )
-                if Path(norm_path).exists():
-                    logger.info(
-                        "Resume: call_id=%d пропуск normalize (wav есть)", call_id
-                    )
-                else:
-                    normalize(call["audio_path"], norm_path)
-                duration_sec = get_duration_sec(norm_path)
-                self.repo.update_call_paths(call_id, norm_path, duration_sec)
-                self.repo.update_pipeline_stage(call_id, 1)
+            self.repo.update_call_status(call_id, "normalizing")
+            user_id = call["user_id"]
+            norm_dir = (
+                Path(self.config.data_dir) / "users" / user_id / "audio" / "normalized"
+            )
+            norm_dir.mkdir(parents=True, exist_ok=True)
+            norm_path = str(
+                norm_wav_path(norm_dir, call_id, call.get("source_filename"))
+            )
+            if Path(norm_path).exists():
                 call["_norm_path"] = norm_path
                 call["pipeline_stage"] = 1
-                logger.info("Нормализация: call_id=%d, duration=%ds", call_id, duration_sec)
-            except Exception as exc:
-                logger.error("Ошибка нормализации call_id=%d: %s", call_id, exc)
-                self.repo.update_call_status(call_id, "error", str(exc))
-                call["_skip"] = True
+                continue
+            call["_norm_path"] = norm_path
+            norm_tasks.append(call)
+
+        if norm_tasks:
+            max_workers = min(8, len(norm_tasks))
+            logger.info("Параллельная нормализация: %d файлов, %d воркеров",
+                        len(norm_tasks), max_workers)
+
+            def _do_normalize(c: dict) -> tuple[int, bool, str]:
+                cid = c["call_id"]
+                try:
+                    normalize(c["audio_path"], c["_norm_path"])
+                    return (cid, True, "")
+                except Exception as exc:
+                    return (cid, False, str(exc))
+
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                futures = {pool.submit(_do_normalize, c): c for c in norm_tasks}
+                for future in as_completed(futures):
+                    cid, ok, err = future.result()
+                    call = futures[future]
+                    if ok:
+                        duration_sec = get_duration_sec(call["_norm_path"])
+                        self.repo.update_call_paths(cid, call["_norm_path"], duration_sec)
+                        self.repo.update_pipeline_stage(cid, 1)
+                        call["pipeline_stage"] = 1
+                        logger.info("Нормализация: call_id=%d, duration=%ds", cid, duration_sec)
+                    else:
+                        logger.error("Ошибка нормализации call_id=%d: %s", cid, err)
+                        self.repo.update_call_status(cid, "error", err)
+                        call["_skip"] = True
 
         calls_data = [c for c in calls_data if not c.get("_skip")]
 
@@ -350,13 +363,17 @@ class Orchestrator:
                         self.repo.save_transcripts(call_id, segs)
                         self._export_text(call, segs)
                         self.repo.update_pipeline_stage(call_id, 2)
-                        self._maybe_delete_normalized(call.get("_norm_path", ""))
                         call["pipeline_stage"] = 2
                     except Exception as exc:
                         logger.error("Ошибка транскрибирования call_id=%d: %s", call_id, exc)
                         self.repo.update_call_status(call_id, "error", str(exc))
             finally:
-                self.asr_runner.unload()
+                # GPU-sequential (CLAUDE.md Hard Constraint): ASR+pyannote (~5GB)
+                # ОБЯЗАНЫ уйти из VRAM ДО Фазы 3 — иначе они + llama-server
+                # Qwen 9B Q8_0 (~10GB) > 12GB на RTX 3060 → OOM. Ко-резидентность
+                # GigaAM+pyannote сохраняется ВНУТРИ Фазы 2 (грузятся раз на
+                # батч, а не на каждый звонок) — выигрыш без риска для VRAM.
+                self._unload_models()
 
         # ── Фаза 3: Analyze (LLM) ────────────────────────────────────
         if not self.config.features.enable_llm_analysis:
@@ -493,6 +510,23 @@ class Orchestrator:
                 logger.debug("Удалён normalized wav (экономия диска): %s", norm_path)
         except Exception as exc:  # noqa: BLE001 — удаление не валит pipeline
             logger.warning("Не удалось удалить normalized %s: %s", norm_path, exc)
+
+    def _unload_models(self) -> None:
+        """Выгрузить pyannote + GigaAM из VRAM. Идемпотентно.
+
+        Модели держатся загруженными между фазами батча (ко-резидентность),
+        экономя 3-6 секунд на каждой перезагрузке. Выгрузка — когда работы
+        в текущем цикле больше нет (батч + pending + retry — всё отработано).
+        """
+        if self.pyannote_runner is not None:
+            try:
+                self.pyannote_runner.unload()
+            except Exception:
+                pass
+        try:
+            self.asr_runner.unload()
+        except Exception:
+            pass
 
     def _warn_once(self, key: str, msg: str, *args) -> None:
         """Залогировать WARNING ровно один раз на причину (key).
@@ -656,9 +690,8 @@ class Orchestrator:
                     type(exc).__name__, exc,
                 )
                 logger.debug("pyannote load — трейс:", exc_info=True)
-            finally:
-                if self.pyannote_runner is not None:
-                    self.pyannote_runner.unload()
+            # pyannote НЕ выгружаем — остаётся в VRAM для ко-резидентности
+            # с GigaAM. Выгрузится в _unload_models() после всего батча.
 
         return turns_map
 

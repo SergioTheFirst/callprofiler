@@ -1,5 +1,38 @@
 # Architecture Decisions
 
+## Ускорение Stage-1+: параллельный ffmpeg + ко-резидентность Фазы 2, выгрузка ДО LLM (2026-06-06)
+
+**Контекст:** прислан улучшенный код (`callprofiler_20260606`) + разбор узких мест (на 1 звонок:
+pyannote 55%, GigaAM 18%, LLM 10%, ffmpeg 8%, load/unload 5%). Взяты приёмы, дающие выигрыш БЕЗ
+нарушения Hard Constraints; отклонены те, что их ломают.
+
+**Взято (perf-приёмы):**
+- **Параллельный ffmpeg** (`ThreadPoolExecutor(min(8,n))` в Фазе 1 `process_batch`). Нормализация
+  I/O-bound → 4-8 файлов разом, CPU почти свободен. Атомарный `.part`-per-file → параллель безопасна.
+- **Ко-резидентность GigaAM+pyannote ВНУТРИ Фазы 2.** Раньше pyannote выгружалась сразу после
+  `_diarize_batch`, затем грузился GigaAM → лишний load/unload. Теперь оба висят (~5GB) до конца
+  Фазы 2, грузятся раз на батч (не на звонок). Совпадает с Constraint «Whisper+pyannote 4.5GB как
+  одна группа → unload → LLM».
+
+**Non-obvious коррекция (моё улучшение vs присланный код):** присланный `_unload_models()` стоял
+ПОСЛЕ Фазы 4 (после LLM). Тогда ASR+pyannote (~5GB) висят во время llama-server Qwen 9B **Q8_0**
+(~10GB) → 15GB > 12GB RTX 3060 → **OOM**. Стратегия автора предполагала «llama ≤7GB» — для Q8_0
+неверно. Перенёс выгрузку в `finally` Фазы 2 — ДО Фазы 3 (LLM). Ко-резидентность сохранена там,
+где безопасна (нет LLM), VRAM свободна к LLM-фазе = Hard Constraint «GPU sequential, never
+concurrent». Regress: `_diarize_batch`→unload=0, `_unload_models()`→unload=1.
+
+**Отклонено (ломает Constraints/решения):**
+- `enable_diarization:false` для ×3 (стратегия #1) — юзер требует роли (CONTINUITY 2026-06-05).
+  Скорость берём батчем pyannote (`pyannote_batch_size`, decision 2026-06-05), не отказом от ролей.
+- GigaAM+pyannote+llama ОДНОВРЕМЕННО в VRAM (Strategy 3) — OOM на Q8_0/12GB (см. выше).
+- `-np 4` batch LLM, skip-LLM для коротких, in-memory audio — не было в присланном коде; кандидаты
+  на потом, за флагом, с замером (не «на веру»).
+
+**Прочие фиксы того же набора** (root cause — `bugs.md`): config не читал `delete_normalized_after_
+transcribe`/`batch_chunk_size` (wav копились); watch не звал `process_pending` (зависшие не
+возобновлялись); `cleanup_normalized` не сносил сирот; дашборд считал несуществующие статусы (нули);
+`reset.py._overlaps_protected` блокировал родительский `C:\calls`; `log_file`→`C:\calls\callprofiler.log`.
+
 ## Диаризация «стала медленной» — на деле раньше падала; рычаг = batch_size (2026-06-05)
 
 **Симптом юзера:** ~25-30с/звонок, «ранее быстрей». **Non-obvious:** это НЕ регресс скорости.

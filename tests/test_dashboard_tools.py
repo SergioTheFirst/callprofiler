@@ -89,24 +89,29 @@ class TestGetStatus:
         assert status["processed"] == 0
 
     def test_counts_different_statuses(self, tools, temp_db):
+        # Реальные статусы пайплайна. pending = НЕ терминальные
+        # (new/normalizing/.../analyzing); processed = 'done'; 'transcribed'
+        # (Stage-1 terminal) и 'error' не считаются ни pending, ни processed.
         with sqlite3.connect(temp_db) as conn:
             conn.executemany(
                 "INSERT INTO calls (user_id, status) VALUES (?, ?)",
                 [
-                    ("test_user", "pending"),
-                    ("test_user", "processed"),
-                    ("test_user", "processed"),
-                    ("test_user", "error"),
-                    ("other_user", "pending"),
+                    ("test_user", "new"),          # pending (in-progress)
+                    ("test_user", "analyzing"),    # pending (in-progress)
+                    ("test_user", "done"),         # processed
+                    ("test_user", "done"),         # processed
+                    ("test_user", "error"),        # error
+                    ("test_user", "transcribed"),  # terminal Stage-1: ни pending, ни processed
+                    ("other_user", "new"),         # отфильтрован (другой user_id)
                 ],
             )
             conn.commit()
 
         status = tools.get_status()
-        assert status["pending"] == 1
+        assert status["pending"] == 2
         assert status["processed"] == 2
         assert status["error"] == 1
-        assert status["by_status"]["pending"] == 1
+        assert status["by_status"]["done"] == 2
 
 
 class TestLogging:

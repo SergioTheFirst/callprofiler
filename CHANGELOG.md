@@ -8,6 +8,44 @@
 
 ## [Unreleased]
 
+### Perf — параллельный ffmpeg + ко-резидентность Фазы 2 + выгрузка ДО LLM (2026-06-06)
+- **Параллельная нормализация:** Фаза 1 `process_batch` гонит ffmpeg через
+  `ThreadPoolExecutor(min(8, n))` — I/O-bound, до ×8 на партии (CPU почти свободен). Каждый wav
+  пишется в свой атомарный `.part` → параллель безопасна.
+- **Ко-резидентность GigaAM+pyannote ВНУТРИ Фазы 2:** модели грузятся раз на батч (не на звонок),
+  pyannote больше не выгружается в `_diarize_batch`. Новый `Orchestrator._unload_models()`.
+- **GPU-safety (улучшено vs присланный код):** `_unload_models()` вызывается в `finally` Фазы 2 —
+  ДО Фазы 3 (LLM), а не после Фазы 4. ASR+pyannote (~5GB) + llama-server Qwen 9B Q8_0 (~10GB) >
+  12GB RTX 3060 → присланная выгрузка-после-LLM давала OOM. Regress: `test_orchestrator_roles.py`.
+
+### Fixed — WAV не удалялись: load_config не читал флаги из YAML (2026-06-06)
+- `delete_normalized_after_transcribe` и `batch_chunk_size` объявлены в `PipelineConfig` и в
+  `base.yaml`, но `load_config()` их не присваивал → всегда дефолт `False`/значение датакласса →
+  normalized .wav копились. Фикс: чтение обоих полей в `PipelineConfig(...)`. `config.py`.
+- `_maybe_delete_normalized` перенесён ПОСЛЕ `update_call_status` в обоих терминальных путях
+  `process_call` (`transcribed`/`done`) — wav сносится по факту завершения.
+
+### Fixed — watch не возобновлял зависшие + сиротские WAV (2026-06-06)
+- `run_loop` обрабатывал только `process_batch(new_ids)` → зависшие (status≠терминал, wav готов)
+  после краха игнорировались навсегда. Фикс: `process_pending()` каждый цикл.
+- `cleanup_normalized` не трогал wav без call-записи в БД (краш до/во время ingest) → копились.
+  Фикс: нет call → `unlink()` (сирота). Regress: `test_watcher_cleanup.py`. `watcher.py`.
+
+### Fixed — дашборд показывал нули: запросы по несуществующим статусам (2026-06-06)
+- `DashboardTools.get_status` считал `status='pending'`/`'processed'` — таких статусов в пайплайне
+  НЕТ (реальные: new/…/done/transcribed/error) → счётчики всегда 0. Фикс: pending =
+  `status NOT IN ('done','error','transcribed')`, processed = `status='done'`. `dashboard/tools.py`.
+
+### Fixed — reset.py не чистил C:\calls (защита блокировала родителя) (2026-06-06)
+- `_overlaps_protected` возвращал True для `C:\calls`, т.к. он СОДЕРЖИТ защищённые `in`/`source`
+  (`pr.startswith(t)`) → reset отказывался от корня. Фикс: блокировать только path==protected или
+  path ВНУТРИ него; `_walk_and_remove` сама пропускает защищённые подпапки. + bootstrap через `PYTHON312`.
+
+### Changed — log_file → C:\calls\callprofiler.log; startprocess.bat поднимает дашборд (2026-06-06)
+- `base.yaml log_file`: `…Desktop\rez.txt` → `C:\calls\callprofiler.log`.
+- `startprocess.bat`: убивает старый дашборд на :8765 → стартует дашборд (отдельное окно) → watch.
+  Явный `C:\Python312\python.exe` (CUDA). Real-time: SSE-поллинг `MAX(updated_at)` каждые 2с.
+
 ### Perf — диаризация: батч pyannote + диагностика (2026-06-05)
 - Симптом: ~25-30с/звонок. Причина НЕ регресс кода: раньше pyannote молча падала (torchcodec
   DLL на Windows) → мгновенный UNKNOWN → «быстро»; теперь окружение настроено, диаризация реально

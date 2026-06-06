@@ -7,10 +7,12 @@
 
 **Watcher cycle** (`FileWatcher.run_loop`, каждые `watch_interval_sec`):
 ```
-1. scan_all_users()   — обойти users.incoming_dir (из БД; дефолт C:\calls\in), рекурсивно
-2. process_batch(new) — прогнать новые звонки по стадиям
-3. cleanup_sources()  — убрать исходник из incoming ТОЛЬКО при pipeline_stage>=2
-4. retry_errors()
+1. scan_all_users()    — обойти users.incoming_dir (из БД; дефолт C:\calls\in), рекурсивно
+2. process_batch(new)  — прогнать НОВЫЕ звонки по стадиям
+3. process_pending()   — добрать ЗАВИСШИЕ (status≠терминал, wav готов) после краха/сбоя
+4. cleanup_sources()   — убрать исходник из incoming ТОЛЬКО при pipeline_stage>=2
+5. cleanup_normalized()— снести normalized wav: СИРОТЫ (нет call-записи в БД) + терминал/stage≥2
+6. retry_errors()
 ```
 scan: MD5-дедуп (`get_call_by_md5`). Новый → ingest = КОПИЯ в архив
 `users/{uid}/audio/originals/YYYY/MM` (на ВХОДЕ, до обработки). Файл-ещё-пишется →
@@ -36,7 +38,9 @@ scan: MD5-дедуп (`get_call_by_md5`). Новый → ingest = КОПИЯ в 
 - **Resume без пере-нормализации:** перед `normalize()` orchestrator (оба пути) проверяет `Path(norm_path).exists()` → если есть, ffmpeg пропускается. Безопасно т.к. wav пишется атомарно (`.part`→`replace`): существование ⟺ нормализация завершена (битый `.part` не подхватится). Окно полезности = wav нормализован, но звонок прерван ДО транскрибации (после неё wav удалён).
 - **Удаление сразу после текста КАЖДОГО файла:** в batch объединён Pass B+C — `save_transcripts`+stage2+`_maybe_delete_normalized` в одном цикле сразу после ASR звонка (ASR-модель грузится раз на батч). Не «весь батч, потом удаление»: wav сносится в момент готовности его текста. Гейт `delete_normalized_after_transcribe:true` (base.yaml). Регенерируется из mp3 — потеря невозможна. Подстраховка-sweep: `watcher.cleanup_normalized` ловит орфаны.
 
-**GPU sequential:** ASR-модель load→unload → потом LLM. Никогда одновременно. LLM читает текст из БД, не аудио → удалённый wav ей не нужен.
+**Perf (2026-06-06):** Фаза 1 нормализует ПАРАЛЛЕЛЬНО — `ThreadPoolExecutor(min(8,n))` (ffmpeg I/O-bound, атомарный `.part`-per-file → безопасно). Модели грузятся раз на батч (не на звонок).
+
+**GPU sequential:** в Фазе 2 GigaAM+pyannote КО-РЕЗИДЕНТНЫ (~5GB); `_unload_models()` выгружает ОБА в `finally` Фазы 2 — ДО Фазы 3 (LLM). Иначе 5GB + llama-server Qwen 9B Q8_0 (~10GB) > 12GB (RTX 3060) → OOM. Никогда ASR и LLM одновременно. LLM читает текст из БД, не аудио → удалённый wav ей не нужен.
 
 **Флаги (configs/):** `features.yaml` = `enable_diarization` / `enable_llm_analysis` (Stage-1: оба false). `base.yaml` `pipeline:` = `remove_source_on_success` / `delete_normalized_after_transcribe` / `text_export_dir`.
 

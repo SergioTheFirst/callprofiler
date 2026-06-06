@@ -138,6 +138,10 @@ class FileWatcher:
                 if new_ids:
                     self.orchestrator.process_batch(new_ids)
 
+                # Добрать зависшие (status new/normalizing) — краш/сбой могли
+                # оставить звонки в промежуточном состоянии с готовым WAV.
+                self.orchestrator.process_pending()
+
                 # Убрать исходники успешно транскрибированных
                 self.cleanup_sources()
                 # Подчистить normalized .wav (стадия>=2/терминальные) — не копятся
@@ -182,10 +186,20 @@ class FileWatcher:
         return removed
 
     def cleanup_normalized(self) -> int:
-        """Снести normalized .wav звонков, прошедших транскрибацию (stage>=2) или
-        терминальных (done/transcribed/error). wav регенерируется из mp3-архива →
-        снос безопасен. Подстраховка: ловит wav, не удалённые в orchestrator
-        (resume/error/сбой), чтобы они не накапливались на больших прогонах.
+        """Снести orphan'ные и «отработанные» normalized .wav.
+
+        Удаляет ТРИ категории:
+          1. Сиротские wav (нет call-записи в БД или call принадлежит другому
+             пользователю) — мусор после краха до/во время ingest;
+          2. Терминальные (done/transcribed/error) или stage>=2 — транскрипция
+             уже завершена, wav не нужен (регенерируется из mp3-архива при
+             перепрогоне);
+          3. Зависшие (status=new/normalizing, stage<2) — НЕ трогаем: они
+             нужны для resume (orchestrator пропускает ffmpeg если wav есть).
+             Удалятся после обработки через process_pending → _maybe_delete.
+
+        Подстраховка: ловит wav, не удалённые в orchestrator (resume/error/сбой),
+        чтобы они не накапливались на больших прогонах.
         """
         if not getattr(self.config.pipeline, "delete_normalized_after_transcribe", False):
             return 0
@@ -197,13 +211,22 @@ class FileWatcher:
             if not norm_dir.is_dir():
                 continue
             for wav in norm_dir.glob("*.wav"):
-                # Имя: "{call_id}__{источник}.wav" (или старое "{call_id}.wav").
                 try:
                     call_id = int(wav.stem.split("__", 1)[0])
                 except ValueError:
                     continue
                 call = self.repo.get_call(uid, call_id)
                 if not call:
+                    # Сиротский wav: call-записи нет → мусор после краха
+                    try:
+                        wav.unlink()
+                        removed += 1
+                        logger.debug(
+                            "Удалён сиротский normalized wav: %s (call_id=%d)",
+                            wav.name, call_id,
+                        )
+                    except OSError as exc:
+                        logger.warning("Не удалить сиротский normalized %s: %s", wav, exc)
                     continue
                 stage = int(call.get("pipeline_stage", 0) or 0)
                 if stage >= _TRANSCRIBED_STAGE or call.get("status") in terminal:

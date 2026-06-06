@@ -154,9 +154,17 @@ def test_diarize_batch_loads_once_for_group(tmp_path):
 
     assert fake.load_calls == 1   # ОДНА загрузка на 3 звонка (не 3)
     assert fake.diarize_calls == 3
-    assert fake.unload_calls == 1
+    # pyannote НЕ выгружается внутри _diarize_batch — остаётся резидентной для
+    # ко-резидентности с GigaAM ВНУТРИ Фазы 2 (GPU-sequential: оба уходят из
+    # VRAM до Фазы 3/LLM). Выгрузка делегирована _unload_models().
+    assert fake.unload_calls == 0
     assert set(turns_map) == {1, 2, 3}
     assert all(turns_map[i] for i in (1, 2, 3))
+
+    # Контракт выгрузки: _unload_models() освобождает VRAM до LLM-фазы (Qwen
+    # Q8_0 ~10GB + ASR/pyannote ~5GB > 12GB на RTX 3060 → иначе OOM).
+    o._unload_models()
+    assert fake.unload_calls == 1
 
 
 def test_diarize_batch_disabled_no_load():

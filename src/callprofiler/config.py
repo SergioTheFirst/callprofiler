@@ -153,6 +153,12 @@ def load_config(path: str) -> Config:
             remove_source_on_success=bool(
                 p.get("remove_source_on_success", cfg.pipeline.remove_source_on_success)
             ),
+            delete_normalized_after_transcribe=bool(
+                p.get("delete_normalized_after_transcribe", cfg.pipeline.delete_normalized_after_transcribe)
+            ),
+            batch_chunk_size=int(
+                p.get("batch_chunk_size", cfg.pipeline.batch_chunk_size)
+            ),
         )
 
     if "audio" in raw:

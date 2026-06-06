@@ -35,8 +35,9 @@ class DashboardTools:
                 (self.user_id,),
             ).fetchall()
             status["by_status"] = {r["status"]: r["cnt"] for r in rows}
+            # pending = все НЕ терминальные: new/normalizing/diarizing/transcribing/analyzing/delivering
             pending = conn.execute(
-                "SELECT COUNT(*) AS cnt FROM calls WHERE user_id = ? AND status = 'pending'",
+                "SELECT COUNT(*) AS cnt FROM calls WHERE user_id = ? AND status NOT IN ('done','error','transcribed')",
                 (self.user_id,),
             ).fetchone()["cnt"]
             errors = conn.execute(
@@ -44,7 +45,7 @@ class DashboardTools:
                 (self.user_id,),
             ).fetchone()["cnt"]
             processed = conn.execute(
-                "SELECT COUNT(*) AS cnt FROM calls WHERE user_id = ? AND status = 'processed'",
+                "SELECT COUNT(*) AS cnt FROM calls WHERE user_id = ? AND status = 'done'",
                 (self.user_id,),
             ).fetchone()["cnt"]
             status["pending"] = pending

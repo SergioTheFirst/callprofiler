@@ -74,12 +74,13 @@ def _mb(n: int) -> str:
 
 
 def _overlaps_protected(path: str) -> bool:
-    """True, если path == защищённый, ВНУТРИ него, или СОДЕРЖИТ его (rmtree снёс бы
-    in/source). Защита от --data-dir C:\\calls и подобных промахов."""
+    """True, если path == защищённый или ВНУТРИ него (сносили бы защищённое).
+    Родительские папки (C:\\calls, содержащий C:\\calls\\in) — РАЗРЕШЕНЫ:
+    _walk_and_remove сама пропустит защищённые подпапки."""
     t = os.path.normpath(os.path.abspath(path)).lower().rstrip("\\")
     for prot in PROTECTED:
         pr = os.path.normpath(prot).lower().rstrip("\\")
-        if t == pr or t.startswith(pr + "\\") or pr.startswith(t + "\\"):
+        if t == pr or t.startswith(pr + "\\"):
             return True
     return False
 
@@ -199,8 +200,10 @@ def main(argv=None) -> int:
     print("[3] bootstrap (пустая БД + папки + юзер me, incoming=C:\\calls\\in)...")
     env = dict(os.environ)
     env["PYTHONPATH"] = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src")
+    # Python 3.12+cu124 для совместимости с пайплайном
+    py_exe = os.environ.get("PYTHON312", sys.executable)
     rc = subprocess.run(
-        [sys.executable, "-m", "callprofiler", "bootstrap"], env=env
+        [py_exe, "-m", "callprofiler", "bootstrap"], env=env
     ).returncode
     if rc != 0:
         print(f"[ОШИБКА] bootstrap вернул {rc}. Запусти вручную: python -m callprofiler bootstrap")
