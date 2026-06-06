@@ -20,6 +20,13 @@
 
 **State (2026-06-06):**
 
+🧠 **НОВЫЙ workstream (этот ПК, офлайн): Insight Engine — архетипы личности из звонков.**
+Дизайн+план готовы: `docs/superpowers/specs/2026-06-06-insight-archetypes-design.md`,
+`docs/superpowers/plans/2026-06-06-insight-archetypes-mvp.md`. Скоуп MVP = Фазы 0-1 (метадата-
+архетипы, numpy-only, синт-корпус с ground-truth, ARI-гейт). Разработка/тесты офлайн без БД.
+Окружение: py3.10.11, numpy 1.26.4, pytest 8.4.2. Исполняю инлайн (executing-plans), ревью-агенты
+на чекпойнтах. 11 осей фич / 4 тира устойчивости к ASR — детали в design-doc.
+
 🟢 **Применён присланный улучшенный код (`callprofiler_20260606`) + моя коррекция OOM.** Реальных
 изменений 6 src/cfg + `startprocess.bat` (остальные 30+ «изменённых» файлов = только EOL CRLF↔LF,
 не трогал; все 22 «изменённых» теста — EOL-only). Тесты: **523 passed, 2 skipped** локально (py3.10).
@@ -40,6 +47,11 @@
 
 🎯 **Конфиг прогона:** `features.yaml` `enable_llm_analysis:true`, `enable_diarization:true` (роли
 обязательны). НЕ менялся этой сессией.
+
+**Next (этот ПК — Insight MVP):**
+- Исполнять `…plans/2026-06-06-insight-archetypes-mvp.md` Tasks 2-13 (TDD, per-task commit).
+- Гейт: `python -m pytest tests/insight/ -v` зелёный, включая ARI-восстановление заложенных архетипов.
+- По завершении MVP — карта `.claude/rules/insight.md` (контракт фич/тиров/ARI) + Фаза 2 (текст-фичи).
 
 **Next (на боксе):**
 - `git pull origin main` (забрать этот набор).

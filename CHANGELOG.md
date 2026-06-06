@@ -8,6 +8,13 @@
 
 ## [Unreleased]
 
+### Added — Insight Engine: дизайн + план MVP архетипов (2026-06-06)
+- Новый workstream (офлайн на дев-ПК): архетипы личности из метаданных звонков.
+- Дизайн: `docs/superpowers/specs/2026-06-06-insight-archetypes-design.md` — 11 осей фич, 4 тира
+  устойчивости к ASR, движок PCA+kmeans+silhouette+ARI на numpy, синт-корпус с ground-truth.
+- План MVP (Фазы 0-1): `docs/superpowers/plans/2026-06-06-insight-archetypes-mvp.md` — 13 задач TDD,
+  метадата-архетипы, ARI-гейт восстановления заложенных архетипов.
+
 ### Perf — параллельный ffmpeg + ко-резидентность Фазы 2 + выгрузка ДО LLM (2026-06-06)
 - **Параллельная нормализация:** Фаза 1 `process_batch` гонит ffmpeg через
   `ThreadPoolExecutor(min(8, n))` — I/O-bound, до ×8 на партии (CPU почти свободен). Каждый wav
