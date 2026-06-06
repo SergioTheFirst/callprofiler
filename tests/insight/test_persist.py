@@ -22,3 +22,18 @@ def test_save_model_and_assignments_idempotent():
 def test_user_isolation_on_load():
     conn = SyntheticCorpus(seed=0).build(n_per=5, user_id="me")
     assert repo.load_contact_archetypes(conn, "other") == []
+
+
+def test_contact_archetype_upsert_is_user_scoped():
+    """Defense-in-depth: чужой user_id с тем же contact_id НЕ перезаписывает строку."""
+    conn = SyntheticCorpus(seed=0).build(n_per=5)
+    repo.save_contact_archetype(conn, "me", contact_id=1, model_id=None, cluster_idx=0,
+                                label="A", membership=1.0, distinctive_dims=[],
+                                confidence="high", evidence=[])
+    repo.save_contact_archetype(conn, "intruder", contact_id=1, model_id=None, cluster_idx=9,
+                                label="B", membership=0.1, distinctive_dims=[],
+                                confidence="low", evidence=[])
+    row = conn.execute(
+        "SELECT user_id, cluster_idx, archetype_label FROM contact_archetypes WHERE contact_id=1"
+    ).fetchone()
+    assert row[0] == "me" and row[1] == 0 and row[2] == "A"

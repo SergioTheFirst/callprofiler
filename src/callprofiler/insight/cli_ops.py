@@ -21,7 +21,8 @@ def run_features_build(conn, user_id, reference_now=None):
                 "feature_name, value, support_n, tier) VALUES (?,?,?,?,?,?,?) "
                 "ON CONFLICT(contact_id, feature_name) DO UPDATE SET "
                 "value=excluded.value, support_n=excluded.support_n, "
-                "tier=excluded.tier, computed_at=CURRENT_TIMESTAMP",
+                "tier=excluded.tier, computed_at=CURRENT_TIMESTAMP "
+                "WHERE contact_features.user_id = excluded.user_id",  # user-scoped guard
                 (cid, user_id, "metadata", name, feat.value, feat.support_n, feat.tier.value),
             )
             n += 1

@@ -71,7 +71,8 @@ def save_contact_archetype(conn, user_id, *, contact_id, model_id, cluster_idx,
         "cluster_idx=excluded.cluster_idx, archetype_label=excluded.archetype_label, "
         "membership=excluded.membership, distinctive_dims=excluded.distinctive_dims, "
         "confidence=excluded.confidence, evidence=excluded.evidence, "
-        "computed_at=CURRENT_TIMESTAMP",
+        "computed_at=CURRENT_TIMESTAMP "
+        "WHERE contact_archetypes.user_id = excluded.user_id",  # user-scoped guard
         (contact_id, user_id, model_id, cluster_idx, label, membership,
          json.dumps(distinctive_dims), confidence, json.dumps(evidence)),
     )

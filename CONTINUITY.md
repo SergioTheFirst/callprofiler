@@ -20,12 +20,14 @@
 
 **State (2026-06-06):**
 
-🧠 **НОВЫЙ workstream (этот ПК, офлайн): Insight Engine — архетипы личности из звонков.**
-Дизайн+план готовы: `docs/superpowers/specs/2026-06-06-insight-archetypes-design.md`,
-`docs/superpowers/plans/2026-06-06-insight-archetypes-mvp.md`. Скоуп MVP = Фазы 0-1 (метадата-
-архетипы, numpy-only, синт-корпус с ground-truth, ARI-гейт). Разработка/тесты офлайн без БД.
-Окружение: py3.10.11, numpy 1.26.4, pytest 8.4.2. Исполняю инлайн (executing-plans), ревью-агенты
-на чекпойнтах. 11 осей фич / 4 тира устойчивости к ASR — детали в design-doc.
+🧠 **Insight Engine — архетипы личности из звонков (этот ПК, офлайн). MVP Фазы 0-1 СОБРАН.**
+Карта: `.claude/rules/insight.md`. Дизайн/план: `docs/superpowers/{specs,plans}/2026-06-06-insight-
+archetypes-*`. **557 passed, 2 skipped** (35 insight, numpy-only, синт-корпус с ground-truth, ARI-гейт).
+Конвейер: `features-build`→`archetypes-fit` (CLI зарегистрированы). Единица = `contact`.
+**Находка (честно):** метаданные дают ARI≈0.71 / k=3 при истинных 4 — business+fading сливаются
+(различие одномерно); разведут текст-фичи (Фаза 2) / affective (Фаза 3). НЕ гнал k=4 подгонкой шаблонов.
+Security-reviewer: 2 «CRITICAL» = false-positive под инвариантом «contact_id уникален»; добавил
+defense-in-depth user-scoped guard в UPSERT + регресс-тест.
 
 🟢 **Применён присланный улучшенный код (`callprofiler_20260606`) + моя коррекция OOM.** Реальных
 изменений 6 src/cfg + `startprocess.bat` (остальные 30+ «изменённых» файлов = только EOL CRLF↔LF,
@@ -48,10 +50,11 @@
 🎯 **Конфиг прогона:** `features.yaml` `enable_llm_analysis:true`, `enable_diarization:true` (роли
 обязательны). НЕ менялся этой сессией.
 
-**Next (этот ПК — Insight MVP):**
-- Исполнять `…plans/2026-06-06-insight-archetypes-mvp.md` Tasks 2-13 (TDD, per-task commit).
-- Гейт: `python -m pytest tests/insight/ -v` зелёный, включая ARI-восстановление заложенных архетипов.
-- По завершении MVP — карта `.claude/rules/insight.md` (контракт фич/тиров/ARI) + Фаза 2 (текст-фичи).
+**Next (этот ПК — Insight):**
+- Фаза 2: текст-фичи (hedge/directive/формальность ты-вы/pronouns/lexical) — РАЗВЕДУТ business/fading.
+  Расширить синт-корпус генерацией `transcripts` по речевым регистрам + noise-tolerance тесты.
+- ИЛИ запуск MVP на боксе на РЕАЛЬНЫХ данных: `features-build --user me` → `archetypes-fit --user me`
+  (recency там осмыслен; можно передать reference_now=max(call_datetime) в cli_ops).
 
 **Next (на боксе):**
 - `git pull origin main` (забрать этот набор).

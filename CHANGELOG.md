@@ -8,6 +8,19 @@
 
 ## [Unreleased]
 
+### Added — Insight Engine: MVP архетипов реализован, Фазы 0-1 (2026-06-06)
+- Новый пакет `src/callprofiler/insight/` (numpy-only, офлайн на дев-ПК без БД). Конвейер
+  `features-build --user X` → `archetypes-fit --user X` (CLI зарегистрированы в `cli/main.py`).
+- **Фаза 0 (харнесс):** `SyntheticCorpus` — schema-accurate temp SQLite с ground-truth архетипами;
+  `synth/noise.py` — ASR-шум для тестов устойчивости; `apply_insight_schema` (3 таблицы).
+- **Фаза 1 (метадата-архетипы):** IMMUNE-фичи (temporal/reciprocity/trajectory) →
+  `feature_store` (импут+z-score+тиринг) → `archetypes` (PCA/k-means/силуэт/ARI на numpy).
+- **ARI-гейт в CI:** кластеризация восстанавливает заложенные архетипы (≥0.6 чисто, ≥0.4 малая выборка).
+- **Честная находка:** метаданные дают ARI≈0.71 / k=3 при истинных 4 (business+fading сливаются —
+  различие одномерно); разведут текст-фичи (Фаза 2). Карта: `.claude/rules/insight.md`.
+- **Security:** user-scoped guard `WHERE user_id=excluded.user_id` в обоих UPSERT (defense-in-depth) +
+  регресс-тест. Полный набор: **557 passed, 2 skipped**.
+
 ### Added — Insight Engine: дизайн + план MVP архетипов (2026-06-06)
 - Новый workstream (офлайн на дев-ПК): архетипы личности из метаданных звонков.
 - Дизайн: `docs/superpowers/specs/2026-06-06-insight-archetypes-design.md` — 11 осей фич, 4 тира
