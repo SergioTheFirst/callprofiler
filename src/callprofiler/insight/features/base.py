@@ -1,4 +1,5 @@
 """Feature primitives shared by all insight feature modules."""
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -19,6 +20,7 @@ class Feature:
 
 
 _FMTS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d")
+_WORD_RE = re.compile(r"[а-яёa-z]+", re.IGNORECASE)
 
 
 def parse_dt(s):
@@ -36,3 +38,13 @@ def parse_dt(s):
         except ValueError:
             continue
     return None
+
+
+def tokenize(text: str) -> list[str]:
+    """Токенизация по словам (cyrillic/latin). Пунктуация отбрасывается, нижний регистр."""
+    return _WORD_RE.findall((text or "").lower())
+
+
+def count_markers(words: list[str], markers: set[str]) -> int:
+    """Считает вхождения маркеров в список слов."""
+    return sum(1 for w in words if w in markers)

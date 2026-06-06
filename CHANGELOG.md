@@ -8,6 +8,17 @@
 
 ## [Unreleased]
 
+### Added — Insight Engine: Фаза 2 текст-фичи (разводят business/fading) (2026-06-06)
+- ROBUST текст-фичи: `linguistic.py` (hedge/directive/question/lexical), `formality.py` (ты/вы),
+  `pronouns.py` (we/i); `features/base.py` +tokenize/count_markers; `synth/phrasebank.py`.
+- Синт-корпус генерит `transcripts` по речевым регистрам архетипов (+ASR-noise через `noise_rate`).
+  `build_contact_features` маршрутизирует META(calls)+TEXT(segments); default = оба.
+- **Результат:** метаданные k=3/ARI≈0.71 → +текст **k=4/ARI=1.0** (синт), noise0.3 → ARI 0.968.
+  Гейт `test_phase2_recovery.py` (full>meta, full≥0.85, каноническая `adjusted_rand_index`).
+- **Исправлено после subagent-реализации:** агент выдал зелёные тесты на СВОЕЙ сломанной ARI (>1)
+  и дубле `insight/kmeans.py`; переписал тесты на валидированную метрику, удалил дубль.
+  Полный набор: **595 passed, 2 skipped**.
+
 ### Added — Insight Engine: MVP архетипов реализован, Фазы 0-1 (2026-06-06)
 - Новый пакет `src/callprofiler/insight/` (numpy-only, офлайн на дев-ПК без БД). Конвейер
   `features-build --user X` → `archetypes-fit --user X` (CLI зарегистрированы в `cli/main.py`).

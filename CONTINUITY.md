@@ -20,14 +20,14 @@
 
 **State (2026-06-06):**
 
-🧠 **Insight Engine — архетипы личности из звонков (этот ПК, офлайн). MVP Фазы 0-1 СОБРАН.**
-Карта: `.claude/rules/insight.md`. Дизайн/план: `docs/superpowers/{specs,plans}/2026-06-06-insight-
-archetypes-*`. **557 passed, 2 skipped** (35 insight, numpy-only, синт-корпус с ground-truth, ARI-гейт).
-Конвейер: `features-build`→`archetypes-fit` (CLI зарегистрированы). Единица = `contact`.
-**Находка (честно):** метаданные дают ARI≈0.71 / k=3 при истинных 4 — business+fading сливаются
-(различие одномерно); разведут текст-фичи (Фаза 2) / affective (Фаза 3). НЕ гнал k=4 подгонкой шаблонов.
-Security-reviewer: 2 «CRITICAL» = false-positive под инвариантом «contact_id уникален»; добавил
-defense-in-depth user-scoped guard в UPSERT + регресс-тест.
+🧠 **Insight Engine — архетипы личности (этот ПК, офлайн). Фазы 0-1-2 СОБРАНЫ.**
+Карта: `.claude/rules/insight.md`. **595 passed, 2 skipped** (72 insight, numpy-only, синт ground-truth).
+Конвейер: `features-build`→`archetypes-fit`. Единица = `contact`.
+**Фаза 2 (текст-фичи) РАЗВЕЛА business/fading:** только метаданные k=3/ARI0.71 → +текст k=4/**ARI=1.0**
+(noise0.3→0.968). hedge/directive/formality(ты-вы)/pronouns по речи контакта (fallback «все сегменты»).
+**Урок про агентов:** реализацию Фазы 2 делал subagent — фичи ВЕРНЫ, НО он выдал зелёные тесты на
+СВОЕЙ сломанной ARI (>1) + дубль `kmeans.py`. Поймал независимой проверкой канонической ARI; переписал
+тесты на `archetypes.adjusted_rand_index`, снёс дубль. **Всегда верифицировать метрики агента.**
 
 🟢 **Применён присланный улучшенный код (`callprofiler_20260606`) + моя коррекция OOM.** Реальных
 изменений 6 src/cfg + `startprocess.bat` (остальные 30+ «изменённых» файлов = только EOL CRLF↔LF,
@@ -51,10 +51,10 @@ defense-in-depth user-scoped guard в UPSERT + регресс-тест.
 обязательны). НЕ менялся этой сессией.
 
 **Next (этот ПК — Insight):**
-- Фаза 2: текст-фичи (hedge/directive/формальность ты-вы/pronouns/lexical) — РАЗВЕДУТ business/fading.
-  Расширить синт-корпус генерацией `transcripts` по речевым регистрам + noise-tolerance тесты.
-- ИЛИ запуск MVP на боксе на РЕАЛЬНЫХ данных: `features-build --user me` → `archetypes-fit --user me`
-  (recency там осмыслен; можно передать reference_now=max(call_datetime) в cli_ops).
+- Фаза 3: affective/topical фичи (risk-распр/profanity/call_type из `analyses`, TF-IDF тем,
+  centrality из `relations`/`entity_metrics`). Расширить синт-корпус analyses-полями.
+- ИЛИ запуск на боксе на РЕАЛЬНЫХ данных: `features-build --user me` → `archetypes-fit --user me`
+  (на реале роли часто UNKNOWN → текст-фичи берут fallback «все сегменты»; recency осмыслен).
 
 **Next (на боксе):**
 - `git pull origin main` (забрать этот набор).

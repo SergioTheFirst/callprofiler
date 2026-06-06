@@ -7,6 +7,7 @@ import numpy as np
 
 from callprofiler.insight.repository import apply_insight_schema
 from callprofiler.insight.synth.archetypes import DEFAULT_TEMPLATES
+from callprofiler.insight.synth.noise import inject_asr_noise
 
 # .../insight/synth/corpus.py -> parents[1]=insight, .parent=callprofiler
 _BASE_SCHEMA = Path(__file__).resolve().parents[1].parent / "db" / "schema.sql"
@@ -19,7 +20,7 @@ class SyntheticCorpus:
 
     def build(self, path: str = ":memory:", n_per: int = 20,
               user_id: str = "me", templates=DEFAULT_TEMPLATES,
-              end_date=datetime(2026, 6, 1)) -> sqlite3.Connection:
+              end_date=datetime(2026, 6, 1), noise_rate: float = 0.0) -> sqlite3.Connection:
         conn = sqlite3.connect(path)
         conn.executescript(_BASE_SCHEMA.read_text(encoding="utf-8"))
         apply_insight_schema(conn)
@@ -39,7 +40,7 @@ class SyntheticCorpus:
                 contact_id = cur.lastrowid
                 self.ground_truth[contact_id] = tmpl.name
                 for i, call in enumerate(tmpl.sample_calls(rng, end_date)):
-                    conn.execute(
+                    cur = conn.execute(
                         "INSERT INTO calls(user_id, contact_id, direction, call_datetime, "
                         "source_filename, source_md5, duration_sec, status) "
                         "VALUES (?,?,?,?,?,?,?, 'done')",
@@ -47,5 +48,24 @@ class SyntheticCorpus:
                          f"c{contact_id}_{i}.mp3", f"md5-{contact_id}-{i}",
                          call["duration_sec"]),
                     )
+                    call_id = cur.lastrowid
+
+                    # Генерируем сегменты транскрипта со специфичными регистрами
+                    segments = tmpl.sample_segments(rng)
+                    start_ms = 0
+                    for seg in segments:
+                        text = seg["text"]
+                        # Применяем шум к речи OTHER
+                        if noise_rate > 0.0 and seg["speaker"] == "OTHER":
+                            text = inject_asr_noise(text, noise_rate, seed=self.seed + call_id)
+
+                        end_ms = start_ms + 5000  # ~5 сек на сегмент
+                        conn.execute(
+                            "INSERT INTO transcripts(call_id, speaker, text, start_ms, end_ms) "
+                            "VALUES (?,?,?,?,?)",
+                            (call_id, seg["speaker"], text, start_ms, end_ms)
+                        )
+                        start_ms = end_ms
+
         conn.commit()
         return conn
