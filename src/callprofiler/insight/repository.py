@@ -39,13 +39,30 @@ CREATE TABLE IF NOT EXISTS contact_archetypes (
     distinctive_dims TEXT,
     confidence       TEXT,
     evidence         TEXT,
+    pca_x            REAL,
+    pca_y            REAL,
     computed_at      TEXT    DEFAULT CURRENT_TIMESTAMP
 );
 """
 
+# Колонки, добавленные после первого релиза схемы. ALTER, не recreate (db.md).
+# Имена таблиц/колонок — литералы кода, не пользовательский ввод (безопасно в f-string).
+_MIGRATIONS = {
+    "contact_archetypes": {"pca_x": "REAL", "pca_y": "REAL"},
+}
+
+
+def _ensure_columns(conn: sqlite3.Connection, table: str, columns: dict) -> None:
+    have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    for name, decl in columns.items():
+        if name not in have:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+
 
 def apply_insight_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(_SCHEMA)
+    for table, cols in _MIGRATIONS.items():
+        _ensure_columns(conn, table, cols)
     conn.commit()
 
 
@@ -62,19 +79,21 @@ def save_archetype_model(conn, user_id, *, version, k, silhouette, n_contacts,
 
 
 def save_contact_archetype(conn, user_id, *, contact_id, model_id, cluster_idx,
-                           label, membership, distinctive_dims, confidence, evidence):
+                           label, membership, distinctive_dims, confidence, evidence,
+                           pca_x=None, pca_y=None):
     conn.execute(
         "INSERT INTO contact_archetypes(contact_id, user_id, model_id, cluster_idx, "
-        "archetype_label, membership, distinctive_dims, confidence, evidence) "
-        "VALUES (?,?,?,?,?,?,?,?,?) "
+        "archetype_label, membership, distinctive_dims, confidence, evidence, pca_x, pca_y) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?) "
         "ON CONFLICT(contact_id) DO UPDATE SET model_id=excluded.model_id, "
         "cluster_idx=excluded.cluster_idx, archetype_label=excluded.archetype_label, "
         "membership=excluded.membership, distinctive_dims=excluded.distinctive_dims, "
         "confidence=excluded.confidence, evidence=excluded.evidence, "
+        "pca_x=excluded.pca_x, pca_y=excluded.pca_y, "
         "computed_at=CURRENT_TIMESTAMP "
         "WHERE contact_archetypes.user_id = excluded.user_id",  # user-scoped guard
         (contact_id, user_id, model_id, cluster_idx, label, membership,
-         json.dumps(distinctive_dims), confidence, json.dumps(evidence)),
+         json.dumps(distinctive_dims), confidence, json.dumps(evidence), pca_x, pca_y),
     )
     conn.commit()
 

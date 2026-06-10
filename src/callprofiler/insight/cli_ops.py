@@ -93,9 +93,13 @@ def run_archetypes_fit(conn, user_id, version="arch-v1", reference_now=None):
         membership = round(1.0 / (1.0 + dist), 3)
         tc = per_contact[cid].get("total_calls")
         conf = _confidence(tc.value if tc else 0)
+        # PCA-2D координаты для карты архетипов (Фаза 7): первые две оси проекции.
+        px = round(float(Zp[i][0]), 4)
+        py = round(float(Zp[i][1]), 4) if Zp.shape[1] > 1 else 0.0
         repo.save_contact_archetype(
             conn, user_id, contact_id=cid, model_id=mid, cluster_idx=c,
             label=cluster_names[c], membership=membership,
             distinctive_dims=_distinctive_dims(Z[i], names), confidence=conf, evidence=[],
+            pca_x=px, pca_y=py,
         )
     return {"k": k, "silhouette": res["silhouette"], "n_assigned": len(cids)}

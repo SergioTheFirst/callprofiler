@@ -8,6 +8,17 @@
 
 ## [Unreleased]
 
+### Added — Insight Engine: Фаза 7 — визуализация архетипов на дашборде (2026-06-10)
+- Вкладка «Архетипы» (ECharts, уже подключён): карта PCA-2D (scatter+центроиды), эго-сеть
+  (force-graph owner-центр), циркад (heatmap часы×дни), ЭКГ отношений (line активность+риск/мес, пикер).
+- `contact_archetypes.pca_x/pca_y` — координаты 2D-проекции, персистятся в `archetypes-fit` (первые 2 оси
+  PCA); idempotent ALTER-миграция в `apply_insight_schema` (legacy-таблицы апгрейдятся).
+- `dashboard/db_reader.py`: `get_insight_{pca,network,circadian,ecg}` (+`_archetype_map`), все
+  `WHERE user_id=?`, guarded при отсутствии модели (дашборд деградирует в «нет данных», не 500).
+- `dashboard/server.py`: 5 эндпоинтов `/api/insight/{pca,network,circadian,ecg,contacts}`.
+- Тесты: `tests/test_dashboard_insight.py` (reader офлайн на SyntheticCorpus с реальным fit + эндпоинты
+  с mock-reader), `tests/insight/test_persist.py` (+pca round-trip, fit-персист, ALTER-идемпотентность).
+
 ### Added — Insight Engine: Фаза 5-6 — имена кластеров + карточка person-archetype (2026-06-06)
 - `insight/labels.py` (FEATURE_LABELS: фичи→человеческие фразы) + `insight/cards.py` (build_card).
 - `archetypes-fit` теперь пишет: детерм. имя кластера (топ-|mean z| осей), membership (1/(1+dist до

@@ -20,10 +20,18 @@
 
 **State (2026-06-06):**
 
-🧠 **Insight Engine — архетипы личности (этот ПК, офлайн). Фазы 0-1-2-3 + 5-6 СОБРАНЫ** (Ф4 отложена).
+🧠 **Insight Engine — архетипы личности (этот ПК, офлайн). Фазы 0-1-2-3 + 5-6 + 7 СОБРАНЫ** (Ф4 отложена).
 Карта: `.claude/rules/insight.md`. **617 passed, 2 skipped** (94 insight, numpy-only, синт ground-truth).
 Конвейер: `features-build`→`archetypes-fit`→**`person-archetype --contact`** (читаемая карточка — первый
 видимый результат). Единица = `contact`. 3 тира фич: META(метаданные)+TEXT(речь)+AFFECTIVE(risk/мат/темы).
+
+📊 **Фаза 7 — визуализация на дашборде (вкладка «Архетипы», ECharts, 2026-06-10).** 4 вида: карта
+архетипов PCA-2D (scatter+центроиды, цвет=кластер), эго-сеть (force-graph, owner-центр, размер=объём),
+циркад (heatmap часы×дни недели), ЭКГ отношений (line активность+риск по месяцам, пикер контакта).
+Координаты PCA-2D ПЕРСИСТЯТСЯ в `contact_archetypes.pca_x/pca_y` при `archetypes-fit` (первые 2 оси
+проекции; idempotent ALTER-миграция) → дашборд = чистый read (как карточка). 5 эндпоинтов
+`/api/insight/{pca,network,circadian,ecg,contacts}` (все `WHERE user_id=?`, guarded при отсутствии fit).
+**+23 теста (153 passed в insight+dashboard-сюитах);** reader-тесты офлайн на SyntheticCorpus с реальным fit.
 **Доказано на синте:** META k=3/0.71 → +TEXT k=4/1.0 (развёл business/fading) → +AFFECTIVE @true-k=5
 восстановил twin (0.71→1.0). Силуэт-авто-k сливает близнецов → вклад тира мерим при контроле k.
 **Ф5-6:** детерм. имена кластеров+membership+черты-фразы(`labels`)+confidence; `cards.build_card`.
@@ -53,9 +61,9 @@
 обязательны). НЕ менялся этой сессией.
 
 **Next (этот ПК — Insight):**
-- Фаза 7: визуализация на дашборде (карта архетипов PCA-2D / эго-сеть / ЭКГ отношения / циркад).
-- ИЛИ запуск на боксе на РЕАЛЬНЫХ 16k: `features-build --user me`→`archetypes-fit --user me`→
-  `person-archetype --contact N` (увидеть настоящие архетипы Сергея).
+- ✅ Фаза 7 визуализация СОБРАНА (вкладка «Архетипы»). Визуальная проверка — на боксе после реального fit.
+- Запуск на боксе на РЕАЛЬНЫХ 16k: `features-build --user me`→`archetypes-fit --user me` (теперь пишет
+  pca_x/pca_y) → дашборд вкладка «Архетипы» покажет карту/сеть/циркад/ЭКГ; `person-archetype --contact N`.
 - ОТЛОЖЕНО: Ф4 dominance (хрупкая диаризация), LLM-уточнение имён кластеров (шов на боксе).
 
 **Next (на боксе):**

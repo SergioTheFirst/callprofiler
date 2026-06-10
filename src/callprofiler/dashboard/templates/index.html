@@ -46,6 +46,9 @@
         <button class="tab" data-tab="entities">
             <span class="tab-icon">◈</span> Entities
         </button>
+        <button class="tab" data-tab="insight">
+            <span class="tab-icon">⬡</span> Архетипы
+        </button>
         <button class="tab" data-tab="system">
             <span class="tab-icon">⚙</span> System
         </button>
@@ -179,6 +182,46 @@
                             <tr><td colspan="6" class="skeleton">Loading entities...</td></tr>
                         </tbody>
                     </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Tab: Архетипы (Insight Engine — Phase 7) -->
+        <section class="tab-panel" id="panel-insight">
+            <div class="panel frosted">
+                <div class="panel-header">
+                    <h3 class="panel-title">Архетипы личности</h3>
+                    <span class="panel-actions" id="insight-stats"></span>
+                </div>
+                <div class="insight-legend" id="insight-legend">
+                    <span class="empty-state">Запусти <code>archetypes-fit --user me</code>, чтобы построить карту.</span>
+                </div>
+            </div>
+            <div class="overview-grid">
+                <div class="panel frosted">
+                    <h3 class="panel-title">Карта архетипов (PCA-2D)</h3>
+                    <div class="chart-box" id="chart-pca" style="height:380px"></div>
+                </div>
+                <div class="panel frosted">
+                    <h3 class="panel-title">Эго-сеть контактов</h3>
+                    <div class="chart-box" id="chart-network" style="height:380px"></div>
+                </div>
+            </div>
+            <div class="overview-grid">
+                <div class="panel frosted">
+                    <h3 class="panel-title">Циркадный ритм — часы × дни недели</h3>
+                    <div class="chart-box" id="chart-circadian" style="height:340px"></div>
+                </div>
+                <div class="panel frosted">
+                    <div class="panel-header">
+                        <h3 class="panel-title">ЭКГ отношений</h3>
+                        <div class="panel-actions">
+                            <select class="filter-select" id="ecg-contact">
+                                <option value="0">Все контакты</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="chart-box" id="chart-ecg" style="height:300px"></div>
                 </div>
             </div>
         </section>

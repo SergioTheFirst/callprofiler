@@ -734,6 +734,175 @@ class DashboardDBReader:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    # ── Insight Engine visualizations (Phase 7) ─────────────────────────
+    # All user_id-scoped. The insight tables (contact_archetypes /
+    # archetype_models) may be absent if `archetypes-fit` was never run — every
+    # archetype read is guarded so the dashboard degrades to empty, never 500s.
+
+    def _archetype_map(self, user_id: str) -> dict[int, tuple]:
+        """{contact_id: (cluster_idx, label)} or {} if no archetype model yet."""
+        try:
+            rows = self._conn.execute(
+                "SELECT contact_id, cluster_idx, archetype_label "
+                "FROM contact_archetypes WHERE user_id = ?",
+                (user_id,),
+            ).fetchall()
+        except sqlite3.Error:
+            return {}
+        return {r["contact_id"]: (r["cluster_idx"], r["archetype_label"]) for r in rows}
+
+    def get_insight_pca(self, user_id: str) -> dict[str, Any]:
+        """PCA-2D archetype map: projected per-contact points + cluster centroids.
+
+        Coordinates are persisted by `archetypes-fit` (first two PCA axes). Returns
+        empty points if the model has not been fit for this user.
+        """
+        self.connect()
+        out: dict[str, Any] = {"points": [], "clusters": [],
+                               "k": 0, "silhouette": None, "version": None}
+        try:
+            rows = self._conn.execute(
+                """SELECT ca.contact_id, ca.cluster_idx, ca.archetype_label,
+                          ca.membership, ca.confidence, ca.pca_x, ca.pca_y,
+                          COALESCE(ct.display_name, ct.guessed_name, ct.phone_e164) AS name,
+                          COUNT(c.call_id) AS calls
+                   FROM contact_archetypes ca
+                   LEFT JOIN contacts ct
+                     ON ct.contact_id = ca.contact_id AND ct.user_id = ca.user_id
+                   LEFT JOIN calls c
+                     ON c.contact_id = ca.contact_id AND c.user_id = ca.user_id
+                   WHERE ca.user_id = ? AND ca.pca_x IS NOT NULL
+                   GROUP BY ca.contact_id
+                   ORDER BY ca.cluster_idx""",
+                (user_id,),
+            ).fetchall()
+        except sqlite3.Error:
+            return out
+        out["points"] = [{
+            "contact_id": r["contact_id"], "cluster": r["cluster_idx"],
+            "label": r["archetype_label"], "membership": r["membership"],
+            "confidence": r["confidence"], "x": r["pca_x"], "y": r["pca_y"],
+            "name": r["name"] or "?", "calls": r["calls"] or 0,
+        } for r in rows]
+
+        try:
+            m = self._conn.execute(
+                """SELECT k, silhouette, centroids, labels, version
+                   FROM archetype_models WHERE user_id = ?
+                   ORDER BY model_id DESC LIMIT 1""",
+                (user_id,),
+            ).fetchone()
+        except sqlite3.Error:
+            m = None
+        if m:
+            out["k"] = m["k"]
+            out["silhouette"] = m["silhouette"]
+            out["version"] = m["version"]
+            try:
+                centroids = json.loads(m["centroids"] or "[]")
+                labels = json.loads(m["labels"] or "{}")
+            except (json.JSONDecodeError, TypeError):
+                centroids, labels = [], {}
+            sizes: dict[int, int] = {}
+            for p in out["points"]:
+                sizes[p["cluster"]] = sizes.get(p["cluster"], 0) + 1
+            for idx, cen in enumerate(centroids):
+                out["clusters"].append({
+                    "idx": idx,
+                    "label": labels.get(str(idx), f"кластер {idx}"),
+                    "cx": cen[0] if len(cen) > 0 else 0.0,
+                    "cy": cen[1] if len(cen) > 1 else 0.0,
+                    "size": sizes.get(idx, 0),
+                })
+        return out
+
+    def get_insight_network(self, user_id: str, limit: int = 40) -> dict[str, Any]:
+        """Owner-centred ego-network: top contacts by call volume.
+
+        The frontend draws the owner node at the centre and one star edge per
+        contact (weight = call volume); nodes are coloured by archetype cluster.
+        """
+        self.connect()
+        rows = self._conn.execute(
+            """SELECT ct.contact_id,
+                      COALESCE(ct.display_name, ct.guessed_name, ct.phone_e164) AS name,
+                      COUNT(c.call_id) AS calls,
+                      AVG(a.risk_score) AS avg_risk
+               FROM contacts ct
+               JOIN calls c ON c.contact_id = ct.contact_id AND c.user_id = ct.user_id
+               LEFT JOIN analyses a ON a.call_id = c.call_id
+               WHERE ct.user_id = ?
+               GROUP BY ct.contact_id
+               ORDER BY calls DESC
+               LIMIT ?""",
+            (user_id, limit),
+        ).fetchall()
+        arch = self._archetype_map(user_id)
+        nodes = []
+        for r in rows:
+            cid = r["contact_id"]
+            cluster, label = arch.get(cid, (None, None))
+            nodes.append({
+                "contact_id": cid, "name": r["name"] or "?",
+                "calls": r["calls"] or 0,
+                "risk": round(r["avg_risk"], 1) if r["avg_risk"] is not None else None,
+                "cluster": cluster, "label": label,
+            })
+        return {"owner_label": "Ты", "nodes": nodes}
+
+    def get_insight_circadian(self, user_id: str,
+                              contact_id: int | None = None) -> dict[str, Any]:
+        """Call-timing heatmap: hour-of-day (0-23) × weekday (Mon..Sun)."""
+        self.connect()
+        where = "WHERE user_id = ? AND call_datetime IS NOT NULL"
+        params: list[Any] = [user_id]
+        if contact_id:
+            where += " AND contact_id = ?"
+            params.append(contact_id)
+        rows = self._conn.execute(
+            f"""SELECT CAST(strftime('%w', call_datetime) AS INTEGER) AS wd,
+                       CAST(strftime('%H', call_datetime) AS INTEGER) AS hr,
+                       COUNT(*) AS cnt
+                FROM calls {where}
+                GROUP BY wd, hr""",
+            params,
+        ).fetchall()
+        cells: list[list[int]] = []
+        mx = 0
+        for r in rows:
+            if r["wd"] is None or r["hr"] is None:
+                continue
+            mon0 = (r["wd"] + 6) % 7  # strftime %w: 0=Sun..6=Sat → Mon=0..Sun=6
+            cells.append([r["hr"], mon0, r["cnt"]])
+            mx = max(mx, r["cnt"])
+        return {"cells": cells, "max": mx,
+                "days": ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]}
+
+    def get_insight_ecg(self, user_id: str,
+                        contact_id: int | None = None) -> dict[str, Any]:
+        """Relationship 'ЭКГ': monthly interaction intensity + avg risk over time."""
+        self.connect()
+        where = "WHERE c.user_id = ? AND c.call_datetime IS NOT NULL"
+        params: list[Any] = [user_id]
+        if contact_id:
+            where += " AND c.contact_id = ?"
+            params.append(contact_id)
+        rows = self._conn.execute(
+            f"""SELECT strftime('%Y-%m', c.call_datetime) AS period,
+                       COUNT(*) AS calls,
+                       AVG(a.risk_score) AS avg_risk
+                FROM calls c
+                LEFT JOIN analyses a ON a.call_id = c.call_id
+                {where}
+                GROUP BY period ORDER BY period""",
+            params,
+        ).fetchall()
+        series = [{
+            "period": r["period"], "calls": r["calls"],
+            "risk": round(r["avg_risk"], 1) if r["avg_risk"] is not None else None,
+        } for r in rows if r["period"]]
+        return {"series": series, "contact_id": contact_id}
+
     def get_call_detail(self, call_id: int, user_id: str) -> dict[str, Any] | None:
         """Full call detail: metadata + analysis + transcript segments + contact + promises."""
         self.connect()

@@ -49,6 +49,7 @@
         if (name === 'overview') loadOverview();
         else if (name === 'calls') loadCalls();
         else if (name === 'entities') loadEntities();
+        else if (name === 'insight') loadInsight();
         else if (name === 'system') loadSystem();
     }
 
@@ -737,6 +738,236 @@
         });
     }
 
+    // ── Insight Tab (Архетипы) — Phase 7 ─────────────────────────────────────
+    // Reads precomputed archetype output (PCA-2D coords, clusters) + call
+    // metadata. Computed offline by `archetypes-fit`; degrades to "нет данных"
+    // when the model has not been fit. Не подписан на SSE-тики — статичен между
+    // прогонами fit, перерисовывается только при заходе на вкладку.
+    var CLUSTER_COLORS = ['#00D4C8', '#00A8FF', '#FFB800', '#FF5C7A', '#9B8CFF',
+                          '#4ADE80', '#F472B6', '#38BDF8'];
+    var insightCharts = {};  // id -> ECharts instance (disposed/recreated per load)
+
+    function clusterColor(idx) {
+        if (idx === null || idx === undefined || idx < 0) return '#4A5568';
+        return CLUSTER_COLORS[idx % CLUSTER_COLORS.length];
+    }
+
+    function initChart(id) {
+        var el = $('#' + id);
+        if (!el || typeof echarts === 'undefined') return null;
+        if (insightCharts[id]) insightCharts[id].dispose();
+        insightCharts[id] = echarts.init(el);
+        return insightCharts[id];
+    }
+
+    function emptyChart(chart, msg) {
+        chart.setOption({ title: { text: msg || 'нет данных', left: 'center',
+            top: 'center', textStyle: { color: '#4A5568', fontSize: 13 } } }, true);
+    }
+
+    window.addEventListener('resize', function() {
+        Object.keys(insightCharts).forEach(function(k) {
+            if (insightCharts[k]) insightCharts[k].resize();
+        });
+    });
+
+    function loadInsight() {
+        if (typeof echarts === 'undefined') return;
+        fetch('/api/insight/pca').then(function(r) { return r.json(); }).then(renderPca).catch(function() {});
+        fetch('/api/insight/network?limit=40').then(function(r) { return r.json(); }).then(renderNetwork).catch(function() {});
+        fetch('/api/insight/circadian').then(function(r) { return r.json(); }).then(renderCircadian).catch(function() {});
+        loadEcgContacts();
+    }
+
+    function renderInsightLegend(clusters) {
+        var el = $('#insight-legend');
+        if (!el) return;
+        if (!clusters || !clusters.length) {
+            el.innerHTML = '<span class="empty-state">Нет модели архетипов. Запусти <code>archetypes-fit --user me</code>.</span>';
+            return;
+        }
+        el.innerHTML = clusters.map(function(c) {
+            return '<span style="display:inline-flex;align-items:center;gap:6px;margin:0 14px 6px 0;font-size:12px;color:var(--text-secondary)">' +
+                '<span style="width:12px;height:12px;border-radius:3px;background:' + clusterColor(c.idx) + '"></span>' +
+                escapeHtml(c.label || ('кластер ' + c.idx)) +
+                ' <span style="color:var(--text-muted)">(' + c.size + ')</span></span>';
+        }).join('');
+    }
+
+    function renderPca(data) {
+        var stats = $('#insight-stats');
+        if (stats) {
+            stats.textContent = data.silhouette != null
+                ? ('k=' + data.k + '  ·  silhouette ' + Number(data.silhouette).toFixed(2) +
+                   '  ·  ' + (data.points ? data.points.length : 0) + ' контактов')
+                : '';
+        }
+        renderInsightLegend(data.clusters);
+        var chart = initChart('chart-pca');
+        if (!chart) return;
+        if (!data.points || !data.points.length) { emptyChart(chart); return; }
+
+        var byCluster = {};
+        data.points.forEach(function(p) {
+            (byCluster[p.cluster] = byCluster[p.cluster] || []).push(p);
+        });
+        var series = Object.keys(byCluster).map(function(k) {
+            var idx = parseInt(k, 10);
+            var lbl = (data.clusters[idx] && data.clusters[idx].label) || ('кластер ' + idx);
+            return {
+                name: lbl, type: 'scatter', symbolSize: 11,
+                itemStyle: { color: clusterColor(idx), opacity: 0.78 },
+                data: byCluster[k].map(function(p) {
+                    return { value: [p.x, p.y], name: p.name, _label: p.label,
+                             _conf: p.confidence, _calls: p.calls, _mem: p.membership };
+                })
+            };
+        });
+        if (data.clusters && data.clusters.length) {
+            series.push({
+                name: 'центры', type: 'scatter', symbol: 'diamond', symbolSize: 22,
+                itemStyle: { color: 'rgba(255,255,255,0.12)', borderColor: '#fff', borderWidth: 1 },
+                data: data.clusters.map(function(c) { return { value: [c.cx, c.cy], name: c.label }; }),
+                tooltip: { formatter: function(o) { return escapeHtml(o.name || ''); } }
+            });
+        }
+        chart.setOption({
+            grid: { top: 16, right: 16, bottom: 26, left: 38 },
+            tooltip: { trigger: 'item', formatter: function(o) {
+                var d = o.data || {};
+                if (d._label === undefined) return escapeHtml(d.name || '');
+                return '<b>' + escapeHtml(d.name || '?') + '</b><br/>' + escapeHtml(d._label || '') +
+                       '<br/>близость ' + Math.round((d._mem || 0) * 100) + '% · ' +
+                       escapeHtml(d._conf || '') + ' · ' + (d._calls || 0) + ' зв.';
+            } },
+            xAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: '#16202e' } }, axisLabel: { color: '#64748b', fontSize: 10 } },
+            yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: '#16202e' } }, axisLabel: { color: '#64748b', fontSize: 10 } },
+            series: series
+        }, true);
+    }
+
+    function renderNetwork(data) {
+        var chart = initChart('chart-network');
+        if (!chart) return;
+        var nodes = data.nodes || [];
+        if (!nodes.length) { emptyChart(chart); return; }
+        var maxCalls = 1;
+        nodes.forEach(function(n) { if (n.calls > maxCalls) maxCalls = n.calls; });
+        var gnodes = [{
+            id: 'owner', name: data.owner_label || 'Ты', symbolSize: 40,
+            itemStyle: { color: '#FFFFFF' }, label: { show: true, color: '#0b1220', fontWeight: 600 }, _owner: true
+        }];
+        var links = [];
+        nodes.forEach(function(n) {
+            var id = 'c' + n.contact_id;
+            var frac = n.calls / maxCalls;
+            gnodes.push({
+                id: id, name: n.name, symbolSize: 10 + 28 * frac,
+                itemStyle: { color: clusterColor(n.cluster) },
+                _calls: n.calls, _risk: n.risk, _label: n.label
+            });
+            links.push({ source: 'owner', target: id, value: n.calls,
+                lineStyle: { width: 1 + 3 * frac, opacity: 0.3, color: '#334155', curveness: 0.05 } });
+        });
+        chart.setOption({
+            tooltip: { formatter: function(o) {
+                if (o.dataType === 'edge') return '';
+                var d = o.data || {};
+                if (d._owner) return escapeHtml(d.name);
+                return '<b>' + escapeHtml(d.name || '?') + '</b><br/>' +
+                       (d._label ? escapeHtml(d._label) + '<br/>' : '') +
+                       (d._calls || 0) + ' зв.' + (d._risk != null ? ' · риск ' + d._risk : '');
+            } },
+            series: [{
+                type: 'graph', layout: 'force', roam: true, draggable: true,
+                force: { repulsion: 150, edgeLength: [40, 130], gravity: 0.09 },
+                label: { show: false },
+                emphasis: { label: { show: true, color: '#e2e8f0' } },
+                data: gnodes, links: links
+            }]
+        }, true);
+    }
+
+    function renderCircadian(data) {
+        var chart = initChart('chart-circadian');
+        if (!chart) return;
+        var cells = data.cells || [];
+        var days = data.days || ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+        if (!cells.length) { emptyChart(chart); return; }
+        var hours = [];
+        for (var h = 0; h < 24; h++) hours.push(String(h));
+        chart.setOption({
+            tooltip: { position: 'top', formatter: function(o) {
+                return days[o.value[1]] + ' ' + o.value[0] + ':00 — ' + o.value[2] + ' зв.';
+            } },
+            grid: { top: 10, right: 16, bottom: 58, left: 36 },
+            xAxis: { type: 'category', data: hours, splitArea: { show: true }, axisLabel: { color: '#64748b', fontSize: 9 } },
+            yAxis: { type: 'category', data: days, splitArea: { show: true }, axisLabel: { color: '#64748b', fontSize: 10 } },
+            visualMap: { min: 0, max: data.max || 1, calculable: false, orient: 'horizontal',
+                left: 'center', bottom: 8,
+                inRange: { color: ['#0b1220', '#00566b', '#00A8FF', '#00D4C8'] },
+                textStyle: { color: '#64748b', fontSize: 9 } },
+            series: [{ type: 'heatmap', data: cells,
+                emphasis: { itemStyle: { borderColor: '#fff', borderWidth: 1 } } }]
+        }, true);
+    }
+
+    function renderEcg(data) {
+        var chart = initChart('chart-ecg');
+        if (!chart) return;
+        var series = data.series || [];
+        if (!series.length) { emptyChart(chart); return; }
+        var periods = series.map(function(s) { return s.period; });
+        var calls = series.map(function(s) { return s.calls; });
+        var risk = series.map(function(s) { return s.risk; });
+        chart.setOption({
+            tooltip: { trigger: 'axis' },
+            legend: { data: ['активность', 'риск'], bottom: 0, textStyle: { color: '#8B95A5', fontSize: 10 } },
+            grid: { top: 14, right: 44, bottom: 38, left: 40 },
+            xAxis: { type: 'category', data: periods, axisLabel: { color: '#64748b', fontSize: 9 }, axisLine: { lineStyle: { color: '#1e293b' } } },
+            yAxis: [
+                { type: 'value', name: 'зв.', splitLine: { lineStyle: { color: '#16202e' } }, axisLabel: { color: '#64748b', fontSize: 9 } },
+                { type: 'value', name: 'риск', min: 0, max: 100, position: 'right', splitLine: { show: false }, axisLabel: { color: '#64748b', fontSize: 9 } }
+            ],
+            series: [
+                { name: 'активность', type: 'line', smooth: true, symbol: 'none', data: calls,
+                  lineStyle: { color: '#00D4C8', width: 2 },
+                  areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                      { offset: 0, color: 'rgba(0,212,200,0.25)' }, { offset: 1, color: 'rgba(0,212,200,0)' }]) } },
+                { name: 'риск', type: 'line', smooth: true, symbol: 'none', yAxisIndex: 1, data: risk,
+                  connectNulls: true, lineStyle: { color: '#FF5C7A', width: 1.5, type: 'dashed' }, itemStyle: { color: '#FF5C7A' } }
+            ]
+        }, true);
+    }
+
+    function loadEcg(contactId) {
+        fetch('/api/insight/ecg?contact_id=' + (contactId || 0))
+            .then(function(r) { return r.json(); }).then(renderEcg).catch(function() {});
+    }
+
+    function loadEcgContacts() {
+        var sel = $('#ecg-contact');
+        if (!sel) { loadEcg(0); return; }
+        if (!sel._bound) {
+            sel._bound = true;
+            sel.addEventListener('change', function() { loadEcg(this.value || 0); });
+        }
+        fetch('/api/insight/contacts?limit=80')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var items = data.contacts || [];
+                var html = '<option value="0">Все контакты</option>';
+                items.forEach(function(c) {
+                    var nm = c.display_name || c.guessed_name || c.phone_e164 || ('#' + c.contact_id);
+                    html += '<option value="' + c.contact_id + '">' + escapeHtml(nm) +
+                            ' (' + (c.call_count || 0) + ')</option>';
+                });
+                sel.innerHTML = html;
+            })
+            .catch(function() {})
+            .then(function() { loadEcg(sel.value || 0); });
+    }
+
     // ── System Tab ─────────────────────────────────────────────────────────
     function loadSystem() {
         fetch('/api/system')
@@ -824,6 +1055,7 @@
         { name: 'Go to Calls', shortcut: '2', action: function() { switchTab('calls'); } },
         { name: 'Go to Search', shortcut: '3', action: function() { switchTab('search'); } },
         { name: 'Go to Entities', shortcut: '4', action: function() { switchTab('entities'); } },
+        { name: 'Go to Архетипы', shortcut: '6', action: function() { switchTab('insight'); } },
         { name: 'Go to System', shortcut: '5', action: function() { switchTab('system'); } },
         { name: 'Focus Search', shortcut: '/', action: function() { switchTab('search'); setTimeout(function() { $('#search-input').focus(); }, 100); } },
     ];
@@ -890,6 +1122,7 @@
         else if (e.key === '3') switchTab('search');
         else if (e.key === '4') switchTab('entities');
         else if (e.key === '5') switchTab('system');
+        else if (e.key === '6') switchTab('insight');
         else if (e.key === 'Escape') closeCmdPalette();
     });
 

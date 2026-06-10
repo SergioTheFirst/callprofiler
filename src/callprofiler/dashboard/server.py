@@ -381,6 +381,45 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
             return JSONResponse(dbr.get_analytics(_USER_ID))
         return JSONResponse({})
 
+    # ── Insight Engine visualizations (Phase 7) ─────────────────────────
+    @fa.get("/api/insight/pca")
+    async def _insight_pca() -> JSONResponse:
+        dbr = _get_reader()
+        if dbr is not None and hasattr(dbr, "get_insight_pca"):
+            return JSONResponse(dbr.get_insight_pca(_USER_ID))
+        return JSONResponse({"points": [], "clusters": [], "k": 0,
+                             "silhouette": None, "version": None})
+
+    @fa.get("/api/insight/network")
+    async def _insight_network(limit: int = Query(40, ge=1, le=200)) -> JSONResponse:
+        dbr = _get_reader()
+        if dbr is not None and hasattr(dbr, "get_insight_network"):
+            return JSONResponse(dbr.get_insight_network(_USER_ID, limit=limit))
+        return JSONResponse({"owner_label": "Ты", "nodes": []})
+
+    @fa.get("/api/insight/circadian")
+    async def _insight_circadian(contact_id: int = Query(0, ge=0)) -> JSONResponse:
+        dbr = _get_reader()
+        if dbr is not None and hasattr(dbr, "get_insight_circadian"):
+            return JSONResponse(dbr.get_insight_circadian(_USER_ID, contact_id or None))
+        return JSONResponse({"cells": [], "max": 0,
+                             "days": ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]})
+
+    @fa.get("/api/insight/ecg")
+    async def _insight_ecg(contact_id: int = Query(0, ge=0)) -> JSONResponse:
+        dbr = _get_reader()
+        if dbr is not None and hasattr(dbr, "get_insight_ecg"):
+            return JSONResponse(dbr.get_insight_ecg(_USER_ID, contact_id or None))
+        return JSONResponse({"series": [], "contact_id": contact_id or None})
+
+    @fa.get("/api/insight/contacts")
+    async def _insight_contacts(limit: int = Query(60, ge=1, le=500)) -> JSONResponse:
+        """Top contacts (by call volume) for the ECG/circadian picker."""
+        dbr = _get_reader()
+        if dbr is not None and hasattr(dbr, "get_contacts"):
+            return JSONResponse({"contacts": dbr.get_contacts(_USER_ID, limit=limit)})
+        return JSONResponse({"contacts": []})
+
     _APP = fa
     return fa
 
