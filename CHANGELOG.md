@@ -8,6 +8,15 @@
 
 ## [Unreleased]
 
+### Changed — CLAUDE.md: Model Routing v2 (тиры по blast radius) + актуализация (2026-06-10)
+- Роутинг моделей переписан: T0 Haiku/low → T1 Opus fast/medium → T2 Opus/high → **T3 Fable 5/max**
+  (архитектурно-стратегическое: Hard Constraints, удаление данных, терминальные статусы/resume,
+  decisions-уровень). Жёсткие гейты T2+/T3; эскалация только по гейту; «объём ≠ сложность».
+- Субагенты тиризованы (Explore=haiku, planner/reviewer/security/tdd=sonnet); в T0/T1 субагенты
+  ОТМЕНЕНЫ (самопроверка диффа). Skills ≤2 на задачу. Цель — экономия токенов без потери качества.
+- Актуализация фактов: GigaAM v3 (не Whisper) в constraints, dev/run split, pyannote in-memory hack,
+  команды insight в Paths, `insight.md` в Reference Files. WHY → `.claude/rules/decisions.md`.
+
 ### Added — Insight Engine: Фаза 7 — визуализация архетипов на дашборде (2026-06-10)
 - Вкладка «Архетипы» (ECharts, уже подключён): карта PCA-2D (scatter+центроиды), эго-сеть
   (force-graph owner-центр), циркад (heatmap часы×дни), ЭКГ отношений (line активность+риск/мес, пикер).

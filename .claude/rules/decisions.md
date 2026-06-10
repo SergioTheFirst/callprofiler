@@ -1,5 +1,18 @@
 # Architecture Decisions
 
+## Model Routing v2: тир = blast radius, Fable max только для архитектуры (2026-06-10)
+
+Запрос юзера: умная экономия токенов без потери качества разработки. Решение (CLAUDE.md): тир задачи
+определяется **blast radius ошибки**, не объёмом работы. T0 Haiku/low (карты, механика) → T1 Opus
+fast/medium (рутина по паттерну) → T2 Opus/high (фичи, SQL write, `PROMPT_VERSION`, контракты слоёв) →
+**T3 Fable 5/max** (архитектура/стратегия: Hard Constraints — GPU/VRAM-порядок, удаление данных,
+терминальные статусы/resume; всё, что попадает в decisions.md). Жёсткие гейты не дают сэкономить там,
+где история показала дорогие ошибки (OOM 2026-06-06, data-loss watcher 2026-06-03). Субагенты
+тиризованы: Explore=haiku, planner/code-reviewer/security/tdd=sonnet; «всегда субагент» ОТМЕНЁН для
+T0/T1 (самопроверка диффа) — основная статья экономии. Анти-паттерны (Prohibited): T3-глубина на
+T0/T1-задаче; эскалация без гейта; «важность» как повод эскалации. Попутно актуализирован CLAUDE.md:
+GigaAM вместо Whisper в constraints, dev/run split, pyannote in-memory hack, insight.md в references.
+
 ## Карточка person-archetype: read+format из предпосчитанных фич; имена детерминированы (2026-06-06)
 
 Фаза 5-6 (первый user-facing выход). Решения: (1) `archetypes-fit` ПИШЕТ всё для карточки сразу (имя
