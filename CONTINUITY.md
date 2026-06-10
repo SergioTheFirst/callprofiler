@@ -60,19 +60,18 @@
 🎯 **Конфиг прогона:** `features.yaml` `enable_llm_analysis:true`, `enable_diarization:true` (роли
 обязательны). НЕ менялся этой сессией.
 
-**Next (этот ПК — Insight):**
-- ✅ Фаза 7 визуализация СОБРАНА (вкладка «Архетипы»). Визуальная проверка — на боксе после реального fit.
-- Запуск на боксе на РЕАЛЬНЫХ 16k: `features-build --user me`→`archetypes-fit --user me` (теперь пишет
-  pca_x/pca_y) → дашборд вкладка «Архетипы» покажет карту/сеть/циркад/ЭКГ; `person-archetype --contact N`.
-- ОТЛОЖЕНО: Ф4 dominance (хрупкая диаризация), LLM-уточнение имён кластеров (шов на боксе).
-
-**Next (на боксе):**
-- `git pull origin main` (забрать этот набор).
-- Чистый лист: ОСТАНОВИТЬ watch/dashboard → `reset.bat --apply` → дашборд ноль.
-- (1) llama-server с `C:\models\Qwen3.5-9B.Q8_0.gguf`; (2) роли — `install-roles.bat` + `setx HF_TOKEN …`
-  + принять gated pyannote-модели + `C:\pro\mbot\ref\manager.wav`; (3) аудио в `C:\calls\in`; (4) `startprocess.bat`.
-- Мониторить `C:\calls\callprofiler.log`. Убедиться: НЕТ VRAM OOM (выгрузка до LLM), дашборд real-time,
-  normalized wav не копятся (удаление + sweep сирот), зависшие добираются `process_pending` каждый цикл.
+**Next — ПРОГОН НА БОКСЕ** (этот ПК всё закоммичено: Insight Фазы 0-7 в `main`, до `086c3b2`; 634 passed):
+1. `git pull origin main` — забрать Фазу 7 (вкладка «Архетипы») + весь набор.
+2. Чистый лист: ОСТАНОВИТЬ watch/dashboard → `reset.bat --apply` → дашборд ноль.
+3. Пайплайн: (1) llama-server `C:\models\Qwen3.5-9B.Q8_0.gguf`; (2) роли — `install-roles.bat` +
+   `setx HF_TOKEN …` + принять gated pyannote-модели + `C:\pro\mbot\ref\manager.wav`; (3) аудио в
+   `C:\calls\in`; (4) `startprocess.bat`. Мониторить `C:\calls\callprofiler.log`: НЕТ VRAM OOM
+   (выгрузка до LLM), дашборд real-time, normalized wav не копятся (sweep сирот), зависшие
+   добираются `process_pending` каждый цикл.
+4. Insight на РЕАЛЬНЫХ ~16k: `features-build --user me` → `archetypes-fit --user me` (пишет
+   pca_x/pca_y) → дашборд вкладка «Архетипы» (карта PCA/эго-сеть/циркад/ЭКГ); `person-archetype
+   --user me --contact N`. **Визуальная проверка Ф7 — здесь** (офлайн не покрыто).
+- ОТЛОЖЕНО: Ф4 dominance (хрупкая диаризация), LLM-имена кластеров (детерм. уже есть — шов на боксе).
 - ПОТОМ (Stage-2): graph v2/профили/биография; biography→analysis resilience (мемоизация+retry, task-бюджеты).
 
 **Open questions (UNCONFIRMED):**
