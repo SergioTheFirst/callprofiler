@@ -28,6 +28,9 @@ pipeline:
   remove_source_on_success: true          # убрать исходник из incoming после транскрибации
   batch_chunk_size: 100                    # партия в process_pending (RAM/resume на больших прогонах)
   delete_normalized_after_transcribe: true # удалять normalized .wav после stage 2 (экономия диска на 17k)
+  insight_autofit: true                    # авто-fit архетипов в watch-цикле (numpy, GPU не трогает)
+  insight_autofit_min_new: 25              # порог: новых терминальных звонков для пере-fit
+  insight_autofit_min_interval_sec: 1800   # debounce: не чаще раза в 30 минут
 
 audio:
   sample_rate: 16000

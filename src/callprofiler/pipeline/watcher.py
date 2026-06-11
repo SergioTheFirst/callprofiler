@@ -12,7 +12,8 @@ Orchestrator, а после успешной транскрибации убир
   2. process_batch(new_ids)  — обработать новые звонки
   3. cleanup_sources()       — убрать исходники транскрибированных из incoming
   4. retry_errors()          — повторить ошибочные
-  5. sleep(watch_interval_sec)
+  5. _maybe_autofit()        — debounced insight-fit (архетипы) по новым терминальным
+  6. sleep(watch_interval_sec)
 """
 
 from __future__ import annotations
@@ -70,6 +71,10 @@ class FileWatcher:
         self.orchestrator = orchestrator
         # call_id → (user_id, incoming-корень, исходный путь) за последнее сканирование
         self._last_sources: dict[int, tuple[str, Path, Path]] = {}
+        # Авто-fit insight (Ф0 плана досье): per-user счётчик терминальных + debounce
+        self._terminal_seen: dict[str, int] = {}
+        self._new_terminal_since_fit = 0
+        self._last_autofit_ts = 0.0
         logger.info("FileWatcher инициализирован")
 
     def scan_all_users(self) -> list[int]:
@@ -118,18 +123,27 @@ class FileWatcher:
         при повторном запуске «0 new» оставлял бы незаконченные звонки висеть.
         Возвращает число новых зарегистрированных файлов.
         """
+        self._update_terminal_counter()  # baseline ДО обработки → delta = обработанные сейчас
         new_ids = self.scan_all_users()
         # process_pending обрабатывает и только что зарегистрированные, и зависшие
         self.orchestrator.process_pending()
         self.cleanup_sources()
         self.cleanup_normalized()
         self.orchestrator.retry_errors()
+        self._update_terminal_counter()
+        self._maybe_autofit()
         return len(new_ids)
 
     def run_loop(self) -> None:
         """Запустить бесконечный цикл мониторинга."""
         interval = self.config.pipeline.watch_interval_sec
         logger.info("Запуск цикла мониторинга (интервал=%d сек)", interval)
+
+        try:
+            # baseline: исторические терминальные звонки не триггерят fit на старте
+            self._update_terminal_counter()
+        except Exception as exc:  # noqa: BLE001 — БД может быть ещё не готова
+            logger.debug("Baseline терминальных не снят: %s", exc)
 
         while True:
             try:
@@ -149,6 +163,10 @@ class FileWatcher:
 
                 # Повторить ошибочные
                 self.orchestrator.retry_errors()
+
+                # Авто-fit архетипов по новым терминальным (debounced, non-fatal)
+                self._update_terminal_counter()
+                self._maybe_autofit()
 
             except KeyboardInterrupt:
                 logger.info("Остановка по Ctrl+C")
@@ -238,6 +256,65 @@ class FileWatcher:
         if removed:
             logger.info("Подчищено normalized wav: %d", removed)
         return removed
+
+    # ── Insight autofit (Ф0 плана досье) ───────────────────────────────
+
+    def _update_terminal_counter(self) -> None:
+        """Накопить число НОВЫХ терминальных звонков (done/transcribed) с прошлого fit.
+
+        Первый вызов — baseline: исторические звонки не считаются (иначе
+        старт watch на БД с 16k done сразу дёргал бы fit).
+        """
+        conn = self.repo._get_conn()
+        for user in self.repo.get_all_users():
+            uid = user["user_id"]
+            row = conn.execute(
+                "SELECT COUNT(*) FROM calls "
+                "WHERE user_id = ? AND status IN ('done', 'transcribed')",
+                (uid,),
+            ).fetchone()
+            n = int(row[0] or 0)
+            prev = self._terminal_seen.get(uid)
+            if prev is not None and n > prev:
+                self._new_terminal_since_fit += n - prev
+            self._terminal_seen[uid] = n
+
+    def _maybe_autofit(self) -> None:
+        """Debounced insight-fit: флаг → порог новых → интервал → запуск.
+
+        Сбой fit НЕ роняет цикл (паттерн pipeline.md Fallback); таймштамп
+        обновляется и при сбое — чтобы не спамить ретраями каждый цикл.
+        """
+        p = self.config.pipeline
+        if not getattr(p, "insight_autofit", True):
+            return
+        min_new = max(1, int(getattr(p, "insight_autofit_min_new", 25)))
+        if self._new_terminal_since_fit < min_new:
+            return
+        now = time.time()
+        min_interval = int(getattr(p, "insight_autofit_min_interval_sec", 1800))
+        if now - self._last_autofit_ts < min_interval:
+            return
+        self._last_autofit_ts = now
+        try:
+            self._run_insight_fit()
+            self._new_terminal_since_fit = 0
+        except Exception as exc:  # noqa: BLE001 — autofit не должен ронять цикл
+            logger.error("Insight autofit упал (продолжаем цикл): %s", exc)
+
+    def _run_insight_fit(self) -> None:
+        """features-build + archetypes-fit для всех пользователей (numpy, без GPU)."""
+        from callprofiler.insight import cli_ops  # lazy: numpy не нужен циклу
+
+        conn = self.repo._get_conn()
+        for user in self.repo.get_all_users():
+            uid = user["user_id"]
+            n_feats = cli_ops.run_features_build(conn, uid)
+            res = cli_ops.run_archetypes_fit(conn, uid)
+            logger.info(
+                "Insight autofit user=%s: features=%d, k=%d, assigned=%d",
+                uid, n_feats, res.get("k", 0), res.get("n_assigned", 0),
+            )
 
     # ── Внутренние методы ──────────────────────────────────────────────
 

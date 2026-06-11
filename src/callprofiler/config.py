@@ -64,6 +64,9 @@ class PipelineConfig:
     remove_source_on_success: bool = True  # удалять исходник из incoming после транскрибации
     batch_chunk_size: int = 100            # размер партии в process_pending (RAM/resume на больших прогонах)
     delete_normalized_after_transcribe: bool = False  # удалять normalized .wav после stage 2 (экономия диска)
+    insight_autofit: bool = True           # авто-запуск features-build+archetypes-fit в watch-цикле
+    insight_autofit_min_new: int = 25      # минимум новых терминальных звонков для пере-fit
+    insight_autofit_min_interval_sec: int = 1800  # не чаще раза в 30 минут
 
 
 @dataclass
@@ -158,6 +161,15 @@ def load_config(path: str) -> Config:
             ),
             batch_chunk_size=int(
                 p.get("batch_chunk_size", cfg.pipeline.batch_chunk_size)
+            ),
+            insight_autofit=bool(
+                p.get("insight_autofit", cfg.pipeline.insight_autofit)
+            ),
+            insight_autofit_min_new=int(
+                p.get("insight_autofit_min_new", cfg.pipeline.insight_autofit_min_new)
+            ),
+            insight_autofit_min_interval_sec=int(
+                p.get("insight_autofit_min_interval_sec", cfg.pipeline.insight_autofit_min_interval_sec)
             ),
         )
 

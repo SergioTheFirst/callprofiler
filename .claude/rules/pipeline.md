@@ -13,6 +13,9 @@
 4. cleanup_sources()   — убрать исходник из incoming ТОЛЬКО при pipeline_stage>=2
 5. cleanup_normalized()— снести normalized wav: СИРОТЫ (нет call-записи в БД) + терминал/stage≥2
 6. retry_errors()
+7. _maybe_autofit()    — debounced insight-fit (features-build+archetypes-fit, numpy/без GPU):
+   гейт `insight_autofit` + порог `insight_autofit_min_new` новых терминальных (baseline на старте —
+   исторические не триггерят) + `insight_autofit_min_interval_sec`; сбой fit НЕ роняет цикл
 ```
 scan: MD5-дедуп (`get_call_by_md5`). Новый → ingest = КОПИЯ в архив
 `users/{uid}/audio/originals/YYYY/MM` (на ВХОДЕ, до обработки). Файл-ещё-пишется →
