@@ -733,7 +733,7 @@
                    (p.phone_e164 || '').indexOf(q) >= 0;
         });
         if (!rows.length) {
-            tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-muted);text-align:center">Никого не найдено</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text-muted);text-align:center">Никого не найдено</td></tr>';
             return;
         }
         tbody.innerHTML = rows.map(function(p) {
@@ -745,8 +745,16 @@
                 ? '<span class="sr-tag entity" style="border-color:' + clusterColor(p.cluster_idx) + '">' + escapeHtml(p.archetype_label) + '</span>'
                 : '--';
             var last = p.last_call_date ? String(p.last_call_date).slice(0, 10) : '--';
+            // Возраст: «~48», серым при уверенности < 50 (план age-estimation Ф3)
+            var age = (p.age_point != null)
+                ? '<span' + ((p.age_confidence != null && p.age_confidence < 50)
+                    ? ' style="color:var(--text-muted)"' : '') +
+                  ' title="уверенность ' + (p.age_confidence != null ? p.age_confidence : '?') + '/100">~' +
+                  p.age_point + '</span>'
+                : '--';
             return '<tr class="call-row" data-contact-id="' + p.contact_id + '" title="Открыть досье">' +
                 '<td>' + escapeHtml(p.name || '?') + '</td>' +
+                '<td>' + age + '</td>' +
                 '<td>' + arch + '</td>' +
                 '<td>' + (risk !== null ? '<span class="risk ' + riskCls + '">' + risk + '</span>' : '--') + '</td>' +
                 '<td>' + bs + '</td>' +
@@ -846,6 +854,24 @@
             (idx.trust_score != null ? dossierIdx('Доверие', Number(idx.trust_score).toFixed(0), '') : '') +
             (idx.conflict_count != null ? dossierIdx('Конфликты', idx.conflict_count, '') : '') +
             '</div></div>';
+
+        // Возраст: «~48 лет (40–55) · уверенность 35/100» + evidence-цитаты
+        if (d.age && d.age.age_point != null) {
+            var aHtml = '<div style="font-size:15px;margin-bottom:6px">~' + d.age.age_point + ' лет' +
+                ((d.age.age_low != null && d.age.age_high != null && d.age.age_low !== d.age.age_high)
+                    ? ' (' + d.age.age_low + '–' + d.age.age_high + ')' : '') +
+                ' · уверенность ' + (d.age.confidence != null ? d.age.confidence : '?') + '/100' +
+                (d.age.method ? ' <span style="color:var(--text-muted);font-size:11px">[' +
+                    escapeHtml(d.age.method) + ']</span>' : '') + '</div>';
+            if (d.age.evidence && d.age.evidence.length) {
+                aHtml += d.age.evidence.map(function(e) {
+                    return '<div class="dossier-quote">«' + escapeHtml(e.quote || '') + '»' +
+                        '<div class="dossier-quote-meta">' + escapeHtml(e.signal || '') +
+                        (e.dt ? ' · ' + escapeHtml(e.dt) : '') + '</div></div>';
+                }).join('');
+            }
+            html += dossierSec('Возраст', aHtml);
+        }
 
         // Черты-фразы архетипа
         if (d.archetype && d.archetype.traits && d.archetype.traits.length) {

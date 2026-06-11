@@ -165,9 +165,53 @@ def test_dossier_no_entity_link(tmp_path):
     assert d is not None
     assert d["entity"] is None
     assert d["archetype"] is None
+    assert d["age"] is None  # таблица есть (insight-схема), строки нет
     assert d["indices"]["bs_index"] is None
     assert d["patterns"] == [] and d["facts"] == []
     assert d["indices"]["global_risk"] == 62  # contact-слой живёт без entity
+
+
+def _seed_age(db, cid):
+    from datetime import date
+    from callprofiler.db.repository import Repository as _R
+    repo = _R(db)
+    conn = repo._get_conn()
+    insight_repo.save_contact_age_estimate(
+        conn, "me", contact_id=cid, age_low=49, age_high=51, age_point=50,
+        birth_year_low=1975, birth_year_high=1976, birth_year_point=1976,
+        confidence=80, method="marker",
+        evidence=[{"quote": "мне 45 лет", "signal": "direct_age",
+                   "weight": 90, "dt": "2021-03-15"}],
+    )
+    conn.commit()
+    repo.close()
+    return date.today().year
+
+
+def test_dossier_age_section(tmp_path):
+    """Возраст в досье — динамический: из birth_year_point к текущему году."""
+    db, cid, _eid = _seed_db(tmp_path)
+    yr = _seed_age(db, cid)
+    r = _reader(db)
+    d = r.get_person_dossier(cid, "me")
+    r.close()
+    a = d["age"]
+    assert a is not None
+    assert a["age_point"] == yr - 1976
+    assert a["age_low"] == yr - 1976 and a["age_high"] == yr - 1975
+    assert a["confidence"] == 80 and a["method"] == "marker"
+    assert a["evidence"][0]["quote"] == "мне 45 лет"
+
+
+def test_people_age_column(tmp_path):
+    db, cid, _eid = _seed_db(tmp_path)
+    yr = _seed_age(db, cid)
+    r = _reader(db)
+    people = r.get_people("me")
+    r.close()
+    p = people[0]
+    assert p["age_point"] == yr - 1976  # из birth_year, не из среза age_point
+    assert p["age_confidence"] == 80
 
 
 def test_dossier_wrong_user(tmp_path):

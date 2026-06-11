@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -550,6 +551,12 @@ class DashboardDBReader:
                 "LEFT JOIN entity_metrics em "
                 "ON em.entity_id = m.entity_id AND em.user_id = ct.user_id",
             ]
+        if self._has_table("contact_age_estimates"):
+            select += ["cae.age_point AS age_point",
+                       "cae.birth_year_point AS birth_year_point",
+                       "cae.confidence AS age_confidence"]
+            joins += ["LEFT JOIN contact_age_estimates cae "
+                      "ON cae.contact_id = ct.contact_id AND cae.user_id = ct.user_id"]
         sql = ("SELECT " + ", ".join(select) + " FROM contacts ct " + " ".join(joins)
                + " WHERE ct.user_id = ?"
                + " ORDER BY COALESCE(cs.total_calls, 0) DESC, ct.contact_id LIMIT ?")
@@ -561,8 +568,12 @@ class DashboardDBReader:
             d["name"] = (d.get("display_name") or d.get("guessed_name")
                          or d.get("phone_e164") or f"#{d['contact_id']}")
             for key in ("archetype_label", "membership", "entity_id",
-                        "bs_index", "trust_score"):
+                        "bs_index", "trust_score", "age_point", "age_confidence"):
                 d.setdefault(key, None)
+            # Возраст «сейчас» из года рождения — не протухает между пересчётами
+            if d.get("birth_year_point"):
+                d["age_point"] = date.today().year - int(d["birth_year_point"])
+            d.pop("birth_year_point", None)
             people.append(d)
         return people
 
@@ -591,6 +602,7 @@ class DashboardDBReader:
             },
             "archetype": None,
             "entity": None,
+            "age": None,
             "patterns": [],
             "temporal": None,
             "social": None,
@@ -625,6 +637,37 @@ class DashboardDBReader:
                     "membership": row["membership"],
                     "confidence": row["confidence"],
                     "traits": [d.get("phrase") for d in dims if d.get("phrase")],
+                }
+
+        if self._has_table("contact_age_estimates"):
+            row = self._conn.execute(
+                """SELECT age_low, age_high, age_point, birth_year_low,
+                          birth_year_high, birth_year_point, confidence,
+                          method, evidence, computed_at
+                     FROM contact_age_estimates
+                    WHERE contact_id = ? AND user_id = ?""",
+                (contact_id, user_id),
+            ).fetchone()
+            if row and (row["age_point"] is not None
+                        or row["birth_year_point"] is not None):
+                try:
+                    ev = json.loads(row["evidence"] or "[]")[:5]
+                except (json.JSONDecodeError, TypeError):
+                    ev = []
+                yr = date.today().year
+                dossier["age"] = {
+                    # возраст к текущей дате из года рождения (динамика);
+                    # fallback — срез age_* на момент computed_at
+                    "age_low": (yr - row["birth_year_high"]
+                                if row["birth_year_high"] else row["age_low"]),
+                    "age_high": (yr - row["birth_year_low"]
+                                 if row["birth_year_low"] else row["age_high"]),
+                    "age_point": (yr - row["birth_year_point"]
+                                  if row["birth_year_point"] else row["age_point"]),
+                    "confidence": row["confidence"],
+                    "method": row["method"],
+                    "evidence": ev,
+                    "computed_at": row["computed_at"],
                 }
 
         entity_id = None
