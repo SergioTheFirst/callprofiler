@@ -28,7 +28,8 @@ Data:    C:\calls\data                 Audio: …\users\{uid}\audio\{originals,n
 Ref:     C:\pro\mbot\ref\manager.wav   Input: C:\calls\in (protected — reset не трогает)
 PYTHONPATH=C:\pro\callprofiler\src | python -m callprofiler <cmd> | pytest tests/ -v
 cmds: watch · dashboard --user UID [--port 8765] · biography-run · graph-replay ·
-      features-build · archetypes-fit · person-archetype --user X --contact Y
+      features-build · archetypes-fit · person-archetype --user X --contact Y ·
+      age-estimate --user X [--contact N] [--llm]
 ```
 
 ## Python Hacks

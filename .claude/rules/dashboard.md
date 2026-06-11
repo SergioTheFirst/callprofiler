@@ -14,7 +14,9 @@ SSE-тик обновляет активную вкладку (bugs.md 2026-06-0
 
 **Досье-UI (Ф3):** клик по строке людей / точке PCA (`_cid` в data) / узлу эго-сети (`id='c{cid}'`)
 → модал `#person-overlay` (`openPersonDossier`/`renderDossier` в app.js): шапка-архетип → индексы
-(Риск/BS по `bs_thresholds` если есть/Доверие) → черты-фразы → паттерны (severity-цвет) → психотип →
+(Риск/BS по `bs_thresholds` если есть/Доверие) → **возраст** («~48 лет (40–55) · уверенность 35/100»
++ evidence-цитаты; из `contact_age_estimates`, возраст к ТЕКУЩЕМУ году из birth_year_point) →
+черты-фразы → паттерны (severity-цвет) → психотип →
 ритм (тренд словами TREND_RU) → факты-цитаты → противоречия → обещания → личное → связи → динамика
 по годам → интерпретация (persisted или подсказка `profile-all`) → совет → звонки (клик → call detail)
 → кнопки «ЭКГ →» (insight-пикер) и «Граф-персона →» (старая entity-модалка).
@@ -27,7 +29,8 @@ SSE-тик обновляет активную вкладку (bugs.md 2026-06-0
   `rebuild-cards`) + export (`calls.csv`, `book.md`).
 - Личности: `/api/characters` (список entities+metrics+psychology), `/api/character/{entity_id}`
   (модалка, app.js:541), `/api/contact/{contact_id}`, `/api/analytics`.
-- Досье (Ф2): `/api/people` (список контактов + архетип + BS через map) и
+- Досье (Ф2): `/api/people` (список контактов + архетип + BS через map + `age_point`/`age_confidence`
+  guarded; колонка «Возраст» в таблице, серым при conf<50; наполняет `age-estimate`/autofit) и
   `/api/person/{contact_id}` → `get_person_dossier` — агрегатор: contact_summaries (risk) +
   contact_archetypes (label/traits-фразы) + entity-слой через `entity_contact_map` (top-confidence) +
   `PsychologyProfiler(include_llm=False)` (паттерны/temporal/social/network/evolution/top_facts) +

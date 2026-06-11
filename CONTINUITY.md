@@ -6,7 +6,7 @@
 **Goal (incl. success criteria):**
 - Рабочий локальный pipeline `C:\calls\in` → текст (GigaAM v3) → БД → LLM-анализ (Qwen) → дашборд/Telegram.
 - **Доктрина дашборда (юзер, 2026-06-11): 2 функции** — ход обработки + полный психопортрет личности
-  («нажал имя — знаешь всё»: risk, BS-index, архетип, паттерны, факты-цитаты; без лирики).
+  («нажал имя — знаешь всё»: risk, BS-index, архетип, возраст, паттерны, факты-цитаты; без лирики).
 
 **Workflow (durable):**
 - Claude **коммитит и пушит в `main` БЕЗ пер-действенного согласования** (2026-06-04).
@@ -15,40 +15,40 @@
 - **Model Routing v2 (2026-06-10):** тир = blast radius; T0/T1 без субагентов; объявлять тир.
 
 **Constraints/Assumptions:**
-- 100% local. Windows. LLM = llama-server @127.0.0.1:8080. SQLite, no ORM, каждый запрос `user_id`.
-- **Код пишем ЗДЕСЬ (без GPU/моделей/данных), запускаем на боксе.** БД здесь пустая.
+- 100% local. Windows. LLM = llama-server @127.0.0.1:8080 (Qwen3.5-9B Q8_0). SQLite, no ORM,
+  каждый запрос `user_id`. Код пишем ЗДЕСЬ (без GPU/моделей/данных), запускаем на боксе.
 - `data_dir = C:\calls\data`. Лог: `C:\calls\callprofiler.log`.
 - **GPU sequential (Hard Constraint):** ASR+pyannote и LLM НИКОГДА одновременно (12GB RTX 3060).
 
 **State (2026-06-11):**
 
-✅ **Досье «Личности» РЕАЛИЗОВАНО (Ф0-Ф4 плана), в main, 658 passed/2 skipped.**
-План: `docs/superpowers/plans/2026-06-11-dashboard-person-dossier.md`; карта: `.claude/rules/dashboard.md`.
-- Ф0 autofit в watcher (insight_autofit*, baseline, non-fatal) — вкладка наполняется сама.
-- Ф1 `entity_contact_map` (name 0.95 / cooccur ≥0.6∧≥3 PERSON, owner-excl), rebuild в
-  archetypes-fit + graph-replay Step 9; CLI `person-link [--dry-run]`. Security-review clean.
-- Ф2 `get_person_dossier`/`get_people` + `/api/person/{id}`,`/api/people`; реюз
-  `PsychologyProfiler(include_llm=False)`. **Багфикс:** модалка дёргала LLM (120s/клик) и писала
-  на query_only → include_llm=False (bugs.md 2026-06-11).
-- Ф3 вкладка «Личности» (поиск; риск/BS/архетип) + модал-досье (индексы→черты→паттерны→психотип→
-  ритм→цитаты→противоречия→обещания→связи→динамика→интерпретация→совет→звонки) + клик из
-  PCA-точки/узла сети → досье. node --check OK.
-- Ф4 = ноль кода: `profile-all` УЖЕ персистит интерпретации в entity_profiles (досье читает).
-- Всё ЗАПУШЕНО: 0ffb3dd (Ф0) → ccd3f04 (Ф1) → 803c02c (Ф2) → 208e5c1 (Ф3) на origin/main.
+✅ **«Возраст контакта» РЕАЛИЗОВАН (Ф0-Ф3 плана age-estimation), 691 passed/2 skipped, JS OK.**
+План: `docs/superpowers/plans/2026-06-11-age-estimation.md`; карты: `.claude/rules/insight.md`
+(секция «Возраст»), `.claude/rules/dashboard.md`; WHY: decisions.md (birth-year-space, stale_only).
+- Ф0/Ф1: `insight/age_markers.py`+`age_estimate.py` — маркеры (мне N лет / словесные / год рождения /
+  юбилей / этапные) + направленные якоря (гейт `owner_birth_year`, в base.yaml = 0 → ВЫКЛ).
+- Ф2: LLM-пасс под Qwen3.5 (`configs/prompts/age_v001.txt`, age-v1): <think>/fences-парсер,
+  verbatim-гейт, memoization per-row; det-пересчёты реюзают оплаченный LLM-результат.
+- Ф3: досье — секция «Возраст» + колонка в списке людей (динамический возраст из birth_year_point).
+- Динамика: det-часть в watcher-autofit (stale_only инкрементально); LLM только CLI в LLM-окне.
+- Ревью: security clean; ложные CRITICAL/HIGH code-ревьюера отклонены пересчётом (см. CHANGELOG).
+✅ Досье «Личности» (Ф0-Ф4 плана dossier) — в main ранее (208e5c1).
 
 **Next:**
-1. **ПРОГОН НА БОКСЕ:** pull → reset.bat --apply → llama-server+роли → startprocess. После прогона
-   архетипы/связки построятся сами (autofit). Вкладка «Личности»: список+досье, клики из PCA/сети.
-2. Интерпретации: `python -m callprofiler profile-all --user me` (llama-server жив, ASR не идёт).
-3. Визуальная проверка UI досье — на боксе (здесь нет данных).
-- ЖДЁТ ОТМАШКИ: план «Возраст контакта» (`docs/superpowers/plans/2026-06-11-age-estimation.md`,
-  4 фазы: маркеры → якоря → LLM-пасс → UI; перед боксом задать `owner_birth_year`).
-- ОТЛОЖЕНО: Ф4-dominance insight; LLM-имена кластеров; Stage-2 биография; resilience-порт.
+1. **ПРОГОН НА БОКСЕ:** pull → задать `owner_birth_year` в base.yaml (иначе якоря выкл) →
+   reset/startprocess как планировалось. autofit сам построит архетипы+возраст (инкрементально).
+2. В LLM-окне (llama-server жив, ASR не идёт): `profile-all --user me` +
+   `age-estimate --user me --llm`.
+3. Чеклист плана: спот-чек 10 знакомых контактов (возраст в реальном диапазоне? цитаты настоящие?).
+4. Визуальная проверка UI (колонка «Возраст», секция в досье) — на боксе.
+- ОТЛОЖЕНО: age_band как FRAGILE-ось кластеризации; калибровка confidence; Ф4-dominance;
+  LLM-имена кластеров; Stage-2 биография; resilience-порт.
 
 **Open questions (UNCONFIRMED):**
-- VRAM-footprint Qwen 9B Q8_0 на боксе. Калибровка `bs_thresholds` (досье красит BS если есть).
-- Форма строки `bs_thresholds` (green_max/yellow_max?) — UI деградирует к статичным 30/60.
+- VRAM-footprint Qwen 9B Q8_0 на боксе. Калибровка `bs_thresholds`.
+- Качество age-LLM-пасса на реальной лексике (промпт age-v1 — первая версия; бамп = пересчёт кэша).
 
 **Working set:**
-- `docs/superpowers/plans/2026-06-11-dashboard-person-dossier.md` · `.claude/rules/dashboard.md`
+- `docs/superpowers/plans/2026-06-11-age-estimation.md` · `.claude/rules/insight.md` ·
+  `.claude/rules/dashboard.md`
 - Tests: `$env:PYTHONPATH="C:\pro\callprofiler\src"; python -m pytest tests/ -q`
