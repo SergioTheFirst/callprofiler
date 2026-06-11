@@ -8,8 +8,18 @@
 2026-06-04). Дашборд НИКОГДА не зовёт LLM и не пишет в БД. Слой не заполнен → секция пустая, не 500.
 
 ## Вкладки (templates/index.html)
-`overview` · `calls` · `search` · `entities` (список «characters» + модалка) · `insight` («Архетипы»,
-4 вида, Ф7) · `system`. SSE-тик обновляет активную вкладку (bugs.md 2026-06-05).
+`overview` · `calls` · `search` · `entities` (**«Личности»**: таблица людей `#people-table` с поиском
++ «Упомянутые персоны (граф)» + модалки) · `insight` («Архетипы», 4 вида, Ф7) · `system`.
+SSE-тик обновляет активную вкладку (bugs.md 2026-06-05).
+
+**Досье-UI (Ф3):** клик по строке людей / точке PCA (`_cid` в data) / узлу эго-сети (`id='c{cid}'`)
+→ модал `#person-overlay` (`openPersonDossier`/`renderDossier` в app.js): шапка-архетип → индексы
+(Риск/BS по `bs_thresholds` если есть/Доверие) → черты-фразы → паттерны (severity-цвет) → психотип →
+ритм (тренд словами TREND_RU) → факты-цитаты → противоречия → обещания → личное → связи → динамика
+по годам → интерпретация (persisted или подсказка `profile-all`) → совет → звонки (клик → call detail)
+→ кнопки «ЭКГ →» (insight-пикер) и «Граф-персона →» (старая entity-модалка).
+**Ф4 уже встроена:** `profile-all --user me` зовёт `build_profile` (LLM on) → интерпретации
+персистятся в `entity_profiles` с memoization-сигнатурой; досье их читает. Запускать в LLM-окне.
 
 ## Эндпоинты (server.py, все через DashboardDBReader, `WHERE user_id=?`)
 - Обработка: `/api/overview` `/api/calls[/{id}]` `/api/search` `/api/system[/logs]` `/api/sse`

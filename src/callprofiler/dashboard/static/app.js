@@ -701,12 +701,307 @@
     }
 
     function loadEntities() {
+        loadPeople();
         fetch('/api/entities?limit=100')
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 renderEntitiesTable(data.entities || []);
             })
             .catch(function(e) { console.error('Entities load failed:', e); });
+    }
+
+    // ── Личности: список людей + досье (Ф3 плана досье) ────────────────────
+    state.peopleCache = [];
+
+    function loadPeople() {
+        fetch('/api/people?limit=1000')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                state.peopleCache = data.people || [];
+                renderPeopleTable();
+            })
+            .catch(function(e) { console.error('People load failed:', e); });
+    }
+
+    function renderPeopleTable() {
+        var tbody = $('#people-table tbody');
+        if (!tbody) return;
+        var q = (($('#people-search') || {}).value || '').trim().toLowerCase();
+        var rows = state.peopleCache.filter(function(p) {
+            if (!q) return true;
+            return (p.name || '').toLowerCase().indexOf(q) >= 0 ||
+                   (p.phone_e164 || '').indexOf(q) >= 0;
+        });
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-muted);text-align:center">Никого не найдено</td></tr>';
+            return;
+        }
+        tbody.innerHTML = rows.map(function(p) {
+            var risk = p.global_risk != null ? p.global_risk : null;
+            var riskCls = risk !== null ? (risk >= 60 ? 'risk-high' : (risk >= 30 ? 'risk-med' : 'risk-low')) : '';
+            var bs = p.bs_index != null ? Number(p.bs_index).toFixed(0)
+                   : (p.avg_bs_score != null ? Number(p.avg_bs_score).toFixed(0) : '--');
+            var arch = p.archetype_label
+                ? '<span class="sr-tag entity" style="border-color:' + clusterColor(p.cluster_idx) + '">' + escapeHtml(p.archetype_label) + '</span>'
+                : '--';
+            var last = p.last_call_date ? String(p.last_call_date).slice(0, 10) : '--';
+            return '<tr class="call-row" data-contact-id="' + p.contact_id + '" title="Открыть досье">' +
+                '<td>' + escapeHtml(p.name || '?') + '</td>' +
+                '<td>' + arch + '</td>' +
+                '<td>' + (risk !== null ? '<span class="risk ' + riskCls + '">' + risk + '</span>' : '--') + '</td>' +
+                '<td>' + bs + '</td>' +
+                '<td>' + (p.total_calls || 0) + '</td>' +
+                '<td>' + last + '</td>' +
+                '</tr>';
+        }).join('');
+        tbody.querySelectorAll('tr[data-contact-id]').forEach(function(row) {
+            row.addEventListener('click', function() {
+                openPersonDossier(this.dataset.contactId);
+            });
+        });
+    }
+
+    var peopleSearch = $('#people-search');
+    if (peopleSearch) peopleSearch.addEventListener('input', renderPeopleTable);
+
+    // ── Досье личности ──────────────────────────────────────────────────────
+    function openPersonDossier(contactId) {
+        var overlay = $('#person-overlay');
+        if (!overlay) return;
+        overlay.classList.add('open');
+        $('#person-modal-title').textContent = 'Досье #' + contactId;
+        $('#person-modal-body').innerHTML = '<div class="skeleton">Загрузка досье...</div>';
+        fetch('/api/person/' + contactId)
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.not_found) {
+                    $('#person-modal-body').innerHTML = '<div class="detail-empty">Контакт не найден</div>';
+                    return;
+                }
+                renderDossier(d);
+            })
+            .catch(function() {
+                $('#person-modal-body').innerHTML = '<div class="detail-empty">Не удалось загрузить досье</div>';
+            });
+    }
+
+    function closePersonDossier() {
+        $('#person-overlay').classList.remove('open');
+    }
+    $('#person-modal-close').addEventListener('click', closePersonDossier);
+    $('#person-overlay').addEventListener('click', function(e) {
+        if (e.target === this) closePersonDossier();
+    });
+
+    function dossierSec(title, inner) {
+        return '<div class="detail-section"><h4>' + title + '</h4>' + inner + '</div>';
+    }
+
+    function dossierIdx(label, value, cls) {
+        return '<div class="db-stat-card"><div class="db-stat-val' + (cls ? ' ' + cls : '') + '">' +
+            value + '</div><div class="db-stat-lbl">' + label + '</div></div>';
+    }
+
+    function bsClass(bs, thr) {
+        if (bs == null) return '';
+        var n = Number(bs);
+        if (thr && thr.green_max != null) {  // калиброванные пороги (bs_thresholds)
+            if (n <= thr.green_max) return 'risk-low';
+            if (thr.yellow_max != null && n <= thr.yellow_max) return 'risk-med';
+            return 'risk-high';
+        }
+        return n >= 60 ? 'risk-high' : (n >= 30 ? 'risk-med' : 'risk-low');
+    }
+
+    var TREND_RU = { increasing: 'учащается', decreasing: 'затухает', stable: 'стабильно',
+                     insufficient_data: 'мало данных', unknown: '—' };
+
+    function renderDossier(d) {
+        var c = d.contact || {};
+        var name = c.display_name || c.guessed_name || c.phone_e164 || ('#' + c.contact_id);
+        $('#person-modal-title').textContent = name;
+        var idx = d.indices || {};
+        var html = '';
+
+        // Шапка: архетип, телефон, граф-связка
+        var head = [];
+        if (d.archetype && d.archetype.label) {
+            head.push('<span class="sr-tag entity">' + escapeHtml(d.archetype.label) +
+                (d.archetype.membership != null ? ' · ' + Math.round(d.archetype.membership * 100) + '%' : '') +
+                '</span>');
+        }
+        if (c.phone_e164) head.push('<span style="color:var(--text-muted);font-size:12px">' + escapeHtml(c.phone_e164) + '</span>');
+        if (d.entity) head.push('<span style="color:var(--text-muted);font-size:11px">граф: ' +
+            escapeHtml(d.entity.canonical_name || '') + ' (' + escapeHtml(d.entity.link_method || '') + ')</span>');
+        if (head.length) html += '<div class="detail-section">' + head.join(' &nbsp; ') + '</div>';
+
+        // Индексы
+        var bs = idx.bs_index != null ? idx.bs_index : idx.avg_bs_score;
+        var riskCls = idx.global_risk != null
+            ? (idx.global_risk >= 60 ? 'risk-high' : (idx.global_risk >= 30 ? 'risk-med' : 'risk-low')) : '';
+        html += '<div class="detail-section"><div class="db-stats">' +
+            dossierIdx('Риск', idx.global_risk != null ? idx.global_risk : '--', riskCls) +
+            dossierIdx('BS-index', bs != null ? Number(bs).toFixed(0) : '--', bsClass(bs, d.bs_thresholds)) +
+            (idx.avg_risk != null ? dossierIdx('Средний риск', Number(idx.avg_risk).toFixed(0), '') : '') +
+            (idx.trust_score != null ? dossierIdx('Доверие', Number(idx.trust_score).toFixed(0), '') : '') +
+            (idx.conflict_count != null ? dossierIdx('Конфликты', idx.conflict_count, '') : '') +
+            '</div></div>';
+
+        // Черты-фразы архетипа
+        if (d.archetype && d.archetype.traits && d.archetype.traits.length) {
+            html += dossierSec('Отличительное', d.archetype.traits.map(function(t) {
+                return '<span class="sr-tag call-type" style="margin:0 4px 4px 0;display:inline-block">' + escapeHtml(t) + '</span>';
+            }).join(''));
+        }
+
+        // Паттерны поведения
+        if (d.patterns && d.patterns.length) {
+            html += dossierSec('Паттерны поведения', d.patterns.map(function(p) {
+                var sevCls = p.severity === 'high' ? 'risk-high'
+                    : (p.severity === 'medium' ? 'risk-med'
+                    : (p.severity === 'positive' ? 'risk-low' : ''));
+                return '<div class="dossier-pattern">' +
+                    '<span class="risk ' + sevCls + '">' + escapeHtml(p.severity || '') + '</span> ' +
+                    '<strong>' + escapeHtml(p.name || '?') + '</strong>' +
+                    (p.label ? ' — ' + escapeHtml(p.label) : '') + '</div>';
+            }).join(''));
+        }
+
+        // Психотип
+        if ((d.temperament && d.temperament.type) || (d.motivation && d.motivation.primary)) {
+            var tm = '';
+            if (d.temperament && d.temperament.type) tm += '<dt>Темперамент</dt><dd>' + escapeHtml(String(d.temperament.type)) + '</dd>';
+            if (d.motivation && d.motivation.primary) tm += '<dt>Мотивация</dt><dd>' + escapeHtml(String(d.motivation.primary)) + '</dd>';
+            html += dossierSec('Психотип', '<dl class="detail-meta">' + tm + '</dl>');
+        }
+
+        // Ритм общения
+        if (d.temporal) {
+            var t = d.temporal;
+            var tHtml = '';
+            if (t.avg_calls_per_week != null) tHtml += '<dt>Звонков в неделю</dt><dd>' + Number(t.avg_calls_per_week).toFixed(1) + '</dd>';
+            if (t.frequency_trend) tHtml += '<dt>Тренд</dt><dd>' + (TREND_RU[t.frequency_trend] || t.frequency_trend) + '</dd>';
+            if (t.contact_span_days != null) tHtml += '<dt>Знакомы</dt><dd>' + t.contact_span_days + ' дн.</dd>';
+            if (c.last_call_date) tHtml += '<dt>Последний контакт</dt><dd>' + String(c.last_call_date).slice(0, 10) + '</dd>';
+            if (tHtml) html += dossierSec('Ритм общения', '<dl class="detail-meta">' + tHtml + '</dl>');
+        }
+
+        // Факты-цитаты
+        if (d.facts && d.facts.length) {
+            html += dossierSec('Факты (дословные цитаты)', d.facts.map(function(f) {
+                return '<div class="dossier-quote">«' + escapeHtml(f.quote || '') + '»' +
+                    '<div class="dossier-quote-meta">' + escapeHtml(f.type || '') +
+                    (f.date ? ' · ' + escapeHtml(f.date) : '') + '</div></div>';
+            }).join(''));
+        }
+
+        // Противоречия
+        if (d.contradictions && d.contradictions.length) {
+            html += dossierSec('Противоречия', d.contradictions.map(function(x) {
+                return '<div style="padding:4px 8px;margin-bottom:4px;background:rgba(255,0,0,.06);border-radius:4px;font-size:12px">' +
+                    '<em>«' + escapeHtml(x.quote_1 || '') + '»</em> vs <em>«' + escapeHtml(x.quote_2 || '') + '»</em>' +
+                    (x.severity ? ' (' + escapeHtml(String(x.severity)) + ')' : '') + '</div>';
+            }).join(''));
+        }
+
+        // Обещания
+        if (d.promises && d.promises.open && d.promises.open.length) {
+            html += dossierSec('Открытые обещания', '<ul class="detail-promises">' +
+                d.promises.open.map(function(p) {
+                    return '<li><span class="promise-who">' + escapeHtml(p.who || '?') + '</span> — ' +
+                        escapeHtml(p.what || '?') +
+                        (p.due ? '<span class="promise-due">до ' + escapeHtml(p.due) + '</span>' : '') + '</li>';
+                }).join('') + '</ul>');
+        }
+
+        // Личные факты (из карточки контакта)
+        if (d.personal_facts && d.personal_facts.length) {
+            html += dossierSec('Личное', '<ul class="detail-promises">' +
+                d.personal_facts.map(function(f) {
+                    var txt = typeof f === 'string' ? f : (f.fact || f.what || JSON.stringify(f));
+                    return '<li>' + escapeHtml(txt) + '</li>';
+                }).join('') + '</ul>');
+        }
+
+        // Связи
+        var conns = (d.network && d.network.top_connections) ||
+                    (d.social && d.social.top_connections) || [];
+        if (conns.length) {
+            html += dossierSec('Связи', conns.slice(0, 8).map(function(x) {
+                var nm = typeof x === 'string' ? x : (x.name || x.canonical_name || '?');
+                return '<span class="sr-tag entity" style="margin:0 4px 4px 0;display:inline-block">' + escapeHtml(nm) + '</span>';
+            }).join(''));
+        }
+
+        // Динамика по годам
+        if (d.evolution && d.evolution.length) {
+            html += dossierSec('Динамика риска по годам', '<dl class="detail-meta">' +
+                d.evolution.map(function(e) {
+                    var yr = e.year || e.period || '?';
+                    var rv = e.avg_risk != null ? Number(e.avg_risk).toFixed(0) : '--';
+                    return '<dt>' + escapeHtml(String(yr)) + '</dt><dd>' + rv + '</dd>';
+                }).join('') + '</dl>');
+        }
+
+        // Интерпретация (3 абзаца, persisted)
+        html += dossierSec('Интерпретация', d.interpretation
+            ? '<p style="font-size:13px;color:var(--text-secondary);line-height:1.6;white-space:pre-wrap">' + escapeHtml(d.interpretation) + '</p>'
+            : '<span class="detail-empty">Недоступна — запусти profile-all --user me (LLM-окно на боксе)</span>');
+
+        // Совет
+        if (d.advice) {
+            html += dossierSec('Совет', '<p style="font-size:13px;color:var(--text-secondary)">' + escapeHtml(d.advice) + '</p>');
+        }
+
+        // Последние звонки
+        var calls = d.recent_calls || [];
+        if (calls.length) {
+            var cHtml = '<div class="table-wrap"><table class="data-table"><thead><tr><th>ID</th><th>Дата</th><th>Риск</th><th>Суть</th></tr></thead><tbody>';
+            calls.slice(0, 10).forEach(function(x) {
+                var r = x.risk_score != null ? x.risk_score : '--';
+                var rc = Number(r) >= 60 ? 'risk-high' : (Number(r) >= 30 ? 'risk-med' : 'risk-low');
+                cHtml += '<tr class="call-row" data-call-id="' + x.call_id + '">' +
+                    '<td>' + x.call_id + '</td>' +
+                    '<td>' + (x.call_datetime ? new Date(x.call_datetime).toLocaleDateString() : '--') + '</td>' +
+                    '<td><span class="risk ' + rc + '">' + r + '</span></td>' +
+                    '<td>' + escapeHtml((x.summary || '').substring(0, 70)) + '</td></tr>';
+            });
+            cHtml += '</tbody></table></div>';
+            html += dossierSec('Последние звонки', cHtml);
+        }
+
+        // Кнопки-переходы
+        var btns = '<button class="btn btn-outline btn-sm" id="dossier-ecg-btn" data-cid="' + (c.contact_id || '') + '">ЭКГ отношений →</button>';
+        if (d.entity) {
+            btns += ' <button class="btn btn-outline btn-sm" id="dossier-entity-btn" data-eid="' + d.entity.entity_id + '">Граф-персона →</button>';
+        }
+        html += '<div class="detail-section">' + btns + '</div>';
+
+        var body = $('#person-modal-body');
+        body.innerHTML = html;
+
+        var ecgBtn = $('#dossier-ecg-btn');
+        if (ecgBtn) ecgBtn.addEventListener('click', function() {
+            var cid = this.dataset.cid;
+            closePersonDossier();
+            switchTab('insight');
+            setTimeout(function() {
+                var sel = $('#ecg-contact');
+                if (sel) { sel.value = cid; loadEcg(cid); }
+            }, 300);
+        });
+        var entBtn = $('#dossier-entity-btn');
+        if (entBtn) entBtn.addEventListener('click', function() {
+            closePersonDossier();
+            openEntityModal(this.dataset.eid);
+        });
+        body.querySelectorAll('.call-row[data-call-id]').forEach(function(row) {
+            row.addEventListener('click', function() {
+                closePersonDossier();
+                switchTab('calls');
+                setTimeout(function() { loadCallDetail(row.dataset.callId); }, 200);
+            });
+        });
     }
 
     function renderEntitiesTable(entities) {
@@ -819,7 +1114,8 @@
                 itemStyle: { color: clusterColor(idx), opacity: 0.78 },
                 data: byCluster[k].map(function(p) {
                     return { value: [p.x, p.y], name: p.name, _label: p.label,
-                             _conf: p.confidence, _calls: p.calls, _mem: p.membership };
+                             _conf: p.confidence, _calls: p.calls, _mem: p.membership,
+                             _cid: p.contact_id };
                 })
             };
         });
@@ -844,6 +1140,12 @@
             yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: '#16202e' } }, axisLabel: { color: '#64748b', fontSize: 10 } },
             series: series
         }, true);
+        // Клик по точке-контакту → досье (Ф3)
+        chart.off('click');
+        chart.on('click', function(params) {
+            var d = params.data || {};
+            if (d._cid) openPersonDossier(d._cid);
+        });
     }
 
     function renderNetwork(data) {
@@ -886,6 +1188,13 @@
                 data: gnodes, links: links
             }]
         }, true);
+        // Клик по узлу-контакту → досье (Ф3); id узла = 'c{contact_id}'
+        chart.off('click');
+        chart.on('click', function(params) {
+            if (params.dataType !== 'node') return;
+            var id = String((params.data || {}).id || '');
+            if (id.charAt(0) === 'c') openPersonDossier(id.slice(1));
+        });
     }
 
     function renderCircadian(data) {

@@ -603,6 +603,13 @@ body {
 .search-result .sr-contact { font-weight: 600; font-size: 13px; color: var(--text-primary); }
 .search-result .sr-date { font-size: 11px; color: var(--text-muted); margin-left: 12px; }
 .search-result .sr-snippet { font-size: 12px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5; }
+
+/* ── Person Dossier (Ф3 плана досье) ──────────────────────────────────────── */
+.person-modal { width: min(820px, 94vw); max-height: 88vh; display: flex; flex-direction: column; }
+.person-modal .modal-body { overflow-y: auto; }
+.dossier-quote { padding: 8px 12px; margin-bottom: 6px; background: rgba(255,255,255,.03); border-left: 2px solid var(--accent); border-radius: 4px; font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+.dossier-quote-meta { margin-top: 4px; font-size: 11px; color: var(--text-muted); }
+.dossier-pattern { padding: 4px 8px; margin-bottom: 4px; background: rgba(255,255,255,.03); border-radius: 4px; font-size: 12px; color: var(--text-secondary); }
 .search-result .sr-snippet mark { background: rgba(0,212,200,.2); color: var(--accent); padding: 1px 3px; border-radius: 2px; }
 .search-result .sr-tags { margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
 .sr-tag { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; }

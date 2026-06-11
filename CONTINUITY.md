@@ -10,44 +10,45 @@
 
 **Workflow (durable):**
 - Claude **коммитит и пушит в `main` БЕЗ пер-действенного согласования** (2026-06-04).
-- **Каждый значимый шаг сперва в файлы памяти** (CONTINUITY/CHANGELOG/.claude/rules/*), **потом** `commit`+`push origin main`.
-- **Отвечать кратко, по делу, без воды** (2026-06-05). Карты `.claude/rules/*` вместо перечитывания кода.
-- **Model Routing v2 (2026-06-10):** тир = blast radius; T0/T1 без субагентов; объявлять тир в начале.
+- **Каждый значимый шаг сперва в файлы памяти**, **потом** `commit`+`push origin main`.
+- **Кратко, по делу, без воды** (2026-06-05). Карты `.claude/rules/*` вместо перечитывания кода.
+- **Model Routing v2 (2026-06-10):** тир = blast radius; T0/T1 без субагентов; объявлять тир.
 
 **Constraints/Assumptions:**
-- 100% local. Windows. LLM = llama-server @127.0.0.1:8080. SQLite, no ORM, каждый запрос фильтрует `user_id`.
-- **Код пишем на ЭТОЙ машине (без GPU/моделей/данных), запускаем на ДРУГОЙ (бокс).** БД здесь пустая.
+- 100% local. Windows. LLM = llama-server @127.0.0.1:8080. SQLite, no ORM, каждый запрос `user_id`.
+- **Код пишем ЗДЕСЬ (без GPU/моделей/данных), запускаем на боксе.** БД здесь пустая.
 - `data_dir = C:\calls\data`. Лог: `C:\calls\callprofiler.log`.
-- **GPU sequential (Hard Constraint):** ASR+pyannote и LLM НИКОГДА одновременно в VRAM (12GB RTX 3060).
+- **GPU sequential (Hard Constraint):** ASR+pyannote и LLM НИКОГДА одновременно (12GB RTX 3060).
 
 **State (2026-06-11):**
 
-📋 **План «Личности» (персональные досье в дашборде) — НАПИСАН, ждёт отмашки на реализацию.**
-`docs/superpowers/plans/2026-06-11-dashboard-person-dossier.md`. 5 фаз: Ф0 autofit insight в watcher
-(лечит «Нет модели архетипов») → Ф1 `entity_contact_map` (сшивка contact↔entity, derived/rebuild) →
-Ф2 `get_person_dossier` + `/api/person` (реюз PsychologyProfiler `include_llm=False`; live-LLM в
-дашборде запрещён) → Ф3 вкладка «Личности» (клик имени/PCA-точки/узла сети → досье) → Ф4
-`profile-all --persist` (интерпретации, LLM-окно). Тиры: Ф0-Ф2,Ф4=T2; Ф3=T1.
-Новая карта: `.claude/rules/dashboard.md`. WHY: `decisions.md` 2026-06-11. **Код НЕ менялся.**
-
-🔎 Ключевые факты разбора: graph/BS наполняются в прогоне АВТОМАТИЧЕСКИ (`enable_graph_update=True`
-дефолт; orchestrator:833, enricher:504); insight и психология — только ручные CLI → пустые вкладки =
-операционный разрыв. `/api/characters`+модалка уже есть; дыры: `temporal`/`network`=None, архетип не
-присоединён, contact↔entity по равенству имени, профайлер не персистит и к дашборду не подключён.
-
-🧠 Insight Ф0-7 в main (634 passed, 2 skipped). 🟢 Пайплайн готов к прогону (см. @086c3b2).
+✅ **Досье «Личности» РЕАЛИЗОВАНО (Ф0-Ф4 плана), в main, 658 passed/2 skipped.**
+План: `docs/superpowers/plans/2026-06-11-dashboard-person-dossier.md`; карта: `.claude/rules/dashboard.md`.
+- Ф0 autofit в watcher (insight_autofit*, baseline, non-fatal) — вкладка наполняется сама.
+- Ф1 `entity_contact_map` (name 0.95 / cooccur ≥0.6∧≥3 PERSON, owner-excl), rebuild в
+  archetypes-fit + graph-replay Step 9; CLI `person-link [--dry-run]`. Security-review clean.
+- Ф2 `get_person_dossier`/`get_people` + `/api/person/{id}`,`/api/people`; реюз
+  `PsychologyProfiler(include_llm=False)`. **Багфикс:** модалка дёргала LLM (120s/клик) и писала
+  на query_only → include_llm=False (bugs.md 2026-06-11).
+- Ф3 вкладка «Личности» (поиск; риск/BS/архетип) + модал-досье (индексы→черты→паттерны→психотип→
+  ритм→цитаты→противоречия→обещания→связи→динамика→интерпретация→совет→звонки) + клик из
+  PCA-точки/узла сети → досье. node --check OK.
+- Ф4 = ноль кода: `profile-all` УЖЕ персистит интерпретации в entity_profiles (досье читает).
+- **⚠ push origin main НЕ ПРОШЁЛ — на дев-ПК нет сети (Could not resolve host github.com).
+  4 коммита локально: 0ffb3dd (Ф0), ccd3f04 (Ф1), 803c02c (Ф2), + финальный Ф3. Запушить при сети!**
 
 **Next:**
-1. **Реализация плана досье** по фазам (Ф0 → Ф4), каждая фаза = TDD + commit+push (см. план).
-2. **ПРОГОН НА БОКСЕ** (не сделан): pull → reset.bat --apply → llama-server+роли → startprocess.
-   После Ф0 архетипы строятся сами; до того — вручную `features-build`+`archetypes-fit --user me`.
-3. После Ф4 на боксе: `profile-all --user me --persist` (llama-server жив, ASR не идёт).
-- ОТЛОЖЕНО: Ф4-dominance (insight), LLM-имена кластеров, Stage-2 биография, resilience-порт.
+1. **`git push origin main` когда появится сеть** (или с бокса `git pull` не сработает!).
+2. **ПРОГОН НА БОКСЕ:** pull → reset.bat --apply → llama-server+роли → startprocess. После прогона
+   архетипы/связки построятся сами (autofit). Вкладка «Личности»: список+досье, клики из PCA/сети.
+3. Интерпретации: `python -m callprofiler profile-all --user me` (llama-server жив, ASR не идёт).
+4. Визуальная проверка UI досье — на боксе (здесь нет данных).
+- ОТЛОЖЕНО: Ф4-dominance insight; LLM-имена кластеров; Stage-2 биография; resilience-порт.
 
 **Open questions (UNCONFIRMED):**
-- Реальный VRAM-footprint Qwen 9B Q8_0 на боксе.
-- Калибровка `bs_thresholds` на реальных данных (досье показывает BS 🟢🟡🔴 только при наличии).
+- VRAM-footprint Qwen 9B Q8_0 на боксе. Калибровка `bs_thresholds` (досье красит BS если есть).
+- Форма строки `bs_thresholds` (green_max/yellow_max?) — UI деградирует к статичным 30/60.
 
-**Working set (files/commands):**
-- План: `docs/superpowers/plans/2026-06-11-dashboard-person-dossier.md`; карта: `.claude/rules/dashboard.md`.
-- Tests (бокс): `$env:PYTHONPATH="C:\pro\callprofiler\src"; python -m pytest tests/ -q`
+**Working set:**
+- `docs/superpowers/plans/2026-06-11-dashboard-person-dossier.md` · `.claude/rules/dashboard.md`
+- Tests: `$env:PYTHONPATH="C:\pro\callprofiler\src"; python -m pytest tests/ -q`

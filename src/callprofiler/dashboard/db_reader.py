@@ -532,7 +532,8 @@ class DashboardDBReader:
         ]
         if has_arch:
             select += ["ca.archetype_label AS archetype_label",
-                       "ca.membership AS membership"]
+                       "ca.membership AS membership",
+                       "ca.cluster_idx AS cluster_idx"]
             joins += ["LEFT JOIN contact_archetypes ca "
                       "ON ca.contact_id = ct.contact_id AND ca.user_id = ct.user_id"]
         if has_map:

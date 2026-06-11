@@ -8,6 +8,20 @@
 
 ## [Unreleased]
 
+### Added — «Личности»: досье реализовано, Ф0-Ф4 плана (2026-06-11)
+- **Ф0:** debounced autofit (`features-build`+`archetypes-fit`) в watch-цикле — архетипы строятся сами
+  (флаги `insight_autofit*` в конфиге; baseline на старте; non-fatal). Лечит пустую вкладку.
+- **Ф1:** `entity_contact_map` — сшивка graph-entity↔contact (name-match 0.95 + cooccur PERSON-only
+  share≥0.6∧n≥3, owner исключён); rebuild в archetypes-fit и graph-replay; CLI `person-link [--dry-run]`.
+- **Ф2:** `get_person_dossier`/`get_people` + `/api/person/{id}`,`/api/people` — агрегатор слоёв,
+  guarded по таблицам/колонкам; `PsychologyProfiler(include_llm=False)`.
+  **Fix:** модалка персонажа дёргала LLM (120s) и писала на query_only — оба вызова на include_llm=False
+  (`bugs.md` 2026-06-11).
+- **Ф3:** вкладка «Личности» (поиск, риск/BS/архетип), модал-досье (цитаты, паттерны, тренды,
+  интерпретация), клик из PCA-точки и узла эго-сети → досье (закрыт «Ф7 интерактив»).
+- **Ф4:** код не нужен — `profile-all` уже персистит интерпретации в `entity_profiles` (читается досье).
+- Тесты: 658 passed (24 новых). Визуальная проверка UI — на боксе.
+
 ### Added — План «Личности»: персональные досье в дашборде + карта dashboard.md (2026-06-11)
 - Доктрина дашборда (юзер): 2 функции — ход обработки + полный психопортрет личности. План 5 фаз:
   autofit insight в watcher → `entity_contact_map` (contact↔entity) → `get_person_dossier`/`/api/person`
