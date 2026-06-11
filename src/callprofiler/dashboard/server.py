@@ -374,6 +374,22 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
                 return JSONResponse(profile)
         return JSONResponse({"contact_id": contact_id, "not_found": True})
 
+    @fa.get("/api/people")
+    async def _people(limit: int = Query(500, ge=1, le=2000)) -> JSONResponse:
+        dbr = _get_reader()
+        if dbr is not None and hasattr(dbr, "get_people"):
+            return JSONResponse({"people": dbr.get_people(_USER_ID, limit=limit)})
+        return JSONResponse({"people": []})
+
+    @fa.get("/api/person/{contact_id}")
+    async def _person(contact_id: int) -> JSONResponse:
+        dbr = _get_reader()
+        if dbr is not None and hasattr(dbr, "get_person_dossier"):
+            dossier = dbr.get_person_dossier(contact_id, _USER_ID)
+            if dossier is not None:
+                return JSONResponse(dossier)
+        return JSONResponse({"contact_id": contact_id, "not_found": True})
+
     @fa.get("/api/analytics")
     async def _analytics() -> JSONResponse:
         dbr = _get_reader()

@@ -17,6 +17,13 @@
   `rebuild-cards`) + export (`calls.csv`, `book.md`).
 - Личности: `/api/characters` (список entities+metrics+psychology), `/api/character/{entity_id}`
   (модалка, app.js:541), `/api/contact/{contact_id}`, `/api/analytics`.
+- Досье (Ф2): `/api/people` (список контактов + архетип + BS через map) и
+  `/api/person/{contact_id}` → `get_person_dossier` — агрегатор: contact_summaries (risk) +
+  contact_archetypes (label/traits-фразы) + entity-слой через `entity_contact_map` (top-confidence) +
+  `PsychologyProfiler(include_llm=False)` (паттерны/temporal/social/network/evolution/top_facts) +
+  сохранённая интерпретация из `entity_profiles` + bio_contradictions + bs_thresholds. Все секции
+  guarded `_has_table`/`_has_column` (слоёв может не быть; `trust_score` в entity_metrics добавляет
+  ТОЛЬКО biography-схема). LLM из дашборда НЕ вызывается никогда (bugs.md 2026-06-11).
 - Insight: `/api/insight/{pca,network,circadian,ecg,contacts}`.
 
 ## Ключевые ридеры (db_reader.py)

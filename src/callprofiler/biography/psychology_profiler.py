@@ -57,8 +57,13 @@ class PsychologyProfiler:
 
     # ── Public ────────────────────────────────────────────────────────────
 
-    def build_profile(self, entity_id: int, user_id: str) -> dict:
+    def build_profile(self, entity_id: int, user_id: str, include_llm: bool = True) -> dict:
         """Build and return a psychology profile dict for entity_id.
+
+        include_llm=False — только структурные части: LLM не вызывается и кэш
+        НЕ пишется (безопасно на query_only-коннекте дашборда; иначе клик в UI
+        ждал бы до 120s на живом llama-server). interpretation=None, если нет
+        валидного сохранённого кэша.
 
         Returns:
             dict with keys: entity_id, canonical_name, entity_type, metrics,
@@ -104,18 +109,20 @@ class PsychologyProfiler:
             cached["_cache_hit"] = True
             return cached
 
-        interpretation = self._interpret(
-            entity,
-            metrics,
-            patterns_data,
-            temporal,
-            top_facts,
-            social=social,
-            evolution=evolution,
-            temperament=temperament,
-            big_five=big_five,
-            motivation=motivation,
-        )
+        interpretation = None
+        if include_llm:
+            interpretation = self._interpret(
+                entity,
+                metrics,
+                patterns_data,
+                temporal,
+                top_facts,
+                social=social,
+                evolution=evolution,
+                temperament=temperament,
+                big_five=big_five,
+                motivation=motivation,
+            )
 
         profile = {
             "entity_id": entity_id,
@@ -134,7 +141,10 @@ class PsychologyProfiler:
             "network": network,
             "interpretation": interpretation,
         }
-        self._save_profile(entity_id, user_id, profile, signature)
+        if include_llm:
+            # Без LLM не перезаписываем сохранённый профиль и не пишем
+            # на read-only коннекте дашборда.
+            self._save_profile(entity_id, user_id, profile, signature)
         return profile
 
     # ── Private aggregation ───────────────────────────────────────────────

@@ -89,6 +89,18 @@ None currently identified.
 
 ## Recent Fixes (Closed)
 
+✅ **Модалка персонажа дёргала LLM с дашборда — до 120s на клик при живом llama-server** (2026-06-11)
+- **Root cause (non-obvious):** `db_reader.get_entity_profile` звал `PsychologyProfiler.build_profile(entity_id, user_id)`
+  — это ПОЛНЫЙ путь: LLM-интерпретация (timeout 120s) + `_save_profile` (запись на query_only-коннекте →
+  OperationalError, глотался broad-except'ом). Никто не замечал, потому что llama-server при разработке
+  дашборда был МЁРТВ → connection refused мгновенно → казалось «просто нет интерпретации». На боксе с
+  живым сервером каждый клик по персонажу повис бы на минуты. Дашборд по доктрине НИКОГДА не зовёт LLM.
+- **Fix:** параметр `build_profile(..., include_llm=False)` (LLM и `_save_profile` пропускаются) +
+  оба вызова из db_reader (`get_entity_profile`, `get_person_dossier`) переведены на него.
+  Regress: `test_dashboard_dossier.py::test_profiler_include_llm_false_no_llm_no_write` +
+  `::test_dossier_readonly_conn_not_written`. Найден code-reviewer'ом на Ф2 досье-плана.
+- **Status:** RESOLVED (2026-06-11).
+
 ✅ **WAV копились: `load_config` не читал 2 поля из YAML** (2026-06-06)
 - **Root cause (non-obvious):** `delete_normalized_after_transcribe` и `batch_chunk_size` объявлены
   в датаклассе `PipelineConfig` И в `base.yaml`, но конструктор `PipelineConfig(...)` в `load_config`

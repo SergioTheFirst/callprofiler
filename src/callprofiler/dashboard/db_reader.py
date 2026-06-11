@@ -148,11 +148,13 @@ class DashboardDBReader:
                 "emotional_pattern": metrics_row["emotional_pattern"],
             })
 
-        # Psychology profile (from graph)
+        # Psychology profile (from graph). include_llm=False обязателен:
+        # дашборд read-only (query_only) и не должен ждать llama-server до 120s
+        # на клик — иначе модалка зависает при живом сервере.
         try:
             from callprofiler.biography.psychology_profiler import PsychologyProfiler
             profiler = PsychologyProfiler(self._conn)
-            psych = profiler.build_profile(entity_id, user_id)
+            psych = profiler.build_profile(entity_id, user_id, include_llm=False)
             if psych:
                 profile["temperament"] = psych.get("temperament")
                 profile["big_five"] = psych.get("big_five")
@@ -489,6 +491,221 @@ class DashboardDBReader:
             profile["linked_entities"] = []
 
         return profile
+
+    # ── Person dossier (Ф2 плана досье) ─────────────────────────────────
+
+    def _has_table(self, name: str) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+        ).fetchone()
+        return row is not None
+
+    def _has_column(self, table: str, column: str) -> bool:
+        # trust_score и пр. добавляет biography-схема — на graph-only БД их нет
+        if not self._has_table(table):
+            return False
+        cols = {r[1] for r in self._conn.execute(
+            f"PRAGMA table_info({table})").fetchall()}  # table — литерал кода
+        return column in cols
+
+    def get_people(self, user_id: str, limit: int = 500) -> list[dict[str, Any]]:
+        """Список личностей-контактов для вкладки «Личности».
+
+        База — contacts/contact_summaries (schema.sql, всегда есть). Архетип и
+        BS-index присоединяются ТОЛЬКО если их таблицы существуют (insight/graph
+        слои опциональны) — guarded, не 500. На контакта берётся одна map-связка
+        с максимальной confidence.
+        """
+        self.connect()
+        has_arch = self._has_table("contact_archetypes")
+        has_map = (self._has_table("entity_contact_map")
+                   and self._has_table("entity_metrics"))
+
+        select = [
+            "ct.contact_id", "ct.display_name", "ct.guessed_name", "ct.phone_e164",
+            "cs.total_calls AS total_calls", "cs.last_call_date AS last_call_date",
+            "cs.global_risk AS global_risk", "cs.avg_bs_score AS avg_bs_score",
+        ]
+        joins = [
+            "LEFT JOIN contact_summaries cs "
+            "ON cs.contact_id = ct.contact_id AND cs.user_id = ct.user_id",
+        ]
+        if has_arch:
+            select += ["ca.archetype_label AS archetype_label",
+                       "ca.membership AS membership"]
+            joins += ["LEFT JOIN contact_archetypes ca "
+                      "ON ca.contact_id = ct.contact_id AND ca.user_id = ct.user_id"]
+        if has_map:
+            trust_sel = ("em.trust_score AS trust_score"
+                         if self._has_column("entity_metrics", "trust_score")
+                         else "NULL AS trust_score")
+            select += ["m.entity_id AS entity_id", "em.bs_index AS bs_index",
+                       trust_sel]
+            joins += [
+                "LEFT JOIN (SELECT user_id, contact_id, entity_id, ROW_NUMBER() OVER ("
+                "PARTITION BY user_id, contact_id ORDER BY confidence DESC, entity_id"
+                ") AS rn FROM entity_contact_map) m ON m.user_id = ct.user_id "
+                "AND m.contact_id = ct.contact_id AND m.rn = 1",
+                "LEFT JOIN entity_metrics em "
+                "ON em.entity_id = m.entity_id AND em.user_id = ct.user_id",
+            ]
+        sql = ("SELECT " + ", ".join(select) + " FROM contacts ct " + " ".join(joins)
+               + " WHERE ct.user_id = ?"
+               + " ORDER BY COALESCE(cs.total_calls, 0) DESC, ct.contact_id LIMIT ?")
+        rows = self._conn.execute(sql, (user_id, limit)).fetchall()
+
+        people = []
+        for r in rows:
+            d = dict(r)
+            d["name"] = (d.get("display_name") or d.get("guessed_name")
+                         or d.get("phone_e164") or f"#{d['contact_id']}")
+            for key in ("archetype_label", "membership", "entity_id",
+                        "bs_index", "trust_score"):
+                d.setdefault(key, None)
+            people.append(d)
+        return people
+
+    def get_person_dossier(self, contact_id: int, user_id: str) -> dict[str, Any] | None:
+        """Полное досье личности: контакт + сводка + архетип + entity-слой
+        (через entity_contact_map) + структурный психопрофиль БЕЗ LLM.
+
+        Дашборд никогда не зовёт модель: интерпретация — только сохранённая
+        (profile-all → entity_profiles). Каждая секция guarded: слоя нет →
+        None/[] вместо 500.
+        """
+        base = self.get_contact_profile(contact_id, user_id)
+        if base is None:
+            return None
+
+        dossier: dict[str, Any] = {
+            "contact": {k: base.get(k) for k in (
+                "contact_id", "display_name", "guessed_name", "phone_e164",
+                "guessed_company", "name_confirmed", "total_calls",
+                "last_call_date")},
+            "indices": {
+                "global_risk": base.get("global_risk"),
+                "avg_bs_score": base.get("avg_bs_score"),
+                "bs_index": None, "trust_score": None, "avg_risk": None,
+                "volatility": None, "conflict_count": None,
+            },
+            "archetype": None,
+            "entity": None,
+            "patterns": [],
+            "temporal": None,
+            "social": None,
+            "network": None,
+            "temperament": None,
+            "motivation": None,
+            "facts": [],
+            "contradictions": [],
+            "promises": {"open": base.get("open_promises") or []},
+            "personal_facts": base.get("personal_facts") or [],
+            "evolution": [],
+            "interpretation": None,
+            "advice": base.get("advice"),
+            "recent_calls": base.get("recent_calls") or [],
+            "bs_thresholds": None,
+        }
+
+        if self._has_table("contact_archetypes"):
+            row = self._conn.execute(
+                """SELECT archetype_label, membership, confidence, distinctive_dims
+                     FROM contact_archetypes
+                    WHERE contact_id = ? AND user_id = ?""",
+                (contact_id, user_id),
+            ).fetchone()
+            if row:
+                try:
+                    dims = json.loads(row["distinctive_dims"] or "[]")
+                except (json.JSONDecodeError, TypeError):
+                    dims = []
+                dossier["archetype"] = {
+                    "label": row["archetype_label"],
+                    "membership": row["membership"],
+                    "confidence": row["confidence"],
+                    "traits": [d.get("phrase") for d in dims if d.get("phrase")],
+                }
+
+        entity_id = None
+        if self._has_table("entity_contact_map"):
+            row = self._conn.execute(
+                """SELECT m.entity_id, m.method, m.confidence,
+                          e.canonical_name, e.aliases
+                     FROM entity_contact_map m
+                     JOIN entities e ON e.id = m.entity_id AND e.user_id = m.user_id
+                    WHERE m.user_id = ? AND m.contact_id = ?
+                    ORDER BY m.confidence DESC, m.entity_id LIMIT 1""",
+                (user_id, contact_id),
+            ).fetchone()
+            if row:
+                entity_id = row["entity_id"]
+                try:
+                    aliases = json.loads(row["aliases"] or "[]")
+                except (json.JSONDecodeError, TypeError):
+                    aliases = []
+                dossier["entity"] = {
+                    "entity_id": entity_id,
+                    "canonical_name": row["canonical_name"],
+                    "aliases": aliases,
+                    "link_method": row["method"],
+                    "link_confidence": row["confidence"],
+                }
+
+        if entity_id is not None:
+            try:
+                from callprofiler.biography.psychology_profiler import PsychologyProfiler
+                prof = PsychologyProfiler(self._conn).build_profile(
+                    entity_id, user_id, include_llm=False)
+            except Exception as exc:  # noqa: BLE001 — психослой опционален
+                log.debug("dossier: психопрофиль недоступен (entity=%s): %s",
+                          entity_id, exc)
+                prof = {}
+            if prof:
+                metrics = prof.get("metrics") or {}
+                for key in ("bs_index", "avg_risk", "trust_score",
+                            "volatility", "conflict_count"):
+                    if metrics.get(key) is not None:
+                        dossier["indices"][key] = metrics.get(key)
+                dossier["patterns"] = prof.get("patterns") or []
+                dossier["temporal"] = prof.get("temporal")
+                dossier["social"] = prof.get("social")
+                dossier["network"] = prof.get("network")
+                dossier["temperament"] = prof.get("temperament")
+                dossier["motivation"] = prof.get("motivation")
+                dossier["evolution"] = prof.get("evolution") or []
+                dossier["facts"] = prof.get("top_facts") or []
+                if isinstance(prof.get("interpretation"), str):
+                    dossier["interpretation"] = prof["interpretation"]
+
+            if dossier["interpretation"] is None and self._has_table("entity_profiles"):
+                row = self._conn.execute(
+                    """SELECT interpretation FROM entity_profiles
+                        WHERE entity_id = ? AND user_id = ?
+                          AND profile_type = 'psychology'""",
+                    (entity_id, user_id),
+                ).fetchone()
+                if row and row["interpretation"]:
+                    dossier["interpretation"] = row["interpretation"]
+
+            if self._has_table("bio_contradictions"):
+                rows = self._conn.execute(
+                    """SELECT quote_1, quote_2, severity, contradiction_type, delta_days
+                         FROM bio_contradictions
+                        WHERE entity_id = ? AND user_id = ?
+                        ORDER BY severity DESC LIMIT 5""",
+                    (entity_id, user_id),
+                ).fetchall()
+                dossier["contradictions"] = [dict(r) for r in rows]
+
+        if self._has_table("bs_thresholds"):
+            row = self._conn.execute(
+                "SELECT * FROM bs_thresholds WHERE user_id = ? LIMIT 1",
+                (user_id,),
+            ).fetchone()
+            if row:
+                dossier["bs_thresholds"] = dict(row)
+
+        return dossier
 
 
     def get_analytics(self, user_id: str) -> dict[str, Any]:
