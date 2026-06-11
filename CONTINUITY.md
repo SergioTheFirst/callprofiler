@@ -41,6 +41,8 @@
    архетипы/связки построятся сами (autofit). Вкладка «Личности»: список+досье, клики из PCA/сети.
 2. Интерпретации: `python -m callprofiler profile-all --user me` (llama-server жив, ASR не идёт).
 3. Визуальная проверка UI досье — на боксе (здесь нет данных).
+- ЖДЁТ ОТМАШКИ: план «Возраст контакта» (`docs/superpowers/plans/2026-06-11-age-estimation.md`,
+  4 фазы: маркеры → якоря → LLM-пасс → UI; перед боксом задать `owner_birth_year`).
 - ОТЛОЖЕНО: Ф4-dominance insight; LLM-имена кластеров; Stage-2 биография; resilience-порт.
 
 **Open questions (UNCONFIRMED):**

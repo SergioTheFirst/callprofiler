@@ -8,6 +8,12 @@
 
 ## [Unreleased]
 
+### Added — План «Возраст контакта» (оценка + уверенность 1-100 в досье) (2026-06-11)
+- 3 ступени: regex-маркеры (индексация к дате звонка) → реляционные якоря (роли графа +
+  owner_birth_year) → LLM-пасс (verbatim-гейт evidence, memoization age-v1, только LLM-окно).
+  Таблица `contact_age_estimates`; вывод в досье и списке людей. Файл:
+  `docs/superpowers/plans/2026-06-11-age-estimation.md`. WHY → decisions.md. Код НЕ менялся.
+
 ### Added — «Личности»: досье реализовано, Ф0-Ф4 плана (2026-06-11)
 - **Ф0:** debounced autofit (`features-build`+`archetypes-fit`) в watch-цикле — архетипы строятся сами
   (флаги `insight_autofit*` в конфиге; baseline на старте; non-fatal). Лечит пустую вкладку.
