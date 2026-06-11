@@ -57,6 +57,30 @@ CREATE TABLE IF NOT EXISTS entity_contact_map (
     PRIMARY KEY (user_id, entity_id, contact_id)
 );
 CREATE INDEX IF NOT EXISTS idx_ecmap_contact ON entity_contact_map(user_id, contact_id);
+
+-- Оценка возраста контакта (план 2026-06-11-age-estimation). Возраст храним
+-- двояко: age_* (срез на computed_at) и birth_year_* (инвариант) — дашборд
+-- выводит «возраст сейчас» из birth_year_point без пересчёта при ежедневном
+-- притоке звонков. llm_prompt_hash/llm_result — memoization LLM-пасса
+-- (паттерн сигнатуры психопрофайлера): det-пересчёты не платят токенами.
+CREATE TABLE IF NOT EXISTS contact_age_estimates (
+    contact_id       INTEGER PRIMARY KEY,
+    user_id          TEXT    NOT NULL,
+    age_low          INTEGER,
+    age_high         INTEGER,
+    age_point        INTEGER,
+    birth_year_low   INTEGER,
+    birth_year_high  INTEGER,
+    birth_year_point INTEGER,
+    confidence       INTEGER NOT NULL CHECK (confidence BETWEEN 1 AND 100),
+    method           TEXT    NOT NULL,      -- 'marker'|'relation'|'llm'|'combined'
+    evidence         TEXT,                  -- JSON [{quote, signal, weight, dt}]
+    prompt_version   TEXT,                  -- версия age-промпта (llm-метод)
+    llm_prompt_hash  TEXT,                  -- sha1(prompt+версия) — кэш LLM
+    llm_result       TEXT,                  -- валидированный LLM-ответ (кэш/аудит)
+    computed_at      TEXT    DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_cage_user ON contact_age_estimates(user_id);
 """
 
 # Колонки, добавленные после первого релиза схемы. ALTER, не recreate (db.md).
@@ -110,6 +134,33 @@ def save_contact_archetype(conn, user_id, *, contact_id, model_id, cluster_idx,
          json.dumps(distinctive_dims), confidence, json.dumps(evidence), pca_x, pca_y),
     )
     conn.commit()
+
+
+def save_contact_age_estimate(conn, user_id, *, contact_id, age_low, age_high,
+                              age_point, birth_year_low, birth_year_high,
+                              birth_year_point, confidence, method, evidence,
+                              prompt_version=None, llm_prompt_hash=None,
+                              llm_result=None):
+    conn.execute(
+        "INSERT INTO contact_age_estimates(contact_id, user_id, age_low, age_high, "
+        "age_point, birth_year_low, birth_year_high, birth_year_point, confidence, "
+        "method, evidence, prompt_version, llm_prompt_hash, llm_result) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(contact_id) DO UPDATE SET "
+        "age_low=excluded.age_low, age_high=excluded.age_high, "
+        "age_point=excluded.age_point, birth_year_low=excluded.birth_year_low, "
+        "birth_year_high=excluded.birth_year_high, "
+        "birth_year_point=excluded.birth_year_point, "
+        "confidence=excluded.confidence, method=excluded.method, "
+        "evidence=excluded.evidence, prompt_version=excluded.prompt_version, "
+        "llm_prompt_hash=excluded.llm_prompt_hash, llm_result=excluded.llm_result, "
+        "computed_at=CURRENT_TIMESTAMP "
+        "WHERE contact_age_estimates.user_id = excluded.user_id",  # user-scoped guard
+        (contact_id, user_id, age_low, age_high, age_point, birth_year_low,
+         birth_year_high, birth_year_point, confidence, method,
+         json.dumps(evidence, ensure_ascii=False), prompt_version,
+         llm_prompt_hash, llm_result),
+    )
 
 
 def load_contact_archetypes(conn, user_id):

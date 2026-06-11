@@ -74,6 +74,22 @@ def test_autofit_respects_interval():
     assert m.call_count == 1
 
 
+def test_run_insight_fit_includes_age_estimate():
+    """Возраст (det-часть) пересчитывается в autofit инкрементально (stale_only)."""
+    repo = _Repo(users=[{"user_id": "me"}], conn=object())
+    w = _watcher(repo=repo)
+    with mock.patch("callprofiler.insight.cli_ops.run_features_build", return_value=0), \
+         mock.patch("callprofiler.insight.cli_ops.run_archetypes_fit",
+                    return_value={"k": 0, "n_assigned": 0}), \
+         mock.patch("callprofiler.insight.cli_ops.run_age_estimate",
+                    return_value={"estimated": 1, "skipped_fresh": 2}) as ma:
+        w._run_insight_fit()
+    assert ma.call_count == 1
+    kw = ma.call_args.kwargs
+    assert kw["use_llm"] is False        # LLM в watcher запрещён (GPU занят ASR)
+    assert kw["stale_only"] is True      # инкрементальный пересчёт
+
+
 def test_terminal_counter_baseline_then_delta():
     conn = sqlite3.connect(":memory:")
     conn.execute("CREATE TABLE calls (user_id TEXT, status TEXT)")

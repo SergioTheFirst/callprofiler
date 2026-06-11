@@ -42,6 +42,36 @@ def cmd_person_link(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_age_estimate(args: argparse.Namespace) -> int:
+    setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = load_config_and_repo(args.config)
+    conn = repo._get_conn()
+    from callprofiler.insight.age_estimate import run_age_estimate
+    res = run_age_estimate(
+        conn, args.user_id,
+        use_llm=getattr(args, "llm", False),
+        contact_id=getattr(args, "contact_id", None),
+        owner_birth_year=getattr(cfg, "owner_birth_year", 0) or 0,
+        llm_url=cfg.models.llm_url,
+        prompts_dir=cfg.prompts_dir,
+    )
+    print(f"age-estimate: контактов={res['contacts']} оценок={res['estimated']} "
+          f"llm: вызовов={res['llm_called']} кэш={res['llm_cached']} "
+          f"(user={args.user_id})")
+    cid = getattr(args, "contact_id", None)
+    if cid is not None:
+        row = conn.execute(
+            "SELECT age_low, age_high, age_point, confidence, method "
+            "FROM contact_age_estimates WHERE contact_id = ? AND user_id = ?",
+            (cid, args.user_id)).fetchone()
+        if row is None or row[2] is None:
+            print(f"Контакт {cid}: возраст не определён (нет сигналов)")
+        else:
+            print(f"Контакт {cid}: ~{row[2]} лет ({row[0]}–{row[1]}) · "
+                  f"уверенность {row[3]}/100 · метод {row[4]}")
+    return 0
+
+
 def cmd_person_archetype(args: argparse.Namespace) -> int:
     setup_logging(verbose=getattr(args, "verbose", False))
     cfg, repo = load_config_and_repo(args.config)

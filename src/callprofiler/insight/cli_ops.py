@@ -60,6 +60,12 @@ def run_features_build(conn, user_id, reference_now=None):
     return n
 
 
+def run_age_estimate(conn, user_id, **kwargs):
+    """Делегат к age_estimate.run_age_estimate (единый вход CLI/watcher/тестов)."""
+    from .age_estimate import run_age_estimate as _run
+    return _run(conn, user_id, **kwargs)
+
+
 def run_archetypes_fit(conn, user_id, version="arch-v1", reference_now=None):
     """Собрать вектор → z-score → кластеризовать → сохранить модель+назначения."""
     repo.apply_insight_schema(conn)

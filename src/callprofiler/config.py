@@ -93,6 +93,9 @@ class Config:
     data_dir: str = ""
     log_file: str = ""
     hf_token: str = ""
+    # Год рождения владельца: 0 = неизвестен → реляционные возрастные якоря
+    # («мам», «одноклассник» → возраст относительно владельца) выключены.
+    owner_birth_year: int = 0
     # prompts резолвятся от КОРНЯ ПРОЕКТА (а не от data_dir) — иначе ломается,
     # когда data_dir вне дерева проекта (напр. C:\calls\data). Override через YAML.
     prompts_dir: str = field(
@@ -124,6 +127,8 @@ def load_config(path: str) -> Config:
     # prompts_dir: YAML override, иначе дефолт (корень проекта/configs/prompts)
     if raw.get("prompts_dir"):
         cfg.prompts_dir = raw["prompts_dir"]
+
+    cfg.owner_birth_year = int(raw.get("owner_birth_year", 0) or 0)
 
     if "models" in raw:
         m = raw["models"]

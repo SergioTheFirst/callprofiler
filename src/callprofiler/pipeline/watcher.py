@@ -311,9 +311,18 @@ class FileWatcher:
             uid = user["user_id"]
             n_feats = cli_ops.run_features_build(conn, uid)
             res = cli_ops.run_archetypes_fit(conn, uid)
+            # Возраст: маркер-часть инкрементально (stale_only) — новые звонки
+            # уточняют оценку; LLM-пасс ЗДЕСЬ запрещён (GPU занят ASR) — только
+            # CLI `age-estimate --llm` в LLM-окне.
+            age = cli_ops.run_age_estimate(
+                conn, uid, use_llm=False, stale_only=True,
+                owner_birth_year=getattr(self.config, "owner_birth_year", 0) or 0,
+            )
             logger.info(
-                "Insight autofit user=%s: features=%d, k=%d, assigned=%d",
+                "Insight autofit user=%s: features=%d, k=%d, assigned=%d, "
+                "age est=%d skip=%d",
                 uid, n_feats, res.get("k", 0), res.get("n_assigned", 0),
+                age.get("estimated", 0), age.get("skipped_fresh", 0),
             )
 
     # ── Внутренние методы ──────────────────────────────────────────────

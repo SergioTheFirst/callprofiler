@@ -68,6 +68,7 @@ from callprofiler.cli.commands.graph import (  # noqa: E402
 # ---- insight commands ----
 from callprofiler.cli.commands.insight import (  # noqa: E402
     cmd_features_build, cmd_archetypes_fit, cmd_person_archetype, cmd_person_link,
+    cmd_age_estimate,
 )
 
 # cmd_graph_audit -> cli/commands/graph.py
@@ -555,6 +556,22 @@ def _build_parser() -> argparse.ArgumentParser:
     p_person_arch.add_argument(
         "--json", action="store_true", help="Вывести как JSON",
     )
+    p_age = sub.add_parser(
+        "age-estimate",
+        help="Insight: оценить возраст контактов (маркеры+якоря; --llm в LLM-окне)",
+    )
+    p_age.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_age.add_argument(
+        "--contact", dest="contact_id", type=int, default=None, metavar="CONTACT_ID",
+        help="Только один контакт (по умолчанию: все)",
+    )
+    p_age.add_argument(
+        "--llm", action="store_true",
+        help="Добавить LLM-пасс (llama-server должен быть жив, ASR не идти)",
+    )
 
     # ── biography-status ───────────────────────────────────────────
     p_bio_status = sub.add_parser(
@@ -638,6 +655,7 @@ def main() -> None:
         "archetypes-fit": cmd_archetypes_fit,
         "person-link": cmd_person_link,
         "person-archetype": cmd_person_archetype,
+        "age-estimate": cmd_age_estimate,
         "entity-merge": cmd_entity_merge,
         "entity-unmerge": cmd_entity_unmerge,
         "graph-audit": cmd_graph_audit,
