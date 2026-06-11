@@ -43,6 +43,20 @@ CREATE TABLE IF NOT EXISTS contact_archetypes (
     pca_y            REAL,
     computed_at      TEXT    DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Мягкая связка graph-entity ↔ contact (Ф1 плана досье). DERIVED:
+-- полностью перестраивается (person_link.build_entity_contact_map),
+-- entity_id живут до ближайшего graph-replay. НЕ слияние контактов.
+CREATE TABLE IF NOT EXISTS entity_contact_map (
+    user_id    TEXT    NOT NULL,
+    entity_id  INTEGER NOT NULL,
+    contact_id INTEGER NOT NULL,
+    method     TEXT    NOT NULL CHECK (method IN ('name', 'cooccur')),
+    confidence REAL    NOT NULL,
+    built_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, entity_id, contact_id)
+);
+CREATE INDEX IF NOT EXISTS idx_ecmap_contact ON entity_contact_map(user_id, contact_id);
 """
 
 # Колонки, добавленные после первого релиза схемы. ALTER, не recreate (db.md).

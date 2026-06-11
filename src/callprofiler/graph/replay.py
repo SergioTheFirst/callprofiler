@@ -240,6 +240,15 @@ class GraphReplayer:
                     f"validator too weak, hallucinations may pass"
                 )
 
+        # Step 9: rebuild derived entity_contact_map — replay пересоздал
+        # entity_id, старые ссылки карты мертвы (non-fatal, lazy import)
+        try:
+            from callprofiler.insight.person_link import build_entity_contact_map
+            link_stats = build_entity_contact_map(conn, user_id)
+            log.info("[replay] entity_contact_map rebuilt: %s", link_stats)
+        except Exception as e:  # noqa: BLE001 — карта не должна ронять replay
+            log.warning("[replay] entity_contact_map rebuild failed: %s", e)
+
         return {
             "user_id": user_id,
             "calls_processed": calls_processed,

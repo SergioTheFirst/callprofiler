@@ -8,6 +8,7 @@ from . import repository as repo
 from .feature_store import build_contact_features, assemble_matrix, standardize
 from .archetypes import fit_archetypes
 from .labels import cluster_label, describe_dim
+from .person_link import build_entity_contact_map
 
 _MIN_CONTACTS = 4  # ниже — кластеризация бессмысленна
 _DISTINCT_Z = 0.8   # порог |z| для «отличительной» оси
@@ -65,7 +66,8 @@ def run_archetypes_fit(conn, user_id, version="arch-v1", reference_now=None):
     per_contact = build_contact_features(conn, user_id, reference_now=reference_now)
     cids, names, X, w = assemble_matrix(per_contact)
     if len(cids) < _MIN_CONTACTS:
-        return {"k": 0, "silhouette": 0.0, "n_assigned": 0}
+        link = build_entity_contact_map(conn, user_id)
+        return {"k": 0, "silhouette": 0.0, "n_assigned": 0, "links": link["links"]}
     Z = standardize(X, w)
     res = fit_archetypes(Z, k_range=range(2, 8), seed=0)
     labels, Zp, centroids, k = res["labels"], res["projection"], res["centroids"], res["k"]
@@ -102,4 +104,7 @@ def run_archetypes_fit(conn, user_id, version="arch-v1", reference_now=None):
             distinctive_dims=_distinctive_dims(Z[i], names), confidence=conf, evidence=[],
             pca_x=px, pca_y=py,
         )
-    return {"k": k, "silhouette": res["silhouette"], "n_assigned": len(cids)}
+    # Связка entity↔contact (Ф1 досье): перестраивается вместе с архетипами
+    link = build_entity_contact_map(conn, user_id)
+    return {"k": k, "silhouette": res["silhouette"], "n_assigned": len(cids),
+            "links": link["links"]}

@@ -29,6 +29,19 @@ def cmd_archetypes_fit(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_person_link(args: argparse.Namespace) -> int:
+    setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = load_config_and_repo(args.config)
+    conn = repo._get_conn()
+    from callprofiler.insight.person_link import build_entity_contact_map
+    stats = build_entity_contact_map(conn, args.user_id,
+                                     dry_run=getattr(args, "dry_run", False))
+    mode = "dry-run, БЕЗ записи" if getattr(args, "dry_run", False) else "записано"
+    print(f"person-link ({mode}): links={stats['links']} "
+          f"(name={stats['name']}, cooccur={stats['cooccur']}) user={args.user_id}")
+    return 0
+
+
 def cmd_person_archetype(args: argparse.Namespace) -> int:
     setup_logging(verbose=getattr(args, "verbose", False))
     cfg, repo = load_config_and_repo(args.config)
