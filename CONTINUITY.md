@@ -34,15 +34,13 @@
   ритм→цитаты→противоречия→обещания→связи→динамика→интерпретация→совет→звонки) + клик из
   PCA-точки/узла сети → досье. node --check OK.
 - Ф4 = ноль кода: `profile-all` УЖЕ персистит интерпретации в entity_profiles (досье читает).
-- **⚠ push origin main НЕ ПРОШЁЛ — на дев-ПК нет сети (Could not resolve host github.com).
-  4 коммита локально: 0ffb3dd (Ф0), ccd3f04 (Ф1), 803c02c (Ф2), + финальный Ф3. Запушить при сети!**
+- Всё ЗАПУШЕНО: 0ffb3dd (Ф0) → ccd3f04 (Ф1) → 803c02c (Ф2) → 208e5c1 (Ф3) на origin/main.
 
 **Next:**
-1. **`git push origin main` когда появится сеть** (или с бокса `git pull` не сработает!).
-2. **ПРОГОН НА БОКСЕ:** pull → reset.bat --apply → llama-server+роли → startprocess. После прогона
+1. **ПРОГОН НА БОКСЕ:** pull → reset.bat --apply → llama-server+роли → startprocess. После прогона
    архетипы/связки построятся сами (autofit). Вкладка «Личности»: список+досье, клики из PCA/сети.
-3. Интерпретации: `python -m callprofiler profile-all --user me` (llama-server жив, ASR не идёт).
-4. Визуальная проверка UI досье — на боксе (здесь нет данных).
+2. Интерпретации: `python -m callprofiler profile-all --user me` (llama-server жив, ASR не идёт).
+3. Визуальная проверка UI досье — на боксе (здесь нет данных).
 - ОТЛОЖЕНО: Ф4-dominance insight; LLM-имена кластеров; Stage-2 биография; resilience-порт.
 
 **Open questions (UNCONFIRMED):**
