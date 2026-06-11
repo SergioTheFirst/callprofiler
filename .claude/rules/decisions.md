@@ -1,5 +1,23 @@
 # Architecture Decisions
 
+## Доктрина дашборда: 2 функции; персональные досье через перестраиваемую map (2026-06-11)
+
+Запрос юзера: вкладка «Архетипы» пуста; дашборд обязан иметь ровно 2 функции — ход обработки и
+полный психологический портрет личности («нажал имя — знаешь всё»: risk, BS-index, паттерны, факты),
+фактологично, без лирики. Разбор показал: данные в прогоне наполняются АВТОМАТИЧЕСКИ (graph/BS —
+orchestrator+enricher, `enable_graph_update=True` дефолт), а insight (`features-build`+`archetypes-fit`)
+и психология — только вручную → пустые вкладки = операционный разрыв, не баг. Дашборд богаче карт:
+`/api/characters`+модалка уже есть, но `temporal`/`network` — заглушки None, архетип к персоне не
+присоединён, contact↔entity — равенство имени. Решения (план
+`docs/superpowers/plans/2026-06-11-dashboard-person-dossier.md`, карта `.claude/rules/dashboard.md`):
+(1) autofit в watcher (debounced, non-fatal, numpy → GPU не трогает); (2) связка id-пространств —
+`entity_contact_map` (name-match 0.95 / cooccur share≥0.6 ∧ n≥3, PERSON-only, owner исключён),
+DERIVED и полностью перестраиваемая (как graph из events), без слияния контактов (Prohibited);
+(3) `get_person_dossier` — read-only агрегатор всех слоёв, guarded по-секционно; главный реюз —
+`PsychologyProfiler` с новым `include_llm=False` (иначе клик в дашборде висит до 120s на живом
+llama-server); live-LLM в дашборде ЗАПРЕЩЁН — интерпретация только persisted (`profile-all --persist`
+в LLM-окне, не во время ASR). Тиры исполнения: Ф0/Ф1/Ф2/Ф4=T2, Ф3=T1.
+
 ## Model Routing v2: тир = blast radius, Fable max только для архитектуры (2026-06-10)
 
 Запрос юзера: умная экономия токенов без потери качества разработки. Решение (CLAUDE.md): тир задачи

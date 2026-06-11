@@ -8,6 +8,14 @@
 
 ## [Unreleased]
 
+### Added — План «Личности»: персональные досье в дашборде + карта dashboard.md (2026-06-11)
+- Доктрина дашборда (юзер): 2 функции — ход обработки + полный психопортрет личности. План 5 фаз:
+  autofit insight в watcher → `entity_contact_map` (contact↔entity) → `get_person_dossier`/`/api/person`
+  (реюз PsychologyProfiler, `include_llm=False`) → вкладка «Личности» (клик имени/PCA/сети → досье) →
+  `profile-all --persist`. Файл: `docs/superpowers/plans/2026-06-11-dashboard-person-dossier.md`.
+- Новая карта слоя `.claude/rules/dashboard.md` (вкладки/эндпоинты/ридеры/кто-что-наполняет;
+  ранее код дашборда картами не покрывался). WHY → `decisions.md` 2026-06-11. Код НЕ менялся.
+
 ### Changed — CLAUDE.md: Model Routing v2 (тиры по blast radius) + актуализация (2026-06-10)
 - Роутинг моделей переписан: T0 Haiku/low → T1 Opus fast/medium → T2 Opus/high → **T3 Fable 5/max**
   (архитектурно-стратегическое: Hard Constraints, удаление данных, терминальные статусы/resume,
