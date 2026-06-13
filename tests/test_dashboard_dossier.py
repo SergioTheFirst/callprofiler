@@ -249,6 +249,37 @@ def test_people_empty_db_without_optional_layers(tmp_path):
     r.close()
 
 
+def test_entity_layer_graph_only_db_no_bio_tables(tmp_path):
+    """Regress: entity-слой дашборда на graph-only БД (без bio_* и без
+    колонки trust_score в entity_metrics) НЕ должен падать 500.
+
+    Ловит 4 бага: get_stats/get_entity_profile (bio_portraits),
+    get_all_characters (trust_score колонка + bio_portraits через
+    _has_portrait), get_character_profile (trust_score/volatility/
+    conflict_count колонки + bio_behavior_patterns + bio_contradictions).
+    """
+    db, _cid, eid = _seed_db(tmp_path)  # graph-схема есть, biography НЕТ
+    r = _reader(db)
+    assert not r._has_table("bio_portraits")          # предпосылка
+    assert not r._has_column("entity_metrics", "trust_score")
+
+    stats = r.get_stats("me")
+    assert stats["total_portraits"] == 0              # bio нет → 0, не 500
+
+    chars = r.get_all_characters("me")
+    assert any(c["entity_id"] == eid for c in chars)
+    assert all(c["has_portrait"] is False for c in chars)
+
+    prof = r.get_entity_profile(eid, "me")
+    assert prof and "prose" not in prof               # портрета нет, без падения
+
+    cp = r.get_character_profile(eid, "me")
+    assert cp is not None
+    assert cp["patterns"] == [] and cp["contradictions"] == []
+    assert cp["character_summary"]                    # построен из avg_risk/bs_index
+    r.close()
+
+
 # ── 3. Эндпоинты ─────────────────────────────────────────────────────────
 
 def test_endpoints_people_and_person():

@@ -89,6 +89,27 @@ None currently identified.
 
 ## Recent Fixes (Closed)
 
+✅ **Entity-слой дашборда падал 500 на graph-only БД — guard'ы были только в досье-функциях** (2026-06-13)
+- **Root cause (non-obvious):** хелперы `_has_table`/`_has_column` (db_reader.py) применялись ТОЛЬКО
+  в новых досье-функциях (`get_people`/`get_person_dossier`, Ф2), а старый entity-слой остался
+  незащищён. На боксе biography не запускалась → bio_* таблиц нет → 4 точки 500:
+  (1) `get_stats` COUNT(bio_portraits); (2) `get_entity_profile` SELECT bio_portraits;
+  (3) `get_all_characters` — `em.trust_score` + `_has_portrait` (bio_portraits);
+  (4) `get_character_profile` — `bio_behavior_patterns`/`bio_contradictions`. Симптом: "Failed to
+  load" на вкладке Entity (Metrics/Psychology/Calls), 500 на `/api/entities`.
+- **Доп. находка:** `trust_score`/`volatility`/`conflict_count` живут ТОЛЬКО в `bio_behavior_patterns`
+  (biography/schema.py:188), в `entity_metrics` их НЕТ нигде (schema.sql:186 + graph/repository.py) →
+  `get_character_profile` SELECT падал бы на `no such column` на ЛЮБОЙ БД, не только без bio. Занулены
+  явно (NULL AS …); в коде эти поля не читаются кроме trust_score (`_build_character_summary`).
+- **Fix:** guard каждой bio-точки через `_has_table`; trust_score в `get_all_characters` через
+  `_has_column` (всегда False → NULL); volatility/conflict_count → NULL-алиасы.
+  Regress: `test_dashboard_dossier.py::test_entity_layer_graph_only_db_no_bio_tables`.
+- **Латентный (НЕ фикшен):** `get_character_profile` грузит `bio_behavior_patterns` с колонками
+  `name, severity, ratio, label`, а таблица имеет `trust_score/volatility/role_type/...` → при
+  существующей biography-схеме запрос упадёт на `no such column: name`. Сейчас не воспроизводится
+  (bio нет на боксе), вне заявленных багов — фиксить с реальной bio-БД, сверив контракт таблицы.
+- **Status:** RESOLVED (2026-06-13), 692 passed.
+
 ✅ **Модалка персонажа дёргала LLM с дашборда — до 120s на клик при живом llama-server** (2026-06-11)
 - **Root cause (non-obvious):** `db_reader.get_entity_profile` звал `PsychologyProfiler.build_profile(entity_id, user_id)`
   — это ПОЛНЫЙ путь: LLM-интерпретация (timeout 120s) + `_save_profile` (запись на query_only-коннекте →

@@ -20,7 +20,15 @@
 - `data_dir = C:\calls\data`. Лог: `C:\calls\callprofiler.log`.
 - **GPU sequential (Hard Constraint):** ASR+pyannote и LLM НИКОГДА одновременно (12GB RTX 3060).
 
-**State (2026-06-11):**
+**State (2026-06-13):**
+
+✅ **Фикс: entity-слой дашборда падал 500 на graph-only БД** (bugs.md 2026-06-13). guard'ы
+`_has_table`/`_has_column` были только в досье-функциях; `get_stats`/`get_entity_profile`/
+`get_all_characters`/`get_character_profile` не защищены от отсутствия bio_* + от того, что
+trust_score/volatility/conflict_count нет в entity_metrics (они в bio_behavior_patterns).
+Regress `test_entity_layer_graph_only_db_no_bio_tables`, 692 passed. Латентный (вне фикса):
+get_character_profile грузит bio_behavior_patterns с несуществующими колонками name/severity/
+ratio/label — проявится на БД с biography, чинить там же.
 
 ✅ **«Возраст контакта» РЕАЛИЗОВАН (Ф0-Ф3 плана age-estimation), 691 passed/2 skipped, JS OK.**
 План: `docs/superpowers/plans/2026-06-11-age-estimation.md`; карты: `.claude/rules/insight.md`

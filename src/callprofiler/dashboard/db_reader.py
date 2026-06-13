@@ -163,13 +163,15 @@ class DashboardDBReader:
         except Exception as e:
             log.warning("Failed to load psychology profile for entity %d: %s", entity_id, e)
 
-        # Biography portrait
-        portrait_row = self._conn.execute(
-            """SELECT prose, traits, relationship
-               FROM bio_portraits
-               WHERE entity_id = ? AND user_id = ?""",
-            (entity_id, user_id),
-        ).fetchone()
+        # Biography portrait (bio_* таблицы — только если biography запускалась)
+        portrait_row = None
+        if self._has_table("bio_portraits"):
+            portrait_row = self._conn.execute(
+                """SELECT prose, traits, relationship
+                   FROM bio_portraits
+                   WHERE entity_id = ? AND user_id = ?""",
+                (entity_id, user_id),
+            ).fetchone()
         if portrait_row:
             profile["prose"] = portrait_row["prose"]
             profile["traits"] = json.loads(portrait_row["traits"] or "[]")
@@ -189,9 +191,11 @@ class DashboardDBReader:
             "SELECT COUNT(*) AS cnt FROM entities WHERE user_id = ? AND archived = 0", (user_id,)
         ).fetchone()["cnt"]
 
-        total_portraits = self._conn.execute(
-            "SELECT COUNT(*) AS cnt FROM bio_portraits WHERE user_id = ?", (user_id,)
-        ).fetchone()["cnt"]
+        total_portraits = 0
+        if self._has_table("bio_portraits"):
+            total_portraits = self._conn.execute(
+                "SELECT COUNT(*) AS cnt FROM bio_portraits WHERE user_id = ?", (user_id,)
+            ).fetchone()["cnt"]
 
         avg_risk_row = self._conn.execute(
             """SELECT AVG(a.risk_score) AS avg_risk
@@ -242,9 +246,11 @@ class DashboardDBReader:
     def get_all_characters(self, user_id: str) -> list[dict[str, Any]]:
         """Get all entities with metrics and psychology summary."""
         self.connect()
+        trust_sel = ("em.trust_score" if self._has_column("entity_metrics", "trust_score")
+                     else "NULL AS trust_score")
         rows = self._conn.execute(
-            """SELECT e.id AS entity_id, e.canonical_name, e.entity_type,
-                      em.total_calls, em.avg_risk, em.bs_index, em.trust_score,
+            f"""SELECT e.id AS entity_id, e.canonical_name, e.entity_type,
+                      em.total_calls, em.avg_risk, em.bs_index, {trust_sel},
                       ep.payload_json
                FROM entities e
                LEFT JOIN entity_metrics em ON em.entity_id = e.id AND em.user_id = e.user_id
@@ -300,6 +306,8 @@ class DashboardDBReader:
         return "-".join(parts) if parts else "Неизвестный"
 
     def _has_portrait(self, entity_id: int, user_id: str) -> bool:
+        if not self._has_table("bio_portraits"):
+            return False
         row = self._conn.execute(
             "SELECT 1 FROM bio_portraits WHERE entity_id = ? AND user_id = ?",
             (entity_id, user_id),
@@ -322,9 +330,12 @@ class DashboardDBReader:
         profile["temporal"] = None
         profile["network"] = None
 
+        # trust_score/volatility/conflict_count живут в bio_behavior_patterns,
+        # НЕ в entity_metrics — здесь их нет ни на graph-, ни на bio-БД → NULL.
         metrics_row = self._conn.execute(
-            """SELECT bs_index, avg_risk, total_calls, trust_score,
-                      volatility, conflict_count, emotional_pattern
+            """SELECT bs_index, avg_risk, total_calls,
+                      NULL AS trust_score, NULL AS volatility,
+                      NULL AS conflict_count, emotional_pattern
                FROM entity_metrics WHERE entity_id = ? AND user_id = ?""",
             (entity_id, user_id),
         ).fetchone()
@@ -337,22 +348,24 @@ class DashboardDBReader:
             metrics_row, temperament, motivation
         )
 
-        pattern_rows = self._conn.execute(
-            """SELECT name, severity, ratio, label
-               FROM bio_behavior_patterns
-               WHERE entity_id = ? AND user_id = ?""",
-            (entity_id, user_id),
-        ).fetchall()
-        profile["patterns"] = [dict(r) for r in pattern_rows]
+        if self._has_table("bio_behavior_patterns"):
+            pattern_rows = self._conn.execute(
+                """SELECT name, severity, ratio, label
+                   FROM bio_behavior_patterns
+                   WHERE entity_id = ? AND user_id = ?""",
+                (entity_id, user_id),
+            ).fetchall()
+            profile["patterns"] = [dict(r) for r in pattern_rows]
 
-        contradiction_rows = self._conn.execute(
-            """SELECT quote_1, quote_2, severity, contradiction_type, delta_days
-               FROM bio_contradictions
-               WHERE entity_id = ? AND user_id = ?
-               ORDER BY severity DESC LIMIT 5""",
-            (entity_id, user_id),
-        ).fetchall()
-        profile["contradictions"] = [dict(r) for r in contradiction_rows]
+        if self._has_table("bio_contradictions"):
+            contradiction_rows = self._conn.execute(
+                """SELECT quote_1, quote_2, severity, contradiction_type, delta_days
+                   FROM bio_contradictions
+                   WHERE entity_id = ? AND user_id = ?
+                   ORDER BY severity DESC LIMIT 5""",
+                (entity_id, user_id),
+            ).fetchall()
+            profile["contradictions"] = [dict(r) for r in contradiction_rows]
 
         canon = (base.get("canonical_name") or "").strip()
         aliases = base.get("aliases") or []
