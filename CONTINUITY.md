@@ -22,6 +22,14 @@
 
 **State (2026-06-13):**
 
+✅ **Характеристика личности целиком по-русски (дашборд).** Новый слой `dashboard/labels_ru.py`
+переводит весь enum-словарь (темперамент/мотивация/паттерны/severity/тип/факты/тренд) в RU на
+ПОКАЗЕ; источник английский намеренно (psychology_profiler → книжные промпты, не трогаем). `severity`
+ключ сохранён (цвет) + `severity_label`. `db_reader`: `localize_character`/`localize_dossier` перед
+return; `app.js` `renderEntityTab` — статичные подписи RU. Карта: `.claude/rules/dashboard.md`
+(«Русификация»). Тест `test_dashboard_labels_ru.py` (офлайн). 698 passed/2 skipped, app.js syntax OK.
+Находка: db_reader.py юзера с Desktop функц. уже в main (67d313b) — регресса нет, добавлена русификация.
+
 ✅ **Фикс: entity-слой дашборда падал 500 на graph-only БД** (bugs.md 2026-06-13). guard'ы
 `_has_table`/`_has_column` были только в досье-функциях; `get_stats`/`get_entity_profile`/
 `get_all_characters`/`get_character_profile` не защищены от отсутствия bio_* + от того, что

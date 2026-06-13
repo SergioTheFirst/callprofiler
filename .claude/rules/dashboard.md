@@ -7,6 +7,15 @@
 **Паттерн:** CLI/пайплайн ПИШЕТ → дашборд ЧИСТЫЙ read (`PRAGMA query_only=ON`, WAL-фикс — bugs.md
 2026-06-04). Дашборд НИКОГДА не зовёт LLM и не пишет в БД. Слой не заполнен → секция пустая, не 500.
 
+**Русификация характеристики (2026-06-13):** весь видимый enum-словарь личности (темперамент/
+мотивация/паттерны/severity/тип/факты/тренд/эмоц.паттерн) переводится в RU в `dashboard/labels_ru.py`
+— презентационный слой; источник английский НАМЕРЕННО (psychology_profiler кормит книжные промпты
+biography, менять нельзя). `get_entity_profile`/`get_character_profile`→`localize_character`,
+`get_person_dossier`→`localize_dossier` (in-place, идемпотентно, неизвестное не теряется). `severity`
+КЛЮЧ сохранён (фронт красит по нему) + `severity_label` для показа; англ. `label` паттерна (из
+`_extract_patterns`) русифицируется пофразно. Статичные подписи entity-модалки — в app.js
+`renderEntityTab`; `entity_type` фронт показывает как `entity_type_label`.
+
 ## Вкладки (templates/index.html)
 `overview` · `calls` · `search` · `entities` (**«Личности»**: таблица людей `#people-table` с поиском
 + «Упомянутые персоны (граф)» + модалки) · `insight` («Архетипы», 4 вида, Ф7) · `system`.

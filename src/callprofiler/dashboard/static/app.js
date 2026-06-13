@@ -577,71 +577,73 @@
             var risk = d.avg_risk != null ? d.avg_risk : (d.risk_score != null ? d.risk_score : '--');
             var riskCls = Number(risk) >= 60 ? 'risk-high' : (Number(risk) >= 30 ? 'risk-med' : 'risk-low');
             body.innerHTML =
-                '<div class="detail-section"><h4>Metrics</h4><dl class="detail-meta">' +
-                '<dt>Name</dt><dd>' + escapeHtml(d.canonical_name || '?') + '</dd>' +
-                '<dt>Type</dt><dd>' + escapeHtml(d.entity_type || 'person') + '</dd>' +
-                '<dt>Total Calls</dt><dd>' + (d.total_calls || 0) + '</dd>' +
-                '<dt>Avg Risk</dt><dd><span class="risk ' + riskCls + '">' + risk + '</span></dd>' +
-                '<dt>BS Index</dt><dd>' + (d.bs_index != null ? Number(d.bs_index).toFixed(2) : '--') + '</dd>' +
-                '<dt>Emotional Pattern</dt><dd>' + escapeHtml(d.emotional_pattern || '--') + '</dd>' +
-                (d.trust_score != null ? '<dt>Trust Score</dt><dd>' + Number(d.trust_score).toFixed(2) + '</dd>' : '') +
+                '<div class="detail-section"><h4>Метрики</h4><dl class="detail-meta">' +
+                '<dt>Имя</dt><dd>' + escapeHtml(d.canonical_name || '?') + '</dd>' +
+                '<dt>Тип</dt><dd>' + escapeHtml(d.entity_type_label || d.entity_type || 'человек') + '</dd>' +
+                '<dt>Звонков</dt><dd>' + (d.total_calls || 0) + '</dd>' +
+                '<dt>Средний риск</dt><dd><span class="risk ' + riskCls + '">' + risk + '</span></dd>' +
+                '<dt>BS-index</dt><dd>' + (d.bs_index != null ? Number(d.bs_index).toFixed(2) : '--') + '</dd>' +
+                '<dt>Эмоц. паттерн</dt><dd>' + escapeHtml(d.emotional_pattern || '--') + '</dd>' +
+                (d.trust_score != null ? '<dt>Доверие</dt><dd>' + Number(d.trust_score).toFixed(2) + '</dd>' : '') +
                 '</dl></div>';
             if (d.aliases && d.aliases.length) {
-                body.innerHTML += '<div class="detail-section"><h4>Aliases</h4><p style="font-size:12px;color:var(--text-secondary)">' + d.aliases.map(escapeHtml).join(', ') + '</p></div>';
+                body.innerHTML += '<div class="detail-section"><h4>Псевдонимы</h4><p style="font-size:12px;color:var(--text-secondary)">' + d.aliases.map(escapeHtml).join(', ') + '</p></div>';
             }
             if (d.summary) {
-                body.innerHTML += '<div class="detail-section"><h4>Summary</h4><p style="font-size:13px;color:var(--text-secondary);line-height:1.6">' + escapeHtml(d.summary) + '</p></div>';
+                body.innerHTML += '<div class="detail-section"><h4>Сводка</h4><p style="font-size:13px;color:var(--text-secondary);line-height:1.6">' + escapeHtml(d.summary) + '</p></div>';
             }
             if (d.character_summary) {
-                body.innerHTML += '<div class="detail-section"><h4>Character</h4><p style="font-size:13px;color:var(--text-secondary)">' + escapeHtml(d.character_summary) + '</p></div>';
+                body.innerHTML += '<div class="detail-section"><h4>Характеристика</h4><p style="font-size:13px;color:var(--text-secondary)">' + escapeHtml(d.character_summary) + '</p></div>';
             }
         } else if (tab === 'psychology') {
-            var html = '<div class="detail-section"><h4>Psychology Profile</h4>';
+            var TRAIT_RU = { openness: 'открытость', conscientiousness: 'добросовестность',
+                extraversion: 'экстраверсия', agreeableness: 'доброжелательность', neuroticism: 'нейротизм' };
+            var html = '<div class="detail-section"><h4>Психопрофиль</h4>';
             var hasData = false;
             if (d.temperament && Object.keys(d.temperament).length) {
                 hasData = true;
                 html += '<dl class="detail-meta">';
-                if (d.temperament.type) html += '<dt>Temperament</dt><dd>' + escapeHtml(String(d.temperament.type)) + '</dd>';
-                if (d.temperament.extraversion != null) html += '<dt>Extraversion</dt><dd>' + d.temperament.extraversion + '</dd>';
-                if (d.temperament.neuroticism != null) html += '<dt>Neuroticism</dt><dd>' + d.temperament.neuroticism + '</dd>';
+                if (d.temperament.type) html += '<dt>Темперамент</dt><dd>' + escapeHtml(String(d.temperament.type)) + '</dd>';
+                if (d.temperament.extraversion != null) html += '<dt>Экстраверсия</dt><dd>' + d.temperament.extraversion + '</dd>';
+                if (d.temperament.neuroticism != null) html += '<dt>Нейротизм</dt><dd>' + d.temperament.neuroticism + '</dd>';
                 html += '</dl>';
             }
             if (d.big_five && Object.keys(d.big_five).length) {
                 hasData = true;
-                html += '<h4 style="margin-top:12px">Big Five</h4><dl class="detail-meta">';
+                html += '<h4 style="margin-top:12px">Большая пятёрка (OCEAN)</h4><dl class="detail-meta">';
                 ['openness', 'conscientiousness', 'extraversion', 'agreeableness', 'neuroticism'].forEach(function(trait) {
-                    if (d.big_five[trait] != null) html += '<dt>' + trait + '</dt><dd>' + Number(d.big_five[trait]).toFixed(2) + '</dd>';
+                    if (d.big_five[trait] != null) html += '<dt>' + (TRAIT_RU[trait] || trait) + '</dt><dd>' + Number(d.big_five[trait]).toFixed(2) + '</dd>';
                 });
                 html += '</dl>';
             }
             if (d.motivation && Object.keys(d.motivation).length) {
                 hasData = true;
-                html += '<h4 style="margin-top:12px">Motivation</h4><dl class="detail-meta">';
-                if (d.motivation.primary) html += '<dt>Primary</dt><dd>' + escapeHtml(String(d.motivation.primary)) + '</dd>';
-                if (d.motivation.secondary) html += '<dt>Secondary</dt><dd>' + escapeHtml(String(d.motivation.secondary)) + '</dd>';
+                html += '<h4 style="margin-top:12px">Мотивация</h4><dl class="detail-meta">';
+                if (d.motivation.primary) html += '<dt>Основная</dt><dd>' + escapeHtml(String(d.motivation.primary)) + '</dd>';
+                if (d.motivation.secondary) html += '<dt>Вторичная</dt><dd>' + escapeHtml(String(d.motivation.secondary)) + '</dd>';
                 html += '</dl>';
             }
-            if (!hasData) html += '<span class="detail-empty">No psychology data available</span>';
+            if (!hasData) html += '<span class="detail-empty">Нет психологических данных</span>';
             html += '</div>';
 
             if (d.patterns && d.patterns.length) {
-                html += '<div class="detail-section"><h4>Behavioral Patterns</h4>';
+                html += '<div class="detail-section"><h4>Паттерны поведения</h4>';
                 d.patterns.forEach(function(p) {
                     html += '<div style="padding:4px 8px;margin-bottom:4px;background:rgba(255,255,255,.03);border-radius:4px;font-size:12px">' +
                         '<strong>' + escapeHtml(p.name || '?') + '</strong> ' +
                         (p.label ? '<span class="sr-tag entity">' + escapeHtml(p.label) + '</span>' : '') +
-                        (p.severity != null ? ' (sev: ' + p.severity + ')' : '') +
+                        (p.severity != null ? ' (' + escapeHtml(p.severity_label || p.severity) + ')' : '') +
                         '</div>';
                 });
                 html += '</div>';
             }
 
             if (d.contradictions && d.contradictions.length) {
-                html += '<div class="detail-section"><h4>Contradictions</h4>';
+                html += '<div class="detail-section"><h4>Противоречия</h4>';
                 d.contradictions.forEach(function(c) {
                     html += '<div style="padding:4px 8px;margin-bottom:4px;background:rgba(255,0,0,.06);border-radius:4px;font-size:12px">' +
-                        '<em>"' + escapeHtml(c.quote_1 || '') + '"</em> vs <em>"' + escapeHtml(c.quote_2 || '') + '"</em>' +
-                        (c.severity ? ' (' + c.severity + ')' : '') +
+                        '<em>«' + escapeHtml(c.quote_1 || '') + '»</em> против <em>«' + escapeHtml(c.quote_2 || '') + '»</em>' +
+                        (c.severity ? ' (' + escapeHtml(c.severity_label || c.severity) + ')' : '') +
                         '</div>';
                 });
                 html += '</div>';
@@ -649,11 +651,11 @@
             body.innerHTML = html;
         } else if (tab === 'calls') {
             var calls = d.recent_calls || d.calls || [];
-            var html = '<div class="detail-section"><h4>Recent Calls (' + calls.length + ')</h4>';
+            var html = '<div class="detail-section"><h4>Последние звонки (' + calls.length + ')</h4>';
             if (calls.length === 0) {
-                html += '<span class="detail-empty">No calls</span>';
+                html += '<span class="detail-empty">Нет звонков</span>';
             } else {
-                html += '<div class="table-wrap"><table class="data-table"><thead><tr><th>ID</th><th>Date</th><th>Type</th><th>Risk</th><th>Summary</th></tr></thead><tbody>';
+                html += '<div class="table-wrap"><table class="data-table"><thead><tr><th>ID</th><th>Дата</th><th>Тип</th><th>Риск</th><th>Сводка</th></tr></thead><tbody>';
                 calls.slice(0, 20).forEach(function(c) {
                     var risk = c.risk_score != null ? c.risk_score : '--';
                     var riskCls = Number(risk) >= 60 ? 'risk-high' : (Number(risk) >= 30 ? 'risk-med' : 'risk-low');
@@ -670,11 +672,11 @@
             html += '</div>';
 
             if (d.open_promises && d.open_promises.length) {
-                html += '<div class="detail-section"><h4>Open Promises</h4><ul class="detail-promises">';
+                html += '<div class="detail-section"><h4>Открытые обещания</h4><ul class="detail-promises">';
                 d.open_promises.forEach(function(p) {
                     html += '<li><span class="promise-who">' + escapeHtml(p.who || '?') + '</span> — ' +
                         escapeHtml(p.what || '?') +
-                        (p.due ? '<span class="promise-due">due ' + p.due + '</span>' : '') +
+                        (p.due ? '<span class="promise-due">до ' + escapeHtml(p.due) + '</span>' : '') +
                         '</li>';
                 });
                 html += '</ul></div>';
@@ -887,7 +889,7 @@
                     : (p.severity === 'medium' ? 'risk-med'
                     : (p.severity === 'positive' ? 'risk-low' : ''));
                 return '<div class="dossier-pattern">' +
-                    '<span class="risk ' + sevCls + '">' + escapeHtml(p.severity || '') + '</span> ' +
+                    '<span class="risk ' + sevCls + '">' + escapeHtml(p.severity_label || p.severity || '') + '</span> ' +
                     '<strong>' + escapeHtml(p.name || '?') + '</strong>' +
                     (p.label ? ' — ' + escapeHtml(p.label) : '') + '</div>';
             }).join(''));
@@ -925,8 +927,8 @@
         if (d.contradictions && d.contradictions.length) {
             html += dossierSec('Противоречия', d.contradictions.map(function(x) {
                 return '<div style="padding:4px 8px;margin-bottom:4px;background:rgba(255,0,0,.06);border-radius:4px;font-size:12px">' +
-                    '<em>«' + escapeHtml(x.quote_1 || '') + '»</em> vs <em>«' + escapeHtml(x.quote_2 || '') + '»</em>' +
-                    (x.severity ? ' (' + escapeHtml(String(x.severity)) + ')' : '') + '</div>';
+                    '<em>«' + escapeHtml(x.quote_1 || '') + '»</em> против <em>«' + escapeHtml(x.quote_2 || '') + '»</em>' +
+                    (x.severity ? ' (' + escapeHtml(x.severity_label || x.severity) + ')' : '') + '</div>';
             }).join(''));
         }
 

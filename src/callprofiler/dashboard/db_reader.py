@@ -12,6 +12,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from callprofiler.dashboard import labels_ru
 from callprofiler.dashboard.config import DB_QUERY_TIMEOUT_SEC
 
 log = logging.getLogger(__name__)
@@ -177,7 +178,8 @@ class DashboardDBReader:
             profile["traits"] = json.loads(portrait_row["traits"] or "[]")
             profile["relationship"] = portrait_row["relationship"]
 
-        return profile
+        # Вся характеристика — по-русски (темперамент/мотивация/эмоц.паттерн/тип).
+        return labels_ru.localize_character(profile)
 
     def get_stats(self, user_id: str) -> dict[str, Any]:
         """Get overall system statistics."""
@@ -291,10 +293,10 @@ class DashboardDBReader:
         tmp_type = (temperament or {}).get("type")
         mot_primary = (motivation or {}).get("primary")
         if tmp_type:
-            parts.append(tmp_type.capitalize())
+            parts.append(labels_ru.ru(labels_ru.TEMPERAMENT, tmp_type).capitalize())
         if mot_primary:
             mot_map = {"achievement": "достиженец", "power": "властный", "affiliation": "партнёр", "security": "осторожный"}
-            parts.append(mot_map.get(mot_primary, mot_primary))
+            parts.append(mot_map.get(mot_primary, labels_ru.ru(labels_ru.MOTIVATION, mot_primary)))
         if not parts:
             risk = row["avg_risk"] or 0
             if risk >= 60:
@@ -402,7 +404,8 @@ class DashboardDBReader:
             ).fetchall()
             profile["recent_calls"] = [dict(r) for r in call_rows]
 
-        return profile
+        # Паттерны/противоречия из bio_* — тоже по-русски (base уже локализован).
+        return labels_ru.localize_character(profile)
 
     def _build_character_summary(self, metrics_row, temperament, motivation):
         if not metrics_row:
@@ -421,12 +424,11 @@ class DashboardDBReader:
 
         tmp_type = (temperament or {}).get("type")
         if tmp_type:
-            parts.append(tmp_type)
+            parts.append(labels_ru.ru(labels_ru.TEMPERAMENT, tmp_type))
 
         mot_primary = (motivation or {}).get("primary")
         if mot_primary:
-            mot_map = {"achievement": "достижение", "power": "власть", "affiliation": "привязанность", "security": "безопасность"}
-            parts.append(f"мотивация — {mot_map.get(mot_primary, mot_primary)}")
+            parts.append(f"мотивация — {labels_ru.ru(labels_ru.MOTIVATION, mot_primary)}")
 
         if bs >= 60:
             parts.append("склонен к размытым обещаниям")
@@ -762,7 +764,8 @@ class DashboardDBReader:
             if row:
                 dossier["bs_thresholds"] = dict(row)
 
-        return dossier
+        # Психотип/паттерны/факты/тренд/противоречия — целиком по-русски.
+        return labels_ru.localize_dossier(dossier)
 
 
     def get_analytics(self, user_id: str) -> dict[str, Any]:
