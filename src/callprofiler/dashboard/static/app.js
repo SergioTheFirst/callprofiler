@@ -639,7 +639,7 @@
             if (d.contradictions && d.contradictions.length) {
                 html += '<div class="detail-section"><h4>Contradictions</h4>';
                 d.contradictions.forEach(function(c) {
-                    html += '<div style="padding:4px 8px;margin-bottom:4px;background:rgba(255,0,0,.06);border-radius:4px;font-size:12px">' +
+                    html += '<div style="padding:4px 8px;margin-bottom:4px;background:rgba(255,184,0,.08);border-radius:4px;font-size:12px">' +
                         '<em>"' + escapeHtml(c.quote_1 || '') + '"</em> vs <em>"' + escapeHtml(c.quote_2 || '') + '"</em>' +
                         (c.severity ? ' (' + c.severity + ')' : '') +
                         '</div>';
@@ -924,7 +924,7 @@
         // Противоречия
         if (d.contradictions && d.contradictions.length) {
             html += dossierSec('Противоречия', d.contradictions.map(function(x) {
-                return '<div style="padding:4px 8px;margin-bottom:4px;background:rgba(255,0,0,.06);border-radius:4px;font-size:12px">' +
+                return '<div style="padding:4px 8px;margin-bottom:4px;background:rgba(255,184,0,.08);border-radius:4px;font-size:12px">' +
                     '<em>«' + escapeHtml(x.quote_1 || '') + '»</em> vs <em>«' + escapeHtml(x.quote_2 || '') + '»</em>' +
                     (x.severity ? ' (' + escapeHtml(String(x.severity)) + ')' : '') + '</div>';
             }).join(''));

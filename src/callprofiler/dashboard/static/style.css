@@ -111,7 +111,7 @@ body {
     transition: color 0.3s;
 }
 .sse-indicator.connected { color: var(--success); }
-.sse-indicator.disconnected { color: var(--danger); }
+.sse-indicator.disconnected { color: var(--warning); }
 .clock {
     font-family: var(--font-mono);
     font-size: 12px;
@@ -267,7 +267,7 @@ body {
     transition: background 0.3s, border-color 0.3s;
 }
 .pipe-dot.active { background: var(--accent); border-color: var(--accent); }
-.pipe-dot.error { background: var(--danger); border-color: var(--danger); }
+.pipe-dot.error { background: var(--warning); border-color: var(--warning); }
 .pipe-label {
     font-size: 10px;
     color: var(--text-muted);
@@ -308,7 +308,7 @@ body {
 }
 .feed-dot.ok { background: var(--success); }
 .feed-dot.warn { background: var(--warning); }
-.feed-dot.err { background: var(--danger); }
+.feed-dot.err { background: var(--warning); }
 .feed-time {
     font-family: var(--font-mono);
     color: var(--text-muted);
@@ -518,7 +518,7 @@ body {
     max-width: 340px;
 }
 .toast.success { border-color: var(--success); }
-.toast.error { border-color: var(--danger); }
+.toast.error { border-color: var(--warning); }
 @keyframes toastIn {
     from { opacity: 0; transform: translateY(12px); }
     to { opacity: 1; transform: translateY(0); }
@@ -546,14 +546,14 @@ body {
 }
 .badge-done { background: rgba(0, 212, 200, 0.15); color: var(--success); }
 .badge-pending { background: rgba(255, 184, 0, 0.15); color: var(--warning); }
-.badge-error { background: rgba(255, 71, 87, 0.15); color: var(--danger); }
+.badge-error { background: #FFD700; color: #000000; }
 .badge-processing { background: rgba(0, 168, 255, 0.15); color: var(--info); }
 
 /* ── Risk indicator ──────────────────────────────────────────────────────── */
 .risk { font-weight: 600; }
 .risk-low { color: var(--success); }
 .risk-med { color: var(--warning); }
-.risk-high { color: var(--danger); }
+.risk-high { color: #000000; background: #FFD700; padding: 1px 5px; border-radius: 3px; }
 
 /* ── Calls Layout ──────────────────────────────────────────────────────────── */
 .calls-layout { display: flex; gap: 1rem; align-items: flex-start; }
