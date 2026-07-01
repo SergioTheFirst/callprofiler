@@ -3079,3 +3079,5 @@ FALLBACK:     null
 | pyannote.audio | 3.3.2 |
 | GPU | NVIDIA RTX 3060 12GB |
 | CUDA | 12.4 |
+
+- 2026-07-02 — docs: STRATEGIC_PLAN_v5.md — стратегическая ревизия ценности (4 момента потребности, портфель Ф-A..Ф-D на существующих наработках, доктрина триангуляции портрета, Admiralty-грейд, kill-criteria); supersedes v4.
