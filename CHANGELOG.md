@@ -8,6 +8,40 @@
 
 ## [Unreleased]
 
+### Added — стилометрическая оценка возраста (`age_style`), 4-й сигнальный класс (2026-07-01)
+- Реализован план `age.md` (Ф0-Ф5) целиком: no-ML стилометрия по методологии `vozrast.md`,
+  ОТДЕЛЬНО от существующей marker/relation/LLM системы (`age_markers.py`/`age_estimate.py` —
+  НЕ тронуты, своя таблица `contact_age_style`, свой пайплайн `insight/age_style/`).
+- **Ф0 (попутный баг):** маркер «внуки» ложно срабатывал на «Внуково» (аэропорт) — regex
+  `\bвну[кч](?!ово)\w*` + anti-context guard («аэропорт/рейс/прилёт/вылет/терминал»).
+- **Ф1:** схема `contact_age_style` (group_code/group_json/birth_year_*/confidence/top_json/
+  warnings_json, UPSERT user-guarded); `synth/age_profiles.py` — 6 групп-шаблонов (G1-G6) с
+  плотностями сленг/архаизм/реалии/life-stage для офлайн ground-truth в SyntheticCorpus.
+- **Ф2:** признаки — `diversity_age.py` (MATTR/MTLD/Yule's K), `readability_age.py` (слоги/слово),
+  `morphosyntax_age.py` (доля «я»; POS-профиль НЕ реализован — не нужен MVP), `lexical_age.py`
+  (сленг/архаизм/реалии-год/life-stage). Лексиконы — данные (txt), не код.
+  `features/base.py`: `normalize_lemma` (ё→е, ASR не всегда пишет ё).
+- **Ф3:** 8 вероятностных таблиц (`age_style/tables.py`, дословно из vozrast.md §4.2,
+  каждая строка Σ=1) + `scorer.py` (взвешенный линейный пул; Р3/Р4/Р5 объединены в ОДИН
+  голос — деконфликт коррелирующих измерений разнообразия) + `rules.py` (гейт «мало данных»,
+  bimodal-конфликт, edge-bonus для G1/G6 — компенсация регрессии к среднему).
+- **Ф4:** `accumulate.py` (год рождения из P(группа), взвешенный перцентиль) + `confidence.py`
+  (sigmoid: ESS-proxy/agreement/marker-bonus/conflict) + `estimate_style.py` (оркестратор).
+  Два самостоятельно найденных архитектурных бага ДО написания тестов: (a) год рождения
+  анкорился к дате ПРОГОНА вместо среднего года звонков контакта — тот же стиль давал бы
+  разный год рождения в зависимости от того, когда запущен batch (нарушение vozrast.md §2.2);
+  (b) `reference_year` не пробрасывался в Т2-проекцию реалий (молча брала today()). Оба
+  исправлены `_anchor_year()` до первого прогона тестов.
+- **Ф5:** CLI `age-style --user X [--stale-only]`; watcher-autofit (`_run_insight_fit`) зовёт
+  `run_style_estimate(stale_only=True)` инкрементально, безмодельно (не конфликтует с ASR-GPU);
+  дашборд — секция «Возраст (стиль)» в досье (группа-бары, ★-доверие, топ-вклады, явные
+  маркеры, кнопка «Определить возраст ↻» → `POST /api/tools/age-recompute?contact_id=`,
+  полная популяция синхронно в threadpool, без GPU/LLM).
+- Security-review (SQL write-path + новый HTTP action-endpoint): clean, 0 findings.
+- 727 passed/2 skipped (полный `tests/`), включая 184 в `tests/insight`+`test_dashboard_age_style.py`
+  +`test_dashboard_dossier.py`+`test_watcher_autofit.py`.
+- Карта: `.claude/rules/insight.md` (секция «Возраст (age-estimate)» дополнена).
+
 ### Fixed — make-characteristics.bat: post-mortem (мгновенное закрытие → 8-12ч → ~3мин) (2026-06-30)
 - **Симптом-1 (мгновенное закрытие):** UTF-8 без BOM + русские комментарии → cmd.exe
   на CP866 парсил байты кириллицы как отдельные команды (`'рает' is not recognized`,

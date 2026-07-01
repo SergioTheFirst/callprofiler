@@ -48,3 +48,8 @@ def tokenize(text: str) -> list[str]:
 def count_markers(words: list[str], markers: set[str]) -> int:
     """Считает вхождения маркеров в список слов."""
     return sum(1 for w in words if w in markers)
+
+
+def normalize_lemma(word: str) -> str:
+    """ё→е для лемм-сопоставления (vozrast.md §11.4) — ASR не всегда пишет ё."""
+    return word.replace("ё", "е")

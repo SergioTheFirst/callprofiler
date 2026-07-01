@@ -158,6 +158,32 @@ class DashboardTools:
             log.error("rebuild-cards failed: %s", e)
             return {"status": "error", "message": str(e), "count": 0}
 
+    async def run_age_recompute(self, contact_id: int) -> dict[str, Any]:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._age_recompute_sync, contact_id)
+
+    def _age_recompute_sync(self, contact_id: int) -> dict[str, Any]:
+        try:
+            from callprofiler.db.repository import Repository
+            from callprofiler.insight.age_style.estimate_style import run_style_estimate
+            from callprofiler.dashboard.db_reader import DashboardDBReader
+
+            # ponytail: full-population recompute, not just contact_id — z-scores are
+            # relative to the user's whole contact population, so scoring one contact
+            # requires the same population pass anyway (feature_store.standardize).
+            repo = Repository(str(self.db_path))
+            stats = run_style_estimate(repo._get_conn(), self.user_id)
+            repo.close()
+
+            reader = DashboardDBReader(self.config.data_dir)
+            dossier = reader.get_person_dossier(contact_id, self.user_id)
+            self._log(f"age-recompute: {stats.get('estimated', 0)} contacts")
+            return {"status": "ok", "stats": stats,
+                    "age_style": (dossier or {}).get("age_style")}
+        except Exception as e:
+            log.error("age-recompute failed: %s", e)
+            return {"status": "error", "message": str(e)}
+
     def _log(self, msg: str):
         self._history.insert(0, {
             "ts": time.strftime("%H:%M:%S"),

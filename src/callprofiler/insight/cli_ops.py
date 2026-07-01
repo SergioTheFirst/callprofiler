@@ -66,6 +66,12 @@ def run_age_estimate(conn, user_id, **kwargs):
     return _run(conn, user_id, **kwargs)
 
 
+def run_style_estimate(conn, user_id, **kwargs):
+    """Делегат к age_style.estimate_style.run_style_estimate (Ф5 плана age.md)."""
+    from .age_style.estimate_style import run_style_estimate as _run
+    return _run(conn, user_id, **kwargs)
+
+
 def run_archetypes_fit(conn, user_id, version="arch-v1", reference_now=None):
     """Собрать вектор → z-score → кластеризовать → сохранить модель+назначения."""
     repo.apply_insight_schema(conn)

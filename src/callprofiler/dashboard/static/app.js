@@ -826,6 +826,17 @@
     var TREND_RU = { increasing: 'учащается', decreasing: 'затухает', stable: 'стабильно',
                      insufficient_data: 'мало данных', unknown: '—' };
 
+    var AGE_GROUPS = [
+        {code: 'G1', label: '0-17'}, {code: 'G2', label: '18-25'}, {code: 'G3', label: '26-35'},
+        {code: 'G4', label: '36-45'}, {code: 'G5', label: '46-60'}, {code: 'G6', label: '60+'}
+    ];
+    var AGE_FEATURE_RU = {
+        diversity: 'Лексическое разнообразие', ch6: 'Длина слова / читаемость',
+        slang: 'Молодёжный сленг', archaism: 'Архаизмы/советизмы',
+        i_ratio: 'Доля «я»', vy_ratio: 'Формальность (вы-обращение)',
+        life_stage: 'Тема (своё)', realia: 'Реалии эпохи'
+    };
+
     function renderDossier(d) {
         var c = d.contact || {};
         var name = c.display_name || c.guessed_name || c.phone_e164 || ('#' + c.contact_id);
@@ -873,6 +884,57 @@
                 }).join('');
             }
             html += dossierSec('Возраст', aHtml);
+        }
+
+        // Возраст (стиль): группа/распределение/топ-вклады, без ложной точности (vozrast.md §10.2)
+        if (d.age_style) {
+            var st = d.age_style;
+            var gd = st.group_distribution || {};
+            var lvl = st.confidence_level || 0;
+            var stars = '★'.repeat(lvl) + '☆'.repeat(Math.max(0, 5 - lvl));
+            var lowConf = st.confidence != null && st.confidence < 50;
+            var sHtml = '<div style="' + (lowConf ? 'color:var(--text-muted);' : '') + 'font-size:15px;margin-bottom:6px">';
+            if (st.age_point != null) {
+                sHtml += '~' + st.age_point + ' лет' +
+                    ((st.age_low != null && st.age_high != null && st.age_low !== st.age_high)
+                        ? ' (' + st.age_low + '–' + st.age_high + ')' : '') +
+                    (st.birth_year_point != null ? ' · год рождения ~' + st.birth_year_point : '');
+            } else {
+                sHtml += 'недостаточно данных для точки';
+            }
+            sHtml += '</div><div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">' +
+                stars + ' (уровень ' + lvl + ' · ' + (st.confidence != null ? st.confidence : '?') + '/100)' +
+                (st.n_conversations != null ? ' &nbsp; Разговоров: ' + st.n_conversations : '') + '</div>';
+
+            sHtml += AGE_GROUPS.map(function(g) {
+                var pct = Math.round((gd[g.code] || 0) * 100);
+                return '<div style="display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:3px">' +
+                    '<span style="width:44px;color:var(--text-muted)">' + g.label + '</span>' +
+                    '<div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden">' +
+                    '<div style="width:' + pct + '%;height:100%;background:' +
+                    (g.code === st.group_code ? 'var(--accent)' : 'var(--text-muted)') + '"></div></div>' +
+                    '<span style="width:30px;text-align:right;color:var(--text-secondary)">' + pct + '%</span></div>';
+            }).join('');
+
+            if (st.top_features && st.top_features.length) {
+                sHtml += '<div style="margin-top:8px;font-size:12px;color:var(--text-secondary)">Ключевые признаки:</div>';
+                sHtml += st.top_features.map(function(tf) {
+                    var label = AGE_FEATURE_RU[tf[0]] || tf[0];
+                    return '<div style="font-size:11px;padding:1px 0">' + escapeHtml(label) +
+                        ' <span style="color:var(--text-muted)">' + (tf[1] != null ? Number(tf[1]).toFixed(2) : '') + '</span></div>';
+                }).join('');
+            }
+
+            sHtml += '<div style="font-size:11px;color:var(--text-muted);margin-top:6px">Явные маркеры: ' +
+                (d.age && d.age.age_point != null ? 'есть (см. «Возраст» выше)' : 'не найдено — оценка по стилю') + '</div>';
+            if (st.warnings && st.warnings.length) {
+                sHtml += '<div style="font-size:11px;color:var(--text-muted)">' +
+                    st.warnings.map(function(w) { return escapeHtml(w); }).join(', ') + '</div>';
+            }
+            sHtml += '<div style="margin-top:8px"><button class="btn btn-outline btn-sm" id="dossier-age-recompute-btn" data-cid="' +
+                (c.contact_id || '') + '">Определить возраст ↻</button></div>';
+
+            html += dossierSec('Возраст (стиль)', sHtml);
         }
 
         // Черты-фразы архетипа
@@ -1022,6 +1084,15 @@
         if (entBtn) entBtn.addEventListener('click', function() {
             closePersonDossier();
             openEntityModal(this.dataset.eid);
+        });
+        var ageBtn = $('#dossier-age-recompute-btn');
+        if (ageBtn) ageBtn.addEventListener('click', function() {
+            var cid = this.dataset.cid;
+            this.disabled = true;
+            this.textContent = 'Считаю…';
+            fetch('/api/tools/age-recompute?contact_id=' + cid, {method: 'POST'})
+                .then(function() { openPersonDossier(cid); })
+                .catch(function() { openPersonDossier(cid); });
         });
         body.querySelectorAll('.call-row[data-call-id]').forEach(function(row) {
             row.addEventListener('click', function() {

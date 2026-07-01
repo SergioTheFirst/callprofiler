@@ -25,6 +25,9 @@ SSE-тик обновляет активную вкладку (bugs.md 2026-06-0
 → модал `#person-overlay` (`openPersonDossier`/`renderDossier` в app.js): шапка-архетип → индексы
 (Риск/BS по `bs_thresholds` если есть/Доверие) → **возраст** («~48 лет (40–55) · уверенность 35/100»
 + evidence-цитаты; из `contact_age_estimates`, возраст к ТЕКУЩЕМУ году из birth_year_point) →
+**возраст (стиль)** (group-бары G1-G6/★-доверие/топ-вклады/явные маркеры/кнопка «Определить
+возраст ↻» → `POST /api/tools/age-recompute?contact_id=`; из `contact_age_style`, полностью
+отдельный 4-й сигнальный класс — `.claude/rules/insight.md` секция «Возраст-стиль») →
 черты-фразы → паттерны (severity-цвет) → психотип →
 ритм (тренд словами TREND_RU) → факты-цитаты → противоречия → обещания → личное → связи → динамика
 по годам → интерпретация (persisted или подсказка `profile-all`) → совет → звонки (клик → call detail)
@@ -35,7 +38,8 @@ SSE-тик обновляет активную вкладку (bugs.md 2026-06-0
 ## Эндпоинты (server.py, все через DashboardDBReader, `WHERE user_id=?`)
 - Обработка: `/api/overview` `/api/calls[/{id}]` `/api/search` `/api/system[/logs]` `/api/sse`
   `/api/stats` `/api/history` `/api/daily*` + tools (`retry-failed`, `reprocess`, `extract-names`,
-  `rebuild-cards`) + export (`calls.csv`, `book.md`).
+  `rebuild-cards`, `age-recompute?contact_id=` — полная популяция юзера синхронно, без GPU/LLM)
+  + export (`calls.csv`, `book.md`).
 - Личности: `/api/characters` (список entities+metrics+psychology), `/api/character/{entity_id}`
   (модалка, app.js:541), `/api/contact/{contact_id}`, `/api/analytics`.
 - Досье (Ф2): `/api/people` (список контактов + архетип + BS через map + `age_point`/`age_confidence`

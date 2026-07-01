@@ -81,6 +81,29 @@ CREATE TABLE IF NOT EXISTS contact_age_estimates (
     computed_at      TEXT    DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_cage_user ON contact_age_estimates(user_id);
+
+-- Стилометрическая (no-ML) оценка возраста — план age.md, доп. к маркерам/
+-- якорям/LLM в contact_age_estimates. Отдельная таблица: contact_id там уже
+-- PRIMARY KEY (одна строка на контакт), второй method='stylometric' не вписать
+-- (vozrast.md §9.3 это упускает). Слияние в 'combined' — отложено.
+CREATE TABLE IF NOT EXISTS contact_age_style (
+    contact_id      INTEGER PRIMARY KEY,
+    user_id         TEXT    NOT NULL,
+    group_code      TEXT,                 -- argmax группа: 'G1'..'G6'
+    group_json      TEXT,                 -- {"G1":0.0,...,"G6":0.08} сумма=1
+    birth_year_low  INTEGER,
+    birth_year_high INTEGER,
+    birth_year_point INTEGER,
+    confidence      INTEGER NOT NULL CHECK (confidence BETWEEN 1 AND 100),
+    confidence_level INTEGER NOT NULL CHECK (confidence_level BETWEEN 1 AND 5),
+    n_conversations INTEGER NOT NULL DEFAULT 0,
+    total_tokens    INTEGER NOT NULL DEFAULT 0,
+    top_json        TEXT,                 -- [["Т1 карьера",0.31],["Ч6",0.18],...]
+    warnings_json   TEXT,                 -- ["мало данных","специфичный регистр"]
+    table_version   TEXT,                 -- TABLE_VERSION+RULES_VERSION
+    computed_at     TEXT    DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_cage_style_user ON contact_age_style(user_id);
 """
 
 # Колонки, добавленные после первого релиза схемы. ALTER, не recreate (db.md).
@@ -170,3 +193,43 @@ def load_contact_archetypes(conn, user_id):
     ).fetchall()
     return [dict(zip(("contact_id", "cluster_idx", "label", "membership", "confidence"), r))
             for r in rows]
+
+
+def save_contact_age_style(conn, user_id, *, contact_id, group_code, group_dist,
+                           birth_low, birth_high, birth_point, confidence,
+                           confidence_level, n_conversations, total_tokens,
+                           top, warnings, table_version):
+    conn.execute(
+        "INSERT INTO contact_age_style(contact_id, user_id, group_code, group_json, "
+        "birth_year_low, birth_year_high, birth_year_point, confidence, "
+        "confidence_level, n_conversations, total_tokens, top_json, warnings_json, "
+        "table_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(contact_id) DO UPDATE SET "
+        "group_code=excluded.group_code, group_json=excluded.group_json, "
+        "birth_year_low=excluded.birth_year_low, birth_year_high=excluded.birth_year_high, "
+        "birth_year_point=excluded.birth_year_point, confidence=excluded.confidence, "
+        "confidence_level=excluded.confidence_level, "
+        "n_conversations=excluded.n_conversations, total_tokens=excluded.total_tokens, "
+        "top_json=excluded.top_json, warnings_json=excluded.warnings_json, "
+        "table_version=excluded.table_version, computed_at=CURRENT_TIMESTAMP "
+        "WHERE contact_age_style.user_id = excluded.user_id",  # user-scoped guard
+        (contact_id, user_id, group_code, json.dumps(group_dist, ensure_ascii=False),
+         birth_low, birth_high, birth_point, confidence, confidence_level,
+         n_conversations, total_tokens, json.dumps(top, ensure_ascii=False),
+         json.dumps(warnings, ensure_ascii=False), table_version),
+    )
+    conn.commit()
+
+
+def load_contact_age_style(conn, user_id, contact_id=None):
+    sql = ("SELECT contact_id, group_code, group_json, birth_year_low, birth_year_high, "
+           "birth_year_point, confidence, confidence_level, n_conversations, "
+           "total_tokens, top_json, warnings_json, table_version, computed_at "
+           "FROM contact_age_style WHERE user_id = ?")
+    params = [user_id]
+    if contact_id is not None:
+        sql += " AND contact_id = ?"
+        params.append(contact_id)
+    cur = conn.execute(sql, params)
+    cols = [d[0] for d in cur.description]
+    return [dict(zip(cols, r)) for r in cur.fetchall()]

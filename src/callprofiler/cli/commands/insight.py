@@ -72,6 +72,18 @@ def cmd_age_estimate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_age_style(args: argparse.Namespace) -> int:
+    setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = load_config_and_repo(args.config)
+    conn = repo._get_conn()
+    res = cli_ops.run_style_estimate(
+        conn, args.user_id, stale_only=getattr(args, "stale_only", False))
+    print(f"age-style: контактов={res['contacts']} оценок={res['estimated']} "
+          f"пропущено(свежие)={res['skipped_fresh']} "
+          f"пропущено(нет данных)={res['skipped_no_data']} (user={args.user_id})")
+    return 0
+
+
 def cmd_person_archetype(args: argparse.Namespace) -> int:
     setup_logging(verbose=getattr(args, "verbose", False))
     cfg, repo = load_config_and_repo(args.config)

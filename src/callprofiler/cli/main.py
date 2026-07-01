@@ -68,7 +68,7 @@ from callprofiler.cli.commands.graph import (  # noqa: E402
 # ---- insight commands ----
 from callprofiler.cli.commands.insight import (  # noqa: E402
     cmd_features_build, cmd_archetypes_fit, cmd_person_archetype, cmd_person_link,
-    cmd_age_estimate,
+    cmd_age_estimate, cmd_age_style,
 )
 
 # cmd_graph_audit -> cli/commands/graph.py
@@ -572,6 +572,18 @@ def _build_parser() -> argparse.ArgumentParser:
         "--llm", action="store_true",
         help="Добавить LLM-пасс (llama-server должен быть жив, ASR не идти)",
     )
+    p_age_style = sub.add_parser(
+        "age-style",
+        help="Insight: стилометрическая оценка возраста (no-ML, без GPU/LLM)",
+    )
+    p_age_style.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_age_style.add_argument(
+        "--stale-only", dest="stale_only", action="store_true",
+        help="Только контакты со звонками новее последнего пересчёта",
+    )
 
     # ── biography-status ───────────────────────────────────────────
     p_bio_status = sub.add_parser(
@@ -656,6 +668,7 @@ def main() -> None:
         "person-link": cmd_person_link,
         "person-archetype": cmd_person_archetype,
         "age-estimate": cmd_age_estimate,
+        "age-style": cmd_age_style,
         "entity-merge": cmd_entity_merge,
         "entity-unmerge": cmd_entity_unmerge,
         "graph-audit": cmd_graph_audit,

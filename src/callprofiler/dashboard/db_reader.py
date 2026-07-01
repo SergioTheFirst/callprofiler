@@ -618,6 +618,7 @@ class DashboardDBReader:
             "archetype": None,
             "entity": None,
             "age": None,
+            "age_style": None,
             "patterns": [],
             "temporal": None,
             "social": None,
@@ -682,6 +683,49 @@ class DashboardDBReader:
                     "confidence": row["confidence"],
                     "method": row["method"],
                     "evidence": ev,
+                    "computed_at": row["computed_at"],
+                }
+
+        if self._has_table("contact_age_style"):
+            row = self._conn.execute(
+                """SELECT group_code, group_json, birth_year_low, birth_year_high,
+                          birth_year_point, confidence, confidence_level,
+                          n_conversations, total_tokens, top_json, warnings_json,
+                          computed_at
+                     FROM contact_age_style
+                    WHERE contact_id = ? AND user_id = ?""",
+                (contact_id, user_id),
+            ).fetchone()
+            if row:
+                try:
+                    group_dist = json.loads(row["group_json"] or "{}")
+                except (json.JSONDecodeError, TypeError):
+                    group_dist = {}
+                try:
+                    top_features = json.loads(row["top_json"] or "[]")
+                except (json.JSONDecodeError, TypeError):
+                    top_features = []
+                try:
+                    style_warnings = json.loads(row["warnings_json"] or "[]")
+                except (json.JSONDecodeError, TypeError):
+                    style_warnings = []
+                yr = date.today().year
+                bp = row["birth_year_point"]
+                dossier["age_style"] = {
+                    "group_code": row["group_code"],
+                    "group_distribution": group_dist,
+                    "birth_year_point": bp,
+                    "age_point": (yr - bp) if bp is not None else None,
+                    "age_low": (yr - row["birth_year_high"]
+                                if row["birth_year_high"] is not None else None),
+                    "age_high": (yr - row["birth_year_low"]
+                                 if row["birth_year_low"] is not None else None),
+                    "confidence": row["confidence"],
+                    "confidence_level": row["confidence_level"],
+                    "n_conversations": row["n_conversations"],
+                    "total_tokens": row["total_tokens"],
+                    "top_features": top_features,
+                    "warnings": style_warnings,
                     "computed_at": row["computed_at"],
                 }
 

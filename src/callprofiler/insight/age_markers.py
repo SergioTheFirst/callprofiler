@@ -61,7 +61,7 @@ _RE_JUBILEE_NOT_PERSON = re.compile(
 # Этапные маркеры: (имя, regex, age_low, age_high, confidence) — диапазоны плана
 _STAGES = [
     ("pension", re.compile(r"\bна\s+пенси[ию]\b|\bпенсионер", re.IGNORECASE), 60, 80, 65),
-    ("grandkids", re.compile(r"\bвну[кч]\w*", re.IGNORECASE), 50, 85, 60),
+    ("grandkids", re.compile(r"\bвну[кч](?!ово)\w*", re.IGNORECASE), 50, 85, 60),
     ("army_done", re.compile(
         r"\bпосле\s+армии|\bиз\s+армии\s+(?:пришёл|пришел|вернулся)|\bдембельну|\bдембеля\b",
         re.IGNORECASE), 20, 30, 60),
@@ -72,6 +72,10 @@ _STAGES = [
     ("school_finish", re.compile(
         r"\bшколу\s+заканчива|\bвыпускной\s+класс|\b11[-\s]?класс", re.IGNORECASE), 15, 18, 70),
 ]
+
+# "внуково" склоняется («Внукова», «Внуковом») — регэксп grandkids не всегда
+# ловит суффикс; доп. гейт по контексту аэропорта/рейса.
+_RE_GRANDKIDS_NOT = re.compile(r"внуково|аэропорт|рейс|прил[её]т|вылет|терминал", re.IGNORECASE)
 
 # Третье лицо непосредственно перед маркером → реплика не о говорящем
 _RE_THIRD_PERSON = re.compile(
@@ -141,6 +145,9 @@ def extract_marker_signals(text: str, call_dt) -> list[AgeSignal]:
     for name, rex, alo, ahi, conf in _STAGES:
         m = rex.search(text)
         if not m or _third_person(text, m):
+            continue
+        if name == "grandkids" and _RE_GRANDKIDS_NOT.search(
+                text[max(0, m.start() - 30):m.end() + 30]):
             continue
         out.append(AgeSignal(year - ahi, year - alo, conf, _quote(text, m), name, dt))
 

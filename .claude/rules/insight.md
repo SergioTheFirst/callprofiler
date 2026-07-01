@@ -141,6 +141,50 @@ CLI: `age-estimate --user X [--contact N] [--llm]`. Тесты: `tests/insight/t
 
 ---
 
+## Возраст-стиль (age_style) — 4-й сигнальный класс, no-ML стилометрия (2026-07-01)
+
+Реализация плана `age.md` (методология `vozrast.md`) — ОТДЕЛЬНАЯ система от `age_markers.py`/
+`age_estimate.py` выше (своя таблица `contact_age_style`, свой пайплайн `insight/age_style/`,
+никогда не пишет/не читает `contact_age_estimates`). Источник: реплики `speaker='OTHER'`
+по ВСЕМ звонкам контакта (агрегат-уровень, не per-conversation).
+
+**Поток:** сырые фичи (`features/{diversity_age,readability_age,morphosyntax_age,lexical_age}.py`)
+→ z-score ВНУТРИ популяции юзера (`feature_store.assemble_matrix`+`standardize`, тот же контракт,
+что и архетипы) → биннинг по 8 вероятностным таблицам (`age_style/tables.py`, дословно
+vozrast.md §4.2, Σ=1 на строку) → **взвешенный линейный пул** голосов по группам G1-G6
+(`scorer.py`; Р3/Р4/Р5-разнообразие — ОДИН объединённый голос, деконфликт коррелирующих
+измерений) → год рождения (`accumulate.py`, взвешенный перцентиль P(группа)) → confidence
+(`confidence.py`, sigmoid ESS/agreement/marker-bonus/conflict) → UPSERT `contact_age_style`
+(`estimate_style.py` — оркестратор).
+
+**Год рождения анкорится к СРЕДНЕМУ ГОДУ ЗВОНКОВ контакта** (`_anchor_year`), НЕ к дате
+прогона — иначе тот же стиль давал бы разный год рождения в зависимости от того, когда именно
+вызван `run_style_estimate` (vozrast.md §2.2). `reference_year` пробрасывается в Т2
+(реалии→год) явно — нет тихого дефолта на `date.today()`.
+
+**Гейты:** `n_conversations<3` или `total_tokens<150` → confidence_level=1, БЕЗ точки (широкий
+приор, не ложная точность). Bimodal-конфликт (два пика P(группа)) → НЕ усредняется в фиктивный
+центр, а помечается warning + понижается confidence. G1/G6 (края) получают edge-bonus —
+компенсация регрессии к среднему (стиль сам по себе недооценивает крайние возраста).
+
+**Таблицы:** ch6 (слоги/слово), diversity (MATTR/MTLD/Yule's K, объединены), slang/archaism
+(однонаправленные — отсутствие нейтрально, не тянет вверх), i_ratio/vy_ratio (доля «я»/«вы»),
+life_stage (кластер «своей» темы: школа_егэ/вуз_сессия/ипотека_декрет/карьера/внуки_пенсия),
+realia (год из упомянутых реалий эпохи). Лексиконы (`age_style/lexicons/*.txt`) — данные, не код.
+
+**CLI:** `age-style --user X [--stale-only]`. **Watcher:** `_run_insight_fit` зовёт
+`run_style_estimate(stale_only=True)` инкрементально, безмодельно (numpy/regex — не конфликтует
+с ASR-GPU, в отличие от `age-estimate --llm`). **Dashboard:** секция «Возраст (стиль)» в досье
+(группа-бары/★-доверие/топ-вклады/явные маркеры) + `POST /api/tools/age-recompute?contact_id=`
+— **пересчитывает ВСЮ популяцию юзера** (не только запрошенный contact_id: z-score
+популяционный, точечный пересчёт всё равно требует того же прохода), возвращает свежую
+строку контакта. Синхронно в threadpool, без GPU/LLM — доктрина дашборда не нарушена.
+
+Тесты: `tests/insight/test_age_{markers_vnukovo,style_schema,features,scorer,style_estimate}.py`
++ `tests/test_dashboard_age_style.py`.
+
+---
+
 ## Офлайн-разработка (нет БД на дев-ПК)
 
 `synth/corpus.py SyntheticCorpus.build()` — schema-accurate temp SQLite из `db/schema.sql` +

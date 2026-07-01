@@ -82,12 +82,18 @@ def test_run_insight_fit_includes_age_estimate():
          mock.patch("callprofiler.insight.cli_ops.run_archetypes_fit",
                     return_value={"k": 0, "n_assigned": 0}), \
          mock.patch("callprofiler.insight.cli_ops.run_age_estimate",
-                    return_value={"estimated": 1, "skipped_fresh": 2}) as ma:
+                    return_value={"estimated": 1, "skipped_fresh": 2}) as ma, \
+         mock.patch("callprofiler.insight.cli_ops.run_style_estimate",
+                    return_value={"estimated": 1, "skipped_fresh": 2}) as ms:
         w._run_insight_fit()
     assert ma.call_count == 1
     kw = ma.call_args.kwargs
     assert kw["use_llm"] is False        # LLM в watcher запрещён (GPU занят ASR)
     assert kw["stale_only"] is True      # инкрементальный пересчёт
+
+    assert ms.call_count == 1            # age.md: стилометрия тоже инкрементальна
+    assert ms.call_args.kwargs["stale_only"] is True
+    assert "use_llm" not in ms.call_args.kwargs  # безмодельный метод — LLM-флага нет
 
 
 def test_terminal_counter_baseline_then_delta():

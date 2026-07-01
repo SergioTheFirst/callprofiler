@@ -318,11 +318,15 @@ class FileWatcher:
                 conn, uid, use_llm=False, stale_only=True,
                 owner_birth_year=getattr(self.config, "owner_birth_year", 0) or 0,
             )
+            # Стилометрический возраст (age.md): чисто numpy/regex, без GPU/LLM
+            # -> безопасно во время ASR-прогона, в отличие от --llm-ступени выше.
+            style = cli_ops.run_style_estimate(conn, uid, stale_only=True)
             logger.info(
                 "Insight autofit user=%s: features=%d, k=%d, assigned=%d, "
-                "age est=%d skip=%d",
+                "age est=%d skip=%d, age-style est=%d skip=%d",
                 uid, n_feats, res.get("k", 0), res.get("n_assigned", 0),
                 age.get("estimated", 0), age.get("skipped_fresh", 0),
+                style.get("estimated", 0), style.get("skipped_fresh", 0),
             )
 
     # ── Внутренние методы ──────────────────────────────────────────────

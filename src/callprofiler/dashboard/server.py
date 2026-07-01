@@ -349,6 +349,16 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
             return JSONResponse(result)
         return JSONResponse({"status": "ok"})
 
+    @fa.post("/api/tools/age-recompute")
+    async def _tools_age_recompute(contact_id: int = Query(...)) -> JSONResponse:
+        tools = _get_tools()
+        if tools is not None and hasattr(tools, "run_age_recompute"):
+            result = tools.run_age_recompute(contact_id)
+            if asyncio.iscoroutine(result):
+                result = await result
+            return JSONResponse(result)
+        return JSONResponse({"status": "ok"})
+
     @fa.get("/api/characters")
     async def _characters() -> JSONResponse:
         dbr = _get_reader()
