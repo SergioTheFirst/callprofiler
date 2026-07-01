@@ -19,6 +19,7 @@ dependencies = [
     "uvicorn",
     "jinja2",
     "python-telegram-bot",
+    "psutil",
 ]
 
 [tool.setuptools.packages.find]

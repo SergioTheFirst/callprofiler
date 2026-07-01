@@ -275,9 +275,49 @@ def test_entity_layer_graph_only_db_no_bio_tables(tmp_path):
 
     cp = r.get_character_profile(eid, "me")
     assert cp is not None
-    assert cp["patterns"] == [] and cp["contradictions"] == []
+    # patterns из PsychologyProfiler._extract_patterns (graph-only данные, не bio_*) —
+    # НИКОГДА не пусто (fallback "neutral"), но severity — валидный enum, не сырое число
+    # (регресс 2026-07-02: bio_behavior_patterns не имеет колонок name/severity/ratio/label).
+    assert cp["patterns"]
+    assert all(p.get("severity") in ("positive", "low", "medium", "high") for p in cp["patterns"])
+    assert cp["contradictions"] == []
     assert cp["character_summary"]                    # построен из avg_risk/bs_index
     r.close()
+
+
+def test_character_patterns_ignore_colliding_bio_behavior_patterns_row(tmp_path):
+    """Regress (2026-07-02, реальный краш на боксе): bio_behavior_patterns.entity_id
+    ссылается на bio_entities — ДРУГОЕ id-пространство, чем graph entities.id
+    (dashboard.md «Id-пространства»). Старый запрос `SELECT name, severity, ratio,
+    label FROM bio_behavior_patterns WHERE entity_id=?` падал (таких колонок нет);
+    даже алиасом колонок он читал бы строку из ЧУЖОГО id-пространства при случайном
+    численном совпадении id. Фикс: patterns берутся из PsychologyProfiler (graph-
+    native, тот же источник, что и досье) — bio_behavior_patterns не участвует."""
+    from callprofiler.biography.schema import apply_biography_schema
+
+    db, _cid, eid = _seed_db(tmp_path)
+    repo = Repository(db)
+    conn = repo._get_conn()
+    apply_biography_schema(conn)
+    conn.execute(
+        "INSERT INTO bio_entities(entity_id, user_id, canonical_name, entity_type) "
+        "VALUES (?, 'me', 'Дмитрий Бердников', 'person')", (eid,))
+    conn.execute(
+        "INSERT INTO bio_behavior_patterns(entity_id, user_id, trust_score, volatility, "
+        "dependency, role_type, call_count, conflict_count) "
+        "VALUES (?, 'me', 12.0, 99.0, 0.9, 'mixed', 4, 9)", (eid,))
+    conn.commit()
+    repo.close()
+
+    r = _reader(db)
+    cp = r.get_character_profile(eid, "me")  # не должен упасть на "no such column"
+    r.close()
+
+    assert cp is not None
+    assert cp["patterns"]
+    assert all(p.get("severity") in ("positive", "low", "medium", "high") for p in cp["patterns"])
+    # значения из bio_behavior_patterns не просочились как паттерн (чужое id-пространство)
+    assert not any(p.get("name") == "mixed" for p in cp["patterns"])
 
 
 # ── 3. Эндпоинты ─────────────────────────────────────────────────────────

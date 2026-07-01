@@ -89,6 +89,32 @@ None currently identified.
 
 ## Recent Fixes (Closed)
 
+✅ **Первый реальный прогон на боксе: 2 краша — psutil не в зависимостях + латентный `no such column: name` (предсказан 2026-06-13, теперь воспроизведён)** (2026-07-02)
+- **Ошибка 1 — `ModuleNotFoundError: psutil`:** `server.py:181` (`/api/system`) импортирует `psutil`,
+  но пакета не было в `pyproject.toml`. На деве работало — psutil стоял глобально (случайно, не
+  декларативно). **Fix:** добавлена строка `"psutil"` в `dependencies`.
+- **Ошибка 2 — `sqlite3.OperationalError: no such column: name`:** ровно латентный баг, описанный
+  в записи 2026-06-13 ниже — теперь воспроизведён на реальной bio-БД. `get_character_profile`
+  (`db_reader.py`) слал `SELECT name, severity, ratio, label FROM bio_behavior_patterns` — таких
+  колонок там нет (реальные: `trust_score/volatility/dependency/role_type/call_count/
+  conflict_count/promise_kept/promise_broken/initiator_out_ratio`, `biography/schema.py:183`).
+- **Глубже, чем просто имена колонок (найдено при разборе — юзер прислал только колонки, id-баг
+  не упоминал):** `bio_behavior_patterns.entity_id` ссылается на `bio_entities(entity_id)` — ДРУГОЕ
+  id-пространство, чем graph `entities.id`, который получает `get_character_profile(entity_id,...)`
+  (`dashboard.md` → «Id-пространства»). Алиас колонок (`role_type AS name` и т.п., как в присланном
+  боксом патче) убрал бы краш, но читал бы строку из ЧУЖОГО id-пространства при случайном численном
+  совпадении id — тихая порча данных вместо явного краша.
+- **Fix (не алиас, а смена источника):** `patterns` теперь берутся из `PsychologyProfiler.
+  _extract_patterns` (graph-native, тот же источник что и досье, `entity_metrics`-based) —
+  `get_entity_profile` сохраняет `psych.get("patterns")`, `get_character_profile` переиспользует
+  `base["patterns"]` вместо прямого запроса к `bio_behavior_patterns`. Правильный enum `severity`
+  (`positive|low|medium|high`) вместо сырого float — присланный боксом патч клал бы `volatility`
+  (float) в поле, которое фронт (`app.js`) сравнивает строкой (`p.severity === 'high'`) — паттерны
+  показывались бы БЕЗ цветовой раскраски, молча, без ошибки.
+  Regress: `test_dashboard_dossier.py::test_character_patterns_ignore_colliding_bio_behavior_patterns_row`
+  (сеет коллизию id намеренно) + обновлён `test_entity_layer_graph_only_db_no_bio_tables`.
+- **Status:** RESOLVED (2026-07-02), 734 passed/2 skipped. Закрывает «Латентный» пункт записи ниже.
+
 ✅ **Entity-слой дашборда падал 500 на graph-only БД — guard'ы были только в досье-функциях** (2026-06-13)
 - **Root cause (non-obvious):** хелперы `_has_table`/`_has_column` (db_reader.py) применялись ТОЛЬКО
   в новых досье-функциях (`get_people`/`get_person_dossier`, Ф2), а старый entity-слой остался
@@ -104,10 +130,11 @@ None currently identified.
 - **Fix:** guard каждой bio-точки через `_has_table`; trust_score в `get_all_characters` через
   `_has_column` (всегда False → NULL); volatility/conflict_count → NULL-алиасы.
   Regress: `test_dashboard_dossier.py::test_entity_layer_graph_only_db_no_bio_tables`.
-- **Латентный (НЕ фикшен):** `get_character_profile` грузит `bio_behavior_patterns` с колонками
-  `name, severity, ratio, label`, а таблица имеет `trust_score/volatility/role_type/...` → при
-  существующей biography-схеме запрос упадёт на `no such column: name`. Сейчас не воспроизводится
-  (bio нет на боксе), вне заявленных багов — фиксить с реальной bio-БД, сверив контракт таблицы.
+- **Латентный (НЕ фикшен) — ЗАКРЫТ 2026-07-02 (см. запись выше):** `get_character_profile` грузит
+  `bio_behavior_patterns` с колонками `name, severity, ratio, label`, а таблица имеет
+  `trust_score/volatility/role_type/...` → при существующей biography-схеме запрос упадёт на
+  `no such column: name`. Сейчас не воспроизводится (bio нет на боксе), вне заявленных багов —
+  фиксить с реальной bio-БД, сверив контракт таблицы.
 - **Status:** RESOLVED (2026-06-13), 692 passed.
 
 ✅ **Модалка персонажа дёргала LLM с дашборда — до 120s на клик при живом llama-server** (2026-06-11)

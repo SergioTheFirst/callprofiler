@@ -8,6 +8,17 @@
 
 ## [Unreleased]
 
+### Fixed — первый прогон на боксе: psutil + `no such column: name` (2026-07-02)
+- `pyproject.toml`: добавлен `psutil` (импортирован в `server.py:181` /api/system, но не
+  был объявлен зависимостью — работал на деве случайно, за счёт глобальной установки).
+- `get_character_profile` слал `SELECT name, severity, ratio, label FROM bio_behavior_patterns`
+  — таких колонок нет (реальные: trust_score/volatility/role_type/...). Хуже: `entity_id` в этой
+  таблице — id-пространство `bio_entities`, ОТДЕЛЬНОЕ от graph `entities.id`, который получает
+  функция — алиас колонок убрал бы краш, но читал бы чужую строку при случайном совпадении id.
+  Fix: `patterns` теперь из `PsychologyProfiler._extract_patterns` (тот же источник, что у досье;
+  `get_entity_profile` кэширует результат — повторный вызов не нужен). Подробности: `bugs.md`.
+- 734 passed/2 skipped, +2 регресс-теста (`test_dashboard_dossier.py`).
+
 ### Fixed — age_style игнорировал явный маркер при конфликте (2026-07-02)
 - **Симптом (найден по запросу юзера — "не будет ли мешать" LLM-промпту age_v001.txt):**
   `confidence()` принимал `has_marker: bool` — плоский бонус за САМ ФАКТ существования

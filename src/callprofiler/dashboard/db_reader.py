@@ -161,6 +161,7 @@ class DashboardDBReader:
                 profile["temperament"] = psych.get("temperament")
                 profile["big_five"] = psych.get("big_five")
                 profile["motivation"] = psych.get("motivation")
+                profile["patterns"] = psych.get("patterns", [])
         except Exception as e:
             log.warning("Failed to load psychology profile for entity %d: %s", entity_id, e)
 
@@ -350,14 +351,12 @@ class DashboardDBReader:
             metrics_row, temperament, motivation
         )
 
-        if self._has_table("bio_behavior_patterns"):
-            pattern_rows = self._conn.execute(
-                """SELECT name, severity, ratio, label
-                   FROM bio_behavior_patterns
-                   WHERE entity_id = ? AND user_id = ?""",
-                (entity_id, user_id),
-            ).fetchall()
-            profile["patterns"] = [dict(r) for r in pattern_rows]
+        # bio_behavior_patterns — ОДНА строка сводных метрик на entity (trust_score/
+        # volatility/...), НЕ список именованных паттернов (нет колонок name/severity/
+        # ratio/label — regression, bugs.md 2026-06-13/2026-07-02). Паттерны берём из
+        # base (PsychologyProfiler._extract_patterns, тот же источник, что и досье —
+        # уже посчитан в get_entity_profile, повторный include_llm=False вызов не нужен).
+        profile["patterns"] = base.get("patterns") or []
 
         if self._has_table("bio_contradictions"):
             contradiction_rows = self._conn.execute(
