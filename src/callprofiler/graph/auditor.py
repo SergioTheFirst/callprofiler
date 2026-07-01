@@ -294,7 +294,10 @@ class GraphAuditor:
 
         for entity_id, stored_bs, _ in sample:
             try:
-                result = agg.compute_from_events(entity_id)
+                # NOTE: prior code called `compute_from_events` which does not
+                # exist on EntityMetricsAggregator — caused ~100 WARN per run.
+                # The correct full recalc API is `full_recalc_from_events`.
+                result = agg.full_recalc_from_events(entity_id)
                 recalc_bs = result.get("bs_index", 0.0)
                 drift = abs(stored_bs - recalc_bs) / max(stored_bs, 1.0)
 

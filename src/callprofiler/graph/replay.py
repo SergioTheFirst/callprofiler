@@ -52,6 +52,11 @@ class GraphReplayer:
         self._builder.reset_stats()
 
         # Step 1: Clear graph columns in events FIRST (to break FK references)
+        # NOTE: `analyses` has no user_id column — referencing it from the
+        # innermost subquery turned this into a CORRELATED subquery
+        # (full scan of analyses for EVERY row in calls), which on real
+        # data was ~309M row visits per UPDATE and stalled the script for
+        # hours. user_id-scoping on the outer `calls` query is enough.
         log.info("[replay] clearing graph columns in events (v2 only)")
         conn.execute(
             """UPDATE events
@@ -60,10 +65,10 @@ class GraphReplayer:
                WHERE user_id=? AND call_id IN (
                    SELECT id FROM calls WHERE user_id=? AND id IN (
                        SELECT DISTINCT call_id FROM analyses
-                       WHERE schema_version='v2' AND user_id=?
+                       WHERE schema_version='v2'
                    )
                )""",
-            (user_id, user_id, user_id),
+            (user_id, user_id),
         )
         conn.commit()
 

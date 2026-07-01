@@ -97,6 +97,23 @@ def apply_graph_schema(conn: sqlite3.Connection) -> None:
             "CREATE INDEX IF NOT EXISTS idx_events_entity ON events(entity_id)"
         )
 
+    # ── Hot-path indexes for graph-replay (post-mortem 2026-06-30) ───────
+    # Live DBs created before these were added to schema.sql get them here.
+    # Without them: get_transcript(call_id) does full scan of 660k+ rows
+    # per call; replay does this ~17.5k times → ~11.6B row visits.
+    if not _index_exists(conn, "idx_transcripts_call"):
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_transcripts_call "
+            "ON transcripts(call_id, start_ms)"
+        )
+        log.info("[graph] migration: idx_transcripts_call added")
+    if not _index_exists(conn, "idx_analyses_schema"):
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_analyses_schema "
+            "ON analyses(schema_version, call_id)"
+        )
+        log.info("[graph] migration: idx_analyses_schema added")
+
     conn.commit()
 
 

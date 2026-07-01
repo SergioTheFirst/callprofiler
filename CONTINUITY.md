@@ -20,7 +20,23 @@
 - `data_dir = C:\calls\data`. Лог: `C:\calls\callprofiler.log`.
 - **GPU sequential (Hard Constraint):** ASR+pyannote и LLM НИКОГДА одновременно (12GB RTX 3060).
 
-**State (2026-06-13):**
+**State (2026-06-30):**
+
+✅ **Post-mortem `make-characteristics.bat`: 8-12ч (зависал) → ~3мин.** Пять причин,
+один проход. (1) UTF-8 без BOM + cmd.exe CP866 → русские комменты парсились как команды
+(`'рает' is not recognized`); fix: `chcp 65001 > nul` + английские комменты + `pause`.
+(2) `replay.py` строки 56-67 — `AND user_id=?` во вложенном подзапросе к `analyses`
+(колонки `user_id` там НЕТ) → SQLite разрешал из scope внешней `calls` → коррелированный
+подзапрос → FULL SCAN analyses на КАЖДУЮ строку calls = ~309М row visits на UPDATE; fix:
+убран `AND user_id=?`, параметры `(user_id, user_id)`. (3) Нет индексов: `transcripts`
+(662k строк) без `(call_id, start_ms)` → каждый из 17.5k вызовов `get_transcript`
+полный скан = ~11.6B row visits; fix: `idx_transcripts_call` + `idx_analyses_schema`
+в `schema.sql` И в `apply_graph_schema()` (миграция для существующих БД, ПОСЛЕ ALTER
+analyses.schema_version). (4) `auditor.py:297` звал `agg.compute_from_events` —
+несуществующий метод; fix: `full_recalc_from_events`. (5) `goto :done` в bat при
+errorlevel≠0 убивал шаги 2-4 (graph-replay даёт exit 2 на ASSERT, это диагностика
+не фатал); fix: убраны goto, скрипт продолжается с предупреждением. 698 passed/2 skipped.
+Файлы: bat, replay.py, auditor.py, schema.sql, graph/repository.py.
 
 ✅ **Характеристика личности целиком по-русски (дашборд).** Новый слой `dashboard/labels_ru.py`
 переводит весь enum-словарь (темперамент/мотивация/паттерны/severity/тип/факты/тренд) в RU на
@@ -51,12 +67,14 @@ ratio/label — проявится на БД с biography, чинить там �
 ✅ Досье «Личности» (Ф0-Ф4 плана dossier) — в main ранее (208e5c1).
 
 **Next:**
-1. **ПРОГОН НА БОКСЕ:** pull → задать `owner_birth_year` в base.yaml (иначе якоря выкл) →
-   reset/startprocess как планировалось. autofit сам построит архетипы+возраст (инкрементально).
-2. В LLM-окне (llama-server жив, ASR не идёт): `profile-all --user me` +
+1. **ПРОГОН НА БОКСЕ:** pull → `make-characteristics.bat` теперь отрабатывает за ~3 мин
+   (по post-mortem). Первый старт после pull автоматически добавит индексы
+   `idx_transcripts_call`+`idx_analyses_schema` через `apply_graph_schema()`.
+2. Задать `owner_birth_year` в base.yaml (иначе якоря возраста выкл).
+3. В LLM-окне (llama-server жив, ASR не идёт): `profile-all --user me` +
    `age-estimate --user me --llm`.
-3. Чеклист плана: спот-чек 10 знакомых контактов (возраст в реальном диапазоне? цитаты настоящие?).
-4. Визуальная проверка UI (колонка «Возраст», секция в досье) — на боксе.
+4. Чеклист плана: спот-чек 10 знакомых контактов (возраст в реальном диапазоне? цитаты настоящие?).
+5. Визуальная проверка UI (колонка «Возраст», секция в досье) — на боксе.
 - ОТЛОЖЕНО: age_band как FRAGILE-ось кластеризации; калибровка confidence; Ф4-dominance;
   LLM-имена кластеров; Stage-2 биография; resilience-порт.
 

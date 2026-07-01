@@ -8,6 +8,35 @@
 
 ## [Unreleased]
 
+### Fixed — make-characteristics.bat: post-mortem (мгновенное закрытие → 8-12ч → ~3мин) (2026-06-30)
+- **Симптом-1 (мгновенное закрытие):** UTF-8 без BOM + русские комментарии → cmd.exe
+  на CP866 парсил байты кириллицы как отдельные команды (`'рает' is not recognized`,
+  `'types-fit' is not recognized`, `'да' is not recognized`). **Фикс:** `chcp 65001 > nul`
+  первой строкой + все комментарии/echo на английском + `pause` перед `endlocal` (окно
+  остаётся открытым при падении).
+- **Причина-2 (8-12ч на шаге 1/4):** `replay.py` строки 56-67 — коррелированный подзапрос.
+  `analyses` не имеет колонки `user_id`, и `AND user_id=?` во вложенном `SELECT DISTINCT
+  call_id FROM analyses` SQLite разрешал через scope внешней `calls` → FULL SCAN analyses
+  для КАЖДОЙ строки calls. **17 606 × 17 541 = ~309М row visits** на один UPDATE при
+  raw_response ~1.5KB = сотни ГБ I/O. **Фикс:** убрал `AND user_id=?` из самого глубокого
+  подзапроса; параметры `(user_id, user_id)` вместо `(user_id, user_id, user_id)`.
+- **Причина-3 (ещё +11.6B row visits):** `transcripts` (662 378 строк) без индекса на
+  `call_id` → `get_transcript(call_id)` сканировал всю таблицу для каждого из 17.5k
+  звонков replay. **Фикс:** `idx_transcripts_call ON transcripts(call_id, start_ms)` и
+  `idx_analyses_schema ON analyses(schema_version, call_id)` добавлены в `schema.sql`
+  + в `apply_graph_schema()` (применяются к живой БД на старте — `analyses` создаётся
+  без schema_version, индекс ставится ПОСЛЕ миграции колонки).
+- **Причина-4 (~100 предупреждений в graph-health):** `auditor.py:297` дёргал
+  `agg.compute_from_events(entity_id)` — несуществующий метод; `EntityMetricsAggregator`
+  имеет только `full_recalc_from_events`. **Фикс:** переименовал вызов.
+- **Причина-5 (шаги 2-4 не запускались):** bat ловил `errorlevel neq 0` от graph-replay
+  (exit code 2 = ASSERT FAILED, диагностика не фатал) и делал `goto :done`. **Фикс:**
+  `goto :done` убраны на всех шагах; сообщение пишется, скрипт продолжается.
+- **Результат:** прогон bat ~3 мин вместо 8-12ч без завершения. 698 passed/2 skipped.
+- **Файлы:** `make-characteristics.bat`, `src/callprofiler/graph/replay.py`,
+  `src/callprofiler/graph/auditor.py`, `src/callprofiler/db/schema.sql`,
+  `src/callprofiler/graph/repository.py` (миграция индексов для существующих БД).
+
 ### Changed — характеристика личности целиком по-русски (дашборд) (2026-06-13)
 - Новый презентационный слой `dashboard/labels_ru.py`: переводит весь видимый человеку
   enum-словарь (темперамент choleric→холерик, мотивация achievement→достижение, паттерны

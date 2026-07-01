@@ -133,6 +133,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_calls_user_md5
     ON calls(user_id, source_md5)
     WHERE source_md5 IS NOT NULL;
 
+-- Hot-path index для graph-replay (post-mortem 2026-06-30):
+--   transcripts: get_transcript(call_id) ORDER BY start_ms — без индекса
+--     на 660k+ строк = 17.5k полных сканов на каждый replay (~11.6B row visits).
+-- NB: idx_analyses_schema создаётся в apply_graph_schema() — schema_version
+--     добавляется ALTER-миграцией и в исходном DDL отсутствует.
+CREATE INDEX IF NOT EXISTS idx_transcripts_call
+    ON transcripts(call_id, start_ms);
+
 -- Graph extension columns added via migration in graph/repository.py:apply_graph_schema()
 --   entity_id INTEGER REFERENCES entities(id)
 --   fact_id   TEXT   (sha256 hash, 16 chars, for dedup)

@@ -67,6 +67,21 @@
       "PowerShell(python -m pip show pytest-asyncio 2>&1 | Select-String -Pattern \"Name|Version\" ; \"exit=$LASTEXITCODE\")",
       "PowerShell(git push *)",
       "PowerShell(*)",
+      "Bash(*)",
+      "WebSearch",
+      "mcp__plugin_context-mode_context-mode__ctx_fetch_and_index",
+      "WebFetch(domain:arxiv.org)",
+      "WebFetch(domain:journal.tusur.ru)",
+      "WebFetch(domain:aclanthology.org)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(PYTHONPATH=C:\\\\pro\\\\callprofiler\\\\src python -m pytest tests/ -q)",
+      "Bash(PYTHONPATH=C:\\\\pro\\\\callprofiler\\\\src python -m pytest tests/insight/test_topical.py -q)",
+      "Bash(PYTHONPATH=C:\\\\pro\\\\callprofiler\\\\src python *)",
+      "Bash(export PYTHONPATH=\"C:/pro/callprofiler/src\")",
+      "Bash(python -c \"import sys; print\\(sys.path[:2]\\)\")",
+      "Bash(python -m pytest tests/ -q)",
       "Bash(*)"
     ]
   }
