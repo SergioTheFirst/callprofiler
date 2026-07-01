@@ -21,8 +21,8 @@ def test_readability_counted_once():
              "mattr": {"z": -1.5, "support_n": 100},
              "mtld": {"z": -1.5, "support_n": 100},
              "yule_k": {"z": 1.5, "support_n": 100}}  # ↓-признак, инвертируется -> тот же сигнал
-    p_one, contrib_one = scorer.score_contact(one)
-    p_three, contrib_three = scorer.score_contact(three)
+    p_one, contrib_one, _ = scorer.score_contact(one)
+    p_three, contrib_three, _ = scorer.score_contact(three)
     assert set(contrib_one.keys()) == {"life_stage", "diversity"}
     assert set(contrib_three.keys()) == {"life_stage", "diversity"}  # не 4 ключа
     for g in p_one:
@@ -36,7 +36,7 @@ def test_clean_profile_recovers_group():
         "ch6": {"z": -1.2, "support_n": 200},
         "i_ratio": {"z": 1.0, "support_n": 40},
     }
-    p2, _ = scorer.score_contact(g2)
+    p2, _, _ = scorer.score_contact(g2)
     assert max(p2, key=p2.get) == "G2"
 
     g4 = {  # карьера, длинные слова, высокое лексическое разнообразие
@@ -44,7 +44,7 @@ def test_clean_profile_recovers_group():
         "ch6": {"z": 1.0, "support_n": 200},
         "mattr": {"z": 0.7, "support_n": 200},
     }
-    p4, _ = scorer.score_contact(g4)
+    p4, _, _ = scorer.score_contact(g4)
     assert max(p4, key=p4.get) == "G4"
 
     g6 = {  # внуки/пенсия, архаизмы высокие, длинные слова, низкая доля "я"
@@ -53,7 +53,7 @@ def test_clean_profile_recovers_group():
         "ch6": {"z": 1.5, "support_n": 200},
         "i_ratio": {"z": -1.0, "support_n": 40},
     }
-    p6, _ = scorer.score_contact(g6)
+    p6, _, _ = scorer.score_contact(g6)
     assert max(p6, key=p6.get) == "G6"
 
 
@@ -69,7 +69,7 @@ def test_slang_absence_neutral():
         "archaism": {"raw": 20.0, "z": 1.8, "support_n": 200},
         "slang": {"raw": 0.0, "z": None, "support_n": 200},
     }
-    p, _ = scorer.score_contact(old_profile)
+    p, _, _ = scorer.score_contact(old_profile)
     assert max(p, key=p.get) == "G6"
 
 
@@ -89,6 +89,59 @@ def test_edge_bonus_and_bimodal():
 
 
 def test_score_contact_no_features_returns_uniform():
-    p, contrib = scorer.score_contact({})
+    p, contrib, conflict = scorer.score_contact({})
     assert contrib == {}
+    assert conflict is False
     assert all(abs(v - 1.0 / 6) < 1e-9 for v in p.values())
+
+
+def test_marker_reinforces_agreeing_style():
+    # Маркер + стиль согласны (оба тянут к G6) -> маркер входит как голос,
+    # итог остаётся G6, добавляется в contributions.
+    g6 = {
+        "life_stage": {"cluster": "внуки_пенсия", "support_n": 50},
+        "archaism": {"raw": 20.0, "z": 1.8, "support_n": 200},
+        "ch6": {"z": 1.5, "support_n": 200},
+    }
+    marker = {"birth_low": 1955, "birth_high": 1958, "confidence": 85}
+    p, contrib, conflict = scorer.score_contact(g6, marker=marker, reference_year=2026)
+    assert max(p, key=p.get) == "G6"
+    assert conflict is False
+    assert "marker" in contrib
+
+
+def test_marker_wins_conflict_with_style():
+    # Стиль уверенно молодой (G2), явный маркер говорит G6 -> маркер должен
+    # ПОБЕДИТЬ (vozrast.md §7.1 "маркер побеждает"), и это помечается конфликтом.
+    g2 = {
+        "life_stage": {"cluster": "вуз_сессия", "support_n": 50},
+        "slang": {"raw": 15.0, "z": 1.2, "support_n": 200},
+        "ch6": {"z": -1.2, "support_n": 200},
+        "i_ratio": {"z": 1.0, "support_n": 40},
+    }
+    p_style_only, _, _ = scorer.score_contact(g2)
+    assert max(p_style_only, key=p_style_only.get) == "G2"  # предпосылка
+
+    marker = {"birth_low": 1955, "birth_high": 1958, "confidence": 90}
+    p, contrib, conflict = scorer.score_contact(g2, marker=marker, reference_year=2026)
+    assert conflict is True
+    assert max(p, key=p.get) == "G6"  # маркер перевесил стиль
+    assert p["G6"] > p_style_only["G6"]  # стиль лишь слегка сдвигает, не отменяет
+
+
+def test_marker_weak_relation_anchor_still_contributes():
+    # Слабый маркер (низкая confidence, напр. relation-якорь) весит меньше,
+    # но всё равно голосует — не игнорируется молча.
+    marker = {"birth_low": 2004, "birth_high": 2006, "confidence": 25}  # age 20-22 @2026, solidly G2
+    p, contrib, _ = scorer.score_contact({}, marker=marker, reference_year=2026)
+    assert "marker" in contrib
+    assert contrib["marker"]["weight"] > 0
+    assert max(p, key=p.get) == "G2"  # только маркер голосует -> его группа побеждает
+
+
+def test_marker_conflict_with_no_style_votes_is_false():
+    # Пустой стиль (uniform) сравнивать с маркером бессмысленно -> conflict=False,
+    # а не ложное срабатывание из-за произвольного argmax равномерного приора.
+    marker = {"birth_low": 1955, "birth_high": 1958, "confidence": 85}
+    _, _, conflict = scorer.score_contact({}, marker=marker, reference_year=2026)
+    assert conflict is False

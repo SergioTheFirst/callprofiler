@@ -145,8 +145,9 @@ CLI: `age-estimate --user X [--contact N] [--llm]`. Тесты: `tests/insight/t
 
 Реализация плана `age.md` (методология `vozrast.md`) — ОТДЕЛЬНАЯ система от `age_markers.py`/
 `age_estimate.py` выше (своя таблица `contact_age_style`, свой пайплайн `insight/age_style/`,
-никогда не пишет/не читает `contact_age_estimates`). Источник: реплики `speaker='OTHER'`
-по ВСЕМ звонкам контакта (агрегат-уровень, не per-conversation).
+никогда НЕ ПИШЕТ в `contact_age_estimates`; READ-ONLY читает `method`/`birth_year_*` оттуда —
+см. «Marker-vs-style» ниже). Источник: реплики `speaker='OTHER'` по ВСЕМ звонкам контакта
+(агрегат-уровень, не per-conversation).
 
 **Поток:** сырые фичи (`features/{diversity_age,readability_age,morphosyntax_age,lexical_age}.py`)
 → z-score ВНУТРИ популяции юзера (`feature_store.assemble_matrix`+`standardize`, тот же контракт,
@@ -179,6 +180,19 @@ realia (год из упомянутых реалий эпохи). Лексик�
 — **пересчитывает ВСЮ популяцию юзера** (не только запрошенный contact_id: z-score
 популяционный, точечный пересчёт всё равно требует того же прохода), возвращает свежую
 строку контакта. Синхронно в threadpool, без GPU/LLM — доктрина дашборда не нарушена.
+
+**Marker-vs-style (2026-07-02, фикс):** `estimate_style._get_marker` читает валидный явный
+маркер (`method IN marker/relation/combined`, НЕ `llm` — та же по духу слабая догадка, что и
+весь этот модуль) из `contact_age_estimates` и передаёт в `scorer.score_contact(..., marker=)`.
+Маркер входит в пул как узкая сильная посылка (вес `2.5×confidence/100` — обычно перевешивает
+СУММУ style-голосов за счёт концентрации на одной группе, vozrast.md §7.1 «маркер побеждает»).
+Конфликт `argmax(style-only) != argmax(marker)` → `marker_conflict` → warning «расходится с
+явным маркером» + штраф в Conflict-члене `confidence()` (было: ТОЛЬКО внутренняя бимодальность,
+маркер давал плоский бонус вне зависимости от согласия со стилем — баг). `confidence()` принимает
+`marker_strength: float` (0.0 или confidence/100), не булев флаг. **Список «Личности»
+(`get_people`)** — fallback на `contact_age_style`, если нет marker/LLM-оценки (`age_source:
+'marker'|'style'|None`); раньше контакты БЕЗ явного маркера (ради которых age_style и строился)
+не получали возраст в списке вообще.
 
 Тесты: `tests/insight/test_age_{markers_vnukovo,style_schema,features,scorer,style_estimate}.py`
 + `tests/test_dashboard_age_style.py`.

@@ -5,8 +5,11 @@
 (MVP, Жёсткое решение #2). Поток: сырые признаки (Фаза 2) -> z внутри
 популяции пользователя (`feature_store`, Жёсткое решение #3) -> биннинг+таблицы
 (Фаза 3) -> год рождения (accumulate) -> доверие (confidence) -> UPSERT
-contact_age_style. НЕ трогает `_aggregate`/`contact_age_estimates`
-(Жёсткое решение #1) — стиль живёт в своей таблице.
+contact_age_style. НЕ пишет и НЕ вызывает `_aggregate`/aggregation
+существующей marker/relation/LLM-системы (Жёсткое решение #1) — стиль живёт
+в своей таблице. READ-ONLY заимствование: `_get_marker` читает (не пишет)
+`contact_age_estimates.method/birth_year_*` как валидный явный маркер для
+пула §7.1 и для Conflict-члена доверия §7.2 (vozrast.md §5.2 п.6).
 """
 from __future__ import annotations
 
@@ -79,12 +82,20 @@ def _raw_features(tokens, other_segments):
     return feats
 
 
-def _has_explicit_marker(conn, user_id, contact_id) -> bool:
+def _get_marker(conn, user_id, contact_id) -> dict | None:
+    """Валидный явный маркер СУЩЕСТВУЮЩЕЙ marker/relation-системы (не 'llm' —
+    та же по духу слабая лексическая догадка, что и весь этот модуль; считать
+    её "явным маркером" было бы циклической самопроверкой)."""
     row = conn.execute(
-        "SELECT method FROM contact_age_estimates WHERE user_id = ? AND contact_id = ?",
+        "SELECT method, birth_year_low, birth_year_high, confidence "
+        "FROM contact_age_estimates WHERE user_id = ? AND contact_id = ?",
         (user_id, contact_id),
     ).fetchone()
-    return bool(row and row[0] in ("marker", "relation", "combined"))
+    if not row or row[0] not in ("marker", "relation", "combined"):
+        return None
+    if row[1] is None or row[2] is None:
+        return None
+    return {"birth_low": row[1], "birth_high": row[2], "confidence": row[3] or 1}
 
 
 def run_style_estimate(conn, user_id: str, *, reference_now=None,
@@ -175,13 +186,15 @@ def _score_and_save(conn, user_id, cid, raw, extra, z_row, name_idx):
     if extra["realia"] is not None:
         features["realia"] = {"year_range": extra["realia"], "support_n": extra["total_tokens"]}
 
-    p_group, contributions = score_contact(features, extra["call_types"], anchor_year)
+    marker = _get_marker(conn, user_id, cid)
+    p_group, contributions, marker_conflict = score_contact(
+        features, extra["call_types"], anchor_year, marker=marker)
     agreement = agreement_from_dist(p_group)
     bimodal = sanity_bimodal(p_group)
     conf, level = confidence(
         extra["n_conversations"], extra["total_tokens"], agreement,
-        has_marker=_has_explicit_marker(conn, user_id, cid),
-        conflict=1.0 if bimodal else 0.0,
+        marker_strength=(marker["confidence"] / 100.0) if marker else 0.0,
+        conflict=1.0 if (bimodal or marker_conflict) else 0.0,
     )
     if not bimodal:
         conf = max(1, min(100, int(round(conf + edge_bonus(ls.get("cluster"))))))
@@ -204,6 +217,8 @@ def _score_and_save(conn, user_id, cid, raw, extra, z_row, name_idx):
         warnings.append("мало данных")
     if bimodal:
         warnings.append("конфликтующие сигналы")
+    if marker_conflict:
+        warnings.append("расходится с явным маркером")
 
     top = sorted(
         ((k, round(v.get("weight", 0.0), 3)) for k, v in contributions.items()),

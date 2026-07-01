@@ -747,11 +747,13 @@
                 ? '<span class="sr-tag entity" style="border-color:' + clusterColor(p.cluster_idx) + '">' + escapeHtml(p.archetype_label) + '</span>'
                 : '--';
             var last = p.last_call_date ? String(p.last_call_date).slice(0, 10) : '--';
-            // Возраст: «~48», серым при уверенности < 50 (план age-estimation Ф3)
+            // Возраст: «~48», серым при уверенности < 50 (план age-estimation Ф3).
+            // age_source: 'marker' (маркер/LLM, сильнее) | 'style' (только стилометрия).
             var age = (p.age_point != null)
                 ? '<span' + ((p.age_confidence != null && p.age_confidence < 50)
                     ? ' style="color:var(--text-muted)"' : '') +
-                  ' title="уверенность ' + (p.age_confidence != null ? p.age_confidence : '?') + '/100">~' +
+                  ' title="уверенность ' + (p.age_confidence != null ? p.age_confidence : '?') +
+                  '/100' + (p.age_source === 'style' ? ' (по стилю речи)' : '') + '">~' +
                   p.age_point + '</span>'
                 : '--';
             return '<tr class="call-row" data-contact-id="' + p.contact_id + '" title="Открыть досье">' +
@@ -834,7 +836,7 @@
         diversity: 'Лексическое разнообразие', ch6: 'Длина слова / читаемость',
         slang: 'Молодёжный сленг', archaism: 'Архаизмы/советизмы',
         i_ratio: 'Доля «я»', vy_ratio: 'Формальность (вы-обращение)',
-        life_stage: 'Тема (своё)', realia: 'Реалии эпохи'
+        life_stage: 'Тема (своё)', realia: 'Реалии эпохи', marker: 'Явный маркер'
     };
 
     function renderDossier(d) {

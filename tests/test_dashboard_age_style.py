@@ -78,6 +78,65 @@ def test_dossier_reads_style_row(tmp_path):
     assert st["group_distribution"]["G4"] == 0.46
 
 
+def test_people_age_falls_back_to_style_when_no_marker(tmp_path):
+    """get_people: без явного маркера/LLM возраст берётся из age_style (для
+    этого он и строился — покрывает контакты БЕЗ явного упоминания возраста)."""
+    db, cid = _seed_contact(tmp_path)
+    repo = Repository(db)
+    conn = repo._get_conn()
+    insight_repo.save_contact_age_style(
+        conn, "me", contact_id=cid, group_code="G4",
+        group_dist={"G1": 0.0, "G2": 0.03, "G3": 0.19, "G4": 0.46, "G5": 0.24, "G6": 0.08},
+        birth_low=1975, birth_high=1985, birth_point=1980,
+        confidence=55, confidence_level=3, n_conversations=10, total_tokens=800,
+        top=[], warnings=[], table_version="age-style-v1+age-rules-v1",
+    )
+    conn.commit()
+    repo.close()
+
+    r = _reader(db)
+    people = r.get_people("me")
+    r.close()
+
+    yr = date.today().year
+    p = people[0]
+    assert p["age_point"] == yr - 1980
+    assert p["age_confidence"] == 55
+    assert p["age_source"] == "style"
+
+
+def test_people_age_prefers_marker_over_style(tmp_path):
+    """Явный маркер (contact_age_estimates) СИЛЬНЕЕ стиля — побеждает в списке,
+    даже если стиль посчитан на другой год рождения."""
+    db, cid = _seed_contact(tmp_path)
+    repo = Repository(db)
+    conn = repo._get_conn()
+    insight_repo.save_contact_age_estimate(
+        conn, "me", contact_id=cid, age_low=49, age_high=51, age_point=50,
+        birth_year_low=1975, birth_year_high=1976, birth_year_point=1976,
+        confidence=80, method="marker", evidence=[],
+    )
+    insight_repo.save_contact_age_style(
+        conn, "me", contact_id=cid, group_code="G2",
+        group_dist={"G1": 0.0, "G2": 0.7, "G3": 0.2, "G4": 0.1, "G5": 0.0, "G6": 0.0},
+        birth_low=1998, birth_high=2002, birth_point=2000,
+        confidence=40, confidence_level=2, n_conversations=5, total_tokens=300,
+        top=[], warnings=["расходится с явным маркером"], table_version="age-style-v1+age-rules-v1",
+    )
+    conn.commit()
+    repo.close()
+
+    r = _reader(db)
+    people = r.get_people("me")
+    r.close()
+
+    yr = date.today().year
+    p = people[0]
+    assert p["age_point"] == yr - 1976  # маркер, не стиль (2000)
+    assert p["age_confidence"] == 80
+    assert p["age_source"] == "marker"
+
+
 def test_age_recompute_endpoint_writes_and_returns():
     import callprofiler.dashboard.server as server_mod
 

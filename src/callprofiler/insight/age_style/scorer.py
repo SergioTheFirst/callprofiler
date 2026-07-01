@@ -27,6 +27,13 @@ SUPPORT_FLOOR = 2  # §4.4: признаки ниже порога не голо
 
 _DIVERSITY_IDS = ("mattr", "mtld", "yule_k")
 
+# ponytail: старт-коэффициент — валидный явный маркер обычно должен перевешивать
+# СУММУ style-голосов целиком (vozrast.md §7.1 "маркер побеждает, стиль лишь
+# слегка сдвигает интервал"), не один голос. Масштабируется его собственной
+# confidence (слабый relation-якорь весит меньше сильного прямого маркера).
+# Калибровать на спот-чеке §15, не трогать вслепую.
+_MARKER_WEIGHT_COEF = 2.5
+
 
 def _diversity_vote(features: dict, call_types: list | None):
     zs, ws = [], []
@@ -57,14 +64,38 @@ def _onedirectional_vote(fid: str, f: dict, call_types: list | None):
     return w, TABLES[fid][bin_label], {"bin": bin_label}
 
 
+def _pool(votes: list[tuple[str, float, dict]]) -> dict:
+    total_w = sum(w for _, w, _ in votes if w > 0)
+    if total_w <= 0:
+        return uniform_dist()
+    pooled = {g: 0.0 for g in GROUP_CODES}
+    for _, w, dist in votes:
+        if w <= 0:
+            continue
+        for g in GROUP_CODES:
+            pooled[g] += w * dist.get(g, 0.0)
+    return {g: v / total_w for g, v in pooled.items()}
+
+
 def score_contact(features: dict, call_types: list | None = None,
-                  reference_year: int | None = None) -> tuple[dict, dict]:
-    """→ (P(g) dict по GROUP_CODES, contributions dict feature_id->{weight,...}).
+                  reference_year: int | None = None,
+                  marker: dict | None = None) -> tuple[dict, dict, bool]:
+    """→ (P(g) dict по GROUP_CODES, contributions dict feature_id->{weight,...},
+    marker_conflict: bool).
 
     `reference_year` — год, к которому проецируется Т2 (реалии->год рождения->
     P(g)); должен совпадать с reference_now вызывающего пайплайна (иначе Т2
     молча взял бы сегодняшнюю дату — год рождения "поплыл" бы между прогонами
     с разным reference_now при идентичных данных).
+
+    `marker` — валидный явный маркер СУЩЕСТВУЮЩЕЙ marker/relation-системы
+    (`{"birth_low", "birth_high", "confidence"}` из contact_age_estimates),
+    если есть. Входит в пул как "узкая сильная посылка" (vozrast.md §7.1,
+    §5.2 п.6): при согласии со стилем усиливает и сужает итог, при конфликте —
+    ПОБЕЖДАЕТ за счёт веса (стиль лишь слегка сдвигает интервал, не
+    переопределяет). `marker_conflict` — True, если argmax(стиль-only) !=
+    argmax(маркер); сигнал для Conflict-члена формулы доверия (§7.2), не для
+    самого переопределения (оно уже происходит через вес в пуле выше).
     """
     call_types = call_types or []
     votes: list[tuple[str, float, dict]] = []
@@ -115,14 +146,19 @@ def score_contact(features: dict, call_types: list | None = None,
         votes.append(("realia", w, dist))
         contributions["realia"] = {"weight": w, "year_range": f["year_range"]}
 
-    total_w = sum(w for _, w, _ in votes if w > 0)
-    if total_w <= 0:
-        return uniform_dist(), {}
+    marker_conflict = False
+    if marker is not None:
+        # конфликт меряем ПРОТИВ чисто-стилевого голоса (до добавления маркера) —
+        # пустой/равномерный style-only не даёт реального мнения для сравнения.
+        style_only = _pool(votes) if votes else None
+        marker_dist = year_range_to_group_dist(
+            marker["birth_low"], marker["birth_high"], reference_year)
+        if style_only is not None:
+            marker_conflict = (max(style_only, key=style_only.get)
+                               != max(marker_dist, key=marker_dist.get))
+        mw = _MARKER_WEIGHT_COEF * (marker.get("confidence", 1) / 100.0)
+        votes.append(("marker", mw, marker_dist))
+        contributions["marker"] = {
+            "weight": mw, "birth_range": (marker["birth_low"], marker["birth_high"])}
 
-    pooled = {g: 0.0 for g in GROUP_CODES}
-    for _, w, dist in votes:
-        if w <= 0:
-            continue
-        for g in GROUP_CODES:
-            pooled[g] += w * dist.get(g, 0.0)
-    return {g: v / total_w for g, v in pooled.items()}, contributions
+    return _pool(votes), contributions, marker_conflict

@@ -42,16 +42,22 @@ def confidence_level(n_conversations: int, total_tokens: int, conf: int) -> int:
 
 
 def confidence(n_conversations: int, total_tokens: int, agreement: float,
-               has_marker: bool = False, conflict: float = 0.0) -> tuple[int, int]:
+               marker_strength: float = 0.0, conflict: float = 0.0) -> tuple[int, int]:
     """§7.2: (confidence 1-100, level 1-5).
 
     ess_proxy — суррогат эффективного размера выборки без per-разговорных R_k
     (MVP агрегат-уровень): растёт и с числом разговоров, и с объёмом текста.
+
+    `marker_strength` — 0.0 (нет валидного явного маркера) либо его
+    confidence/100 (§7.2 MarkerBonus: сильный прямой маркер даёт больше
+    бонуса, чем слабый relation-якорь — не плоский флаг).
+    `conflict` — противоречия: маркер vs стиль ИЛИ внутренняя бимодальность
+    (§7.2 Conflict; либо то и другое → всё равно 0/1, шкала не удваивается).
     """
     ess_proxy = max(1.0, min(n_conversations, total_tokens / 50.0))
     x = (_A * (math.log(ess_proxy) - math.log(_ESS0))
          + _B * (agreement - 0.5)
-         + _C * (1.0 if has_marker else 0.0)
+         + _C * marker_strength
          - _D * conflict)
     conf = 100.0 / (1.0 + math.exp(-x))
     conf = max(1, min(int(round(conf)), 100))

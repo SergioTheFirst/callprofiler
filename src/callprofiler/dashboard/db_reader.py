@@ -572,6 +572,11 @@ class DashboardDBReader:
                        "cae.confidence AS age_confidence"]
             joins += ["LEFT JOIN contact_age_estimates cae "
                       "ON cae.contact_id = ct.contact_id AND cae.user_id = ct.user_id"]
+        if self._has_table("contact_age_style"):
+            select += ["cas.birth_year_point AS style_birth_year_point",
+                       "cas.confidence AS style_age_confidence"]
+            joins += ["LEFT JOIN contact_age_style cas "
+                      "ON cas.contact_id = ct.contact_id AND cas.user_id = ct.user_id"]
         sql = ("SELECT " + ", ".join(select) + " FROM contacts ct " + " ".join(joins)
                + " WHERE ct.user_id = ?"
                + " ORDER BY COALESCE(cs.total_calls, 0) DESC, ct.contact_id LIMIT ?")
@@ -585,10 +590,21 @@ class DashboardDBReader:
             for key in ("archetype_label", "membership", "entity_id",
                         "bs_index", "trust_score", "age_point", "age_confidence"):
                 d.setdefault(key, None)
-            # Возраст «сейчас» из года рождения — не протухает между пересчётами
+            # Возраст «сейчас» из года рождения — не протухает между пересчётами.
+            # Маркер/LLM (сильнее) побеждает; если его нет — стиль (age_style
+            # покрывает контакты БЕЗ явного маркера, ради этого и строился).
+            age_source = None
             if d.get("birth_year_point"):
                 d["age_point"] = date.today().year - int(d["birth_year_point"])
+                age_source = "marker"
+            elif d.get("style_birth_year_point"):
+                d["age_point"] = date.today().year - int(d["style_birth_year_point"])
+                d["age_confidence"] = d.get("style_age_confidence")
+                age_source = "style"
+            d["age_source"] = age_source
             d.pop("birth_year_point", None)
+            d.pop("style_birth_year_point", None)
+            d.pop("style_age_confidence", None)
             people.append(d)
         return people
 
