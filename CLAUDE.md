@@ -2,8 +2,10 @@
 
 **Mission:** audio → transcript → local LLM → Telegram/Android. Think a lot, show little.
 
-## Communication (user-authorized 2026-06-05)
-- Отвечать пользователю **кратко, по делу, без воды**. Без преамбул/пересказа/«могу ещё». Русский.
+## Communication (user-authorized 2026-06-05, updated 2026-07-01)
+- Reply **short, to the point, no filler**. No preambles/recaps/"want me to also...". English.
+- **Plugins always on:** `ponytail` at `ultra` (YAGNI-max, smallest diff, challenge scope before adding
+  it) + `caveman` (terse, drop filler words). Save tokens everywhere possible.
 - Не перечитывать код на вопрос. Ответы про pipeline/db/graph/llm/insight брать из карт
   `.claude/rules/*`; код читать ТОЛЬКО если карта не покрывает (и тогда обновить карту).
 - В конце задачи: память → `commit` + `push origin main` → короткий итог.
