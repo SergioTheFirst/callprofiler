@@ -3081,3 +3081,4 @@ FALLBACK:     null
 | CUDA | 12.4 |
 
 - 2026-07-02 — docs: STRATEGIC_PLAN_v5.md — стратегическая ревизия ценности (4 момента потребности, портфель Ф-A..Ф-D на существующих наработках, доктрина триангуляции портрета, Admiralty-грейд, kill-criteria); supersedes v4.
+- 2026-07-02 — docs: ozalupennieStrategic5.md — атомарный Sonnet-план исполнения STRATEGIC_PLAN_v5 (Ф0 качество → A1-A7 → B1-B8 → C3/C1, C2=T3-стоп → D1-D3; все якоря кода проверены). Попутно найдены 2 бага: NameError `user_id` в handle_feedback (feedback никогда не сохранялся) и BS-пороги, применяемые к risk-шкале в card_generator — фиксы включены в задачи 0.2/A4.
