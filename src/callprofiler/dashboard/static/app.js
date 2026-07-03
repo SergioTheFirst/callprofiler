@@ -888,23 +888,39 @@
             html += dossierSec('Возраст', aHtml);
         }
 
-        // Возраст (стиль): группа/распределение/топ-вклады, без ложной точности (vozrast.md §10.2)
+        // C3/Ф6.2-6.4: Возраст — age_fused + стиль + маркеры; ВСЕГДА видит блок
+        var ageHtml = '';
+
+        // age_fused — единая оценка (приоритет)
+        if (d.age_fused) {
+            var af = d.age_fused;
+            ageHtml += '<div style="font-size:15px;font-weight:500;margin-bottom:12px;line-height:1.4">' +
+                '~' + af.age_point + ' лет' +
+                (af.age_low != null && af.age_high != null && af.age_low !== af.age_high
+                    ? ' (' + af.age_low + '–' + af.age_high + ')' : '') +
+                ' · уверенность ' + af.confidence + '/100 · источник: ' + escapeHtml(af.source) +
+                '</div>';
+        } else if (d.age_style || d.age) {
+            ageHtml += '<div style="color:var(--text-muted);font-size:13px;margin-bottom:12px">не рассчитано</div>';
+        }
+
+        // Явные маркеры
+        if (d.age) {
+            var m = d.age;
+            ageHtml += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">Явные маркеры: ' +
+                'есть: ' + escapeHtml(m.method || '?') +
+                (m.age_point != null ? ', ~' + m.age_point + ' лет' : '') +
+                '</div>';
+        }
+
+        // Стиль детализация
         if (d.age_style) {
             var st = d.age_style;
             var gd = st.group_distribution || {};
             var lvl = st.confidence_level || 0;
             var stars = '★'.repeat(lvl) + '☆'.repeat(Math.max(0, 5 - lvl));
             var lowConf = st.confidence != null && st.confidence < 50;
-            var sHtml = '<div style="' + (lowConf ? 'color:var(--text-muted);' : '') + 'font-size:15px;margin-bottom:6px">';
-            if (st.age_point != null) {
-                sHtml += '~' + st.age_point + ' лет' +
-                    ((st.age_low != null && st.age_high != null && st.age_low !== st.age_high)
-                        ? ' (' + st.age_low + '–' + st.age_high + ')' : '') +
-                    (st.birth_year_point != null ? ' · год рождения ~' + st.birth_year_point : '');
-            } else {
-                sHtml += 'недостаточно данных для точки';
-            }
-            sHtml += '</div><div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">' +
+            var sHtml = '<div style="' + (lowConf ? 'color:var(--text-muted);' : '') + 'font-size:12px;margin-top:8px">' +
                 stars + ' (уровень ' + lvl + ' · ' + (st.confidence != null ? st.confidence : '?') + '/100)' +
                 (st.n_conversations != null ? ' &nbsp; Разговоров: ' + st.n_conversations : '') + '</div>';
 
@@ -927,16 +943,30 @@
                 }).join('');
             }
 
-            sHtml += '<div style="font-size:11px;color:var(--text-muted);margin-top:6px">Явные маркеры: ' +
-                (d.age && d.age.age_point != null ? 'есть (см. «Возраст» выше)' : 'не найдено — оценка по стилю') + '</div>';
             if (st.warnings && st.warnings.length) {
-                sHtml += '<div style="font-size:11px;color:var(--text-muted)">' +
+                sHtml += '<div style="font-size:11px;color:var(--text-muted);margin-top:6px">' +
                     st.warnings.map(function(w) { return escapeHtml(w); }).join(', ') + '</div>';
             }
-            sHtml += '<div style="margin-top:8px"><button class="btn btn-outline btn-sm" id="dossier-age-recompute-btn" data-cid="' +
-                (c.contact_id || '') + '">Определить возраст ↻</button></div>';
 
-            html += dossierSec('Возраст (стиль)', sHtml);
+            ageHtml += sHtml;
+        }
+
+        // Кнопка (C3: всегда видна)
+        ageHtml += '<div style="margin-top:12px"><button class="btn btn-outline btn-sm" id="dossier-age-recompute-btn" data-cid="' +
+            (c.contact_id || '') + '" title="полный пересчёт: маркеры этого контакта + стилометрия всей популяции; без LLM">Пересчитать возраст ↻</button></div>';
+
+        // Hints (C3)
+        if (window._dossier_age_hint) {
+            ageHtml += '<div style="font-size:11px;color:var(--text-muted);margin-top:6px;font-style:italic">' +
+                escapeHtml(window._dossier_age_hint) + '</div>';
+        }
+        if (window._dossier_age_hint_diarization) {
+            ageHtml += '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;font-style:italic">' +
+                escapeHtml(window._dossier_age_hint_diarization) + '</div>';
+        }
+
+        if (ageHtml) {
+            html += dossierSec('Возраст', ageHtml);
         }
 
         // Черты-фразы архетипа
@@ -1093,8 +1123,18 @@
             this.disabled = true;
             this.textContent = 'Считаю…';
             fetch('/api/tools/age-recompute?contact_id=' + cid, {method: 'POST'})
-                .then(function() { openPersonDossier(cid); })
-                .catch(function() { openPersonDossier(cid); });
+                .then(function(resp) { return resp.json(); })
+                .then(function(data) {
+                    // C3: сохранить hints из ответа
+                    window._dossier_age_hint = data.hint || null;
+                    window._dossier_age_hint_diarization = data.hint_diarization || null;
+                    openPersonDossier(cid);
+                })
+                .catch(function() {
+                    window._dossier_age_hint = null;
+                    window._dossier_age_hint_diarization = null;
+                    openPersonDossier(cid);
+                });
         });
         body.querySelectorAll('.call-row[data-call-id]').forEach(function(row) {
             row.addEventListener('click', function() {

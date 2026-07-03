@@ -133,7 +133,9 @@ def test_people_age_prefers_marker_over_style(tmp_path):
     yr = date.today().year
     p = people[0]
     assert p["age_point"] == yr - 1976  # маркер, не стиль (2000)
-    assert p["age_confidence"] == 80
+    # C2: fusion возвращает маркер но с конфликтом (интервалы не пересекаются),
+    # поэтому confidence = marker_conf - 10 = 80 - 10 = 70
+    assert p["age_confidence"] == 70
     assert p["age_source"] == "marker"
 
 
@@ -153,6 +155,151 @@ def test_age_recompute_endpoint_writes_and_returns():
             assert body["status"] == "ok"
             assert body["age_style"]["group_code"] == "G4"
         server_mod._TOOLS.run_age_recompute.assert_called_once_with(5)
+    finally:
+        server_mod._TOOLS = saved_t
+        server_mod._USER_ID = saved_u
+
+
+# C4 тесты — fusion + dashboard
+def test_dossier_age_fused_present(tmp_path):
+    """Если есть маркер и стиль — age_fused присутствует в dosiers."""
+    db, cid = _seed_contact(tmp_path)
+    repo = Repository(str(db))
+    conn = repo._get_conn()
+
+    # Добавить маркер
+    conn.execute(
+        "INSERT INTO contact_age_estimates(user_id, contact_id, age_point, "
+        "birth_year_point, birth_year_low, birth_year_high, confidence, method) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        ("me", cid, 50, 1976, 1975, 1978, 80, "marker"),
+    )
+    # Добавить стиль
+    conn.execute(
+        "INSERT INTO contact_age_style(user_id, contact_id, group_code, "
+        "birth_year_point, birth_year_low, birth_year_high, confidence, confidence_level) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        ("me", cid, "G4", 1975, 1970, 1980, 60, 2),
+    )
+    conn.commit()
+    repo.close()
+
+    r = _reader(db)
+    d = r.get_person_dossier(cid, "me")
+    r.close()
+
+    assert d is not None
+    assert d["age_fused"] is not None
+    assert d["age_fused"]["source"] == "marker+style"  # пересечение
+
+
+def test_people_age_from_fusion(tmp_path):
+    """Список people использует fusion для age_point и age_source."""
+    db, cid = _seed_contact(tmp_path)
+    repo = Repository(str(db))
+    conn = repo._get_conn()
+    conn.execute(
+        "INSERT INTO contact_age_estimates(user_id, contact_id, age_point, "
+        "birth_year_point, birth_year_low, birth_year_high, confidence, method) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        ("me", cid, 45, 1980, 1979, 1981, 85, "marker"),
+    )
+    conn.commit()
+    repo.close()
+
+    r = _reader(db)
+    people = r.get_people("me")
+    r.close()
+
+    p = people[0]
+    assert p["age_source"] == "marker"  # fusion вернул маркер как source
+
+
+def test_recompute_returns_fused(tmp_path):
+    """Эндпоинт age-recompute возвращает age_fused в ответе."""
+    import callprofiler.dashboard.server as server_mod
+
+    saved_t, saved_u = server_mod._TOOLS, server_mod._USER_ID
+    server_mod._TOOLS = MagicMock()
+    server_mod._USER_ID = "me"
+    try:
+        server_mod._TOOLS.run_age_recompute.return_value = {
+            "status": "ok", "stats": {"estimated": 1},
+            "age_fused": {"age_point": 50, "source": "marker", "confidence": 80},
+            "age": {"age_point": 50, "confidence": 80},
+        }
+        with TestClient(server_mod.app) as tc:
+            resp = tc.post("/api/tools/age-recompute?contact_id=5")
+            assert resp.status_code == 200
+            body = resp.json()
+            assert "age_fused" in body
+            assert body["age_fused"]["source"] == "marker"
+    finally:
+        server_mod._TOOLS = saved_t
+        server_mod._USER_ID = saved_u
+
+
+def test_recompute_hint_diarization(tmp_path):
+    """Если контакт не имеет OTHER-реплик — возвращается hint_diarization."""
+    import callprofiler.dashboard.server as server_mod
+
+    saved_t, saved_u = server_mod._TOOLS, server_mod._USER_ID
+    server_mod._TOOLS = MagicMock()
+    server_mod._USER_ID = "me"
+    try:
+        server_mod._TOOLS.run_age_recompute.return_value = {
+            "status": "ok",
+            "hint_diarization": "реплики контакта не размечены (UNKNOWN) — стилометрия невозможна",
+        }
+        with TestClient(server_mod.app) as tc:
+            resp = tc.post("/api/tools/age-recompute?contact_id=5")
+            assert resp.status_code == 200
+            body = resp.json()
+            assert "hint_diarization" in body
+    finally:
+        server_mod._TOOLS = saved_t
+        server_mod._USER_ID = saved_u
+
+
+def test_age_recompute_runs_marker_pass(tmp_path):
+    """Кнопка запускает маркер-пасс (Ф6.1)."""
+    import callprofiler.dashboard.server as server_mod
+
+    saved_t, saved_u = server_mod._TOOLS, server_mod._USER_ID
+    server_mod._TOOLS = MagicMock()
+    server_mod._USER_ID = "me"
+    try:
+        server_mod._TOOLS.run_age_recompute.return_value = {
+            "status": "ok", "marker_stats": {"estimated": 1},
+            "stats": {"estimated": 1},
+        }
+        with TestClient(server_mod.app) as tc:
+            resp = tc.post("/api/tools/age-recompute?contact_id=5")
+            assert resp.status_code == 200
+            body = resp.json()
+            assert "marker_stats" in body
+    finally:
+        server_mod._TOOLS = saved_t
+        server_mod._USER_ID = saved_u
+
+
+def test_age_recompute_hint_when_no_owner_birth_year(tmp_path):
+    """Диагностика: hint при owner_birth_year==0 (Ф6.4)."""
+    import callprofiler.dashboard.server as server_mod
+
+    saved_t, saved_u = server_mod._TOOLS, server_mod._USER_ID
+    server_mod._TOOLS = MagicMock()
+    server_mod._USER_ID = "me"
+    try:
+        server_mod._TOOLS.run_age_recompute.return_value = {
+            "status": "ok",
+            "hint": "owner_birth_year не задан в base.yaml — реляционные якоря выключены",
+        }
+        with TestClient(server_mod.app) as tc:
+            resp = tc.post("/api/tools/age-recompute?contact_id=5")
+            assert resp.status_code == 200
+            body = resp.json()
+            assert "hint" in body
     finally:
         server_mod._TOOLS = saved_t
         server_mod._USER_ID = saved_u

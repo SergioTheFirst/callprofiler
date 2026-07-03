@@ -565,15 +565,25 @@ class DashboardDBReader:
                 "LEFT JOIN entity_metrics em "
                 "ON em.entity_id = m.entity_id AND em.user_id = ct.user_id",
             ]
-        if self._has_table("contact_age_estimates"):
+        has_age_est = self._has_table("contact_age_estimates")
+        has_age_style = self._has_table("contact_age_style")
+        if has_age_est:
             select += ["cae.age_point AS age_point",
+                       "cae.age_low AS age_low",
+                       "cae.age_high AS age_high",
                        "cae.birth_year_point AS birth_year_point",
-                       "cae.confidence AS age_confidence"]
+                       "cae.birth_year_low AS birth_year_low",
+                       "cae.birth_year_high AS birth_year_high",
+                       "cae.confidence AS age_confidence",
+                       "cae.method AS age_method"]
             joins += ["LEFT JOIN contact_age_estimates cae "
                       "ON cae.contact_id = ct.contact_id AND cae.user_id = ct.user_id"]
-        if self._has_table("contact_age_style"):
+        if has_age_style:
             select += ["cas.birth_year_point AS style_birth_year_point",
-                       "cas.confidence AS style_age_confidence"]
+                       "cas.birth_year_low AS style_birth_year_low",
+                       "cas.birth_year_high AS style_birth_year_high",
+                       "cas.confidence AS style_age_confidence",
+                       "cas.confidence_level AS style_confidence_level"]
             joins += ["LEFT JOIN contact_age_style cas "
                       "ON cas.contact_id = ct.contact_id AND cas.user_id = ct.user_id"]
         sql = ("SELECT " + ", ".join(select) + " FROM contacts ct " + " ".join(joins)
@@ -587,23 +597,57 @@ class DashboardDBReader:
             d["name"] = (d.get("display_name") or d.get("guessed_name")
                          or d.get("phone_e164") or f"#{d['contact_id']}")
             for key in ("archetype_label", "membership", "entity_id",
-                        "bs_index", "trust_score", "age_point", "age_confidence"):
+                        "bs_index", "trust_score", "age_point", "age_confidence",
+                        "age_low", "age_high", "age_method", "birth_year_point",
+                        "birth_year_low", "birth_year_high",
+                        "style_birth_year_point", "style_birth_year_low", "style_birth_year_high",
+                        "style_age_confidence", "style_confidence_level"):
                 d.setdefault(key, None)
-            # Возраст «сейчас» из года рождения — не протухает между пересчётами.
-            # Маркер/LLM (сильнее) побеждает; если его нет — стиль (age_style
-            # покрывает контакты БЕЗ явного маркера, ради этого и строился).
-            age_source = None
-            if d.get("birth_year_point"):
-                d["age_point"] = date.today().year - int(d["birth_year_point"])
-                age_source = "marker"
-            elif d.get("style_birth_year_point"):
-                d["age_point"] = date.today().year - int(d["style_birth_year_point"])
-                d["age_confidence"] = d.get("style_age_confidence")
-                age_source = "style"
-            d["age_source"] = age_source
-            d.pop("birth_year_point", None)
-            d.pop("style_birth_year_point", None)
-            d.pop("style_age_confidence", None)
+
+            # C2: age_fused — единая итоговая оценка из маркеров и стиля
+            marker_dict = None
+            if has_age_est and d.get("age_method"):
+                marker_dict = {
+                    "method": d.get("age_method"),
+                    "birth_year_low": d.get("birth_year_low"),
+                    "birth_year_high": d.get("birth_year_high"),
+                    "birth_year_point": d.get("birth_year_point"),
+                    "confidence": d.get("age_confidence", 50),
+                }
+            style_dict = None
+            if has_age_style and d.get("style_confidence_level"):
+                style_dict = {
+                    "birth_year_low": d.get("style_birth_year_low"),
+                    "birth_year_high": d.get("style_birth_year_high"),
+                    "birth_point": d.get("style_birth_year_point"),
+                    "confidence": d.get("style_age_confidence", 50),
+                    "confidence_level": d.get("style_confidence_level", 1),
+                }
+
+            fused = None
+            try:
+                if marker_dict is not None or style_dict is not None:
+                    from callprofiler.insight.age_fusion import fuse_age
+                    fused = fuse_age(marker_dict, style_dict, date.today().year)
+            except Exception:  # noqa: BLE001 — fusion опционален
+                pass
+
+            # Вывод возраста в список из fusion
+            if fused is not None:
+                d["age_point"] = fused["age_point"]
+                d["age_confidence"] = fused["confidence"]
+                d["age_source"] = fused["source"]
+            else:
+                d["age_point"] = None
+                d["age_confidence"] = None
+                d["age_source"] = None
+
+            # Cleanup
+            for key in ("birth_year_point", "birth_year_low", "birth_year_high",
+                       "age_low", "age_high", "age_method",
+                       "style_birth_year_point", "style_birth_year_low", "style_birth_year_high",
+                       "style_age_confidence", "style_confidence_level"):
+                d.pop(key, None)
             people.append(d)
         return people
 
@@ -634,6 +678,7 @@ class DashboardDBReader:
             "entity": None,
             "age": None,
             "age_style": None,
+            "age_fused": None,
             "patterns": [],
             "temporal": None,
             "social": None,
@@ -743,6 +788,37 @@ class DashboardDBReader:
                     "warnings": style_warnings,
                     "computed_at": row["computed_at"],
                 }
+
+        # C2: age_fused — единая итоговая оценка из маркеров и стиля
+        if dossier["age"] is not None or dossier["age_style"] is not None:
+            try:
+                from callprofiler.insight.age_fusion import fuse_age
+                marker_dict = None
+                if dossier["age"] is not None:
+                    marker_dict = {
+                        "method": dossier["age"].get("method"),
+                        "birth_year_low": (date.today().year - dossier["age"]["age_high"]
+                                          if dossier["age"].get("age_high") is not None else None),
+                        "birth_year_high": (date.today().year - dossier["age"]["age_low"]
+                                           if dossier["age"].get("age_low") is not None else None),
+                        "birth_year_point": (date.today().year - dossier["age"]["age_point"]
+                                            if dossier["age"].get("age_point") is not None else None),
+                        "confidence": dossier["age"].get("confidence", 50),
+                    }
+                style_dict = None
+                if dossier["age_style"] is not None:
+                    style_dict = {
+                        "birth_year_low": dossier["age_style"].get("birth_year_low"),
+                        "birth_year_high": dossier["age_style"].get("birth_year_high"),
+                        "birth_point": dossier["age_style"].get("birth_year_point"),
+                        "confidence": dossier["age_style"].get("confidence", 50),
+                        "confidence_level": dossier["age_style"].get("confidence_level", 1),
+                    }
+                fused = fuse_age(marker_dict, style_dict, date.today().year)
+                if fused is not None:
+                    dossier["age_fused"] = fused
+            except Exception as exc:  # noqa: BLE001 — fusion слой опционален
+                log.debug("dossier: age fusion недоступна: %s", exc)
 
         entity_id = None
         if self._has_table("entity_contact_map"):

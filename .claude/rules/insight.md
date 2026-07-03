@@ -139,6 +139,19 @@ LLM-уточнение имён — шов на боксе (офлайн не н
 звонками новее computed_at; пустая дата → не skip); use_llm в watcher ЗАПРЕЩЁН (GPU занят ASR).
 CLI: `age-estimate --user X [--contact N] [--llm]`. Тесты: `tests/insight/test_age_*.py`.
 
+**v2 (2026-07-03, ensemble-план `docs/superpowers/plans/2026-07-03-age-ensemble-v2.md`):**
+- Гарды fixager Ф5: pension-future («выйду на пенсию» ≠ пенсионер), ЕГЭ-not-self, расширенный
+  third-person; конфликт низшего класса теперь МЯГКИЙ (−10/сигнал, не обвал до min+10).
+- Новые прямые (класс 3): `born_in` («я родился в 1978»), `since_year` («я с 75-го года»,
+  анти-гард глаголов занятости), `age_slangnum` (сорокет/полтинник/тридцатник),
+  `age_approx` («мне под/за/к сорок»). Год-якорные события (класс 2): школу закончил/поступил/
+  закончил вуз/армия «в NN-м» → возраст на событии → год рождения.
+- **KIN-арифметика** (класс 2, `extract_kin_signals`): третье-личные упоминания СВОИХ родных
+  контакта больше не выбрасываются, а конвертируются: «у дочки ЕГЭ» → ребёнку 16-18 → контакту
+  36-58; «сыну 30 лет» → 50-70; «маме 85» → 45-67; внуки-этап → 50-85. Гард чужих родных
+  («у твоей/вашей») + «мне» в зазоре. `_PRIORITY` покрывает ВСЕ новые сигналы (без записи →
+  класс 1 по умолчанию — не забывать при добавлении).
+
 ---
 
 ## Возраст-стиль (age_style) — 4-й сигнальный класс, no-ML стилометрия (2026-07-01)
@@ -173,6 +186,21 @@ vozrast.md §4.2, Σ=1 на строку) → **взвешенный линей�
 life_stage (кластер «своей» темы: школа_егэ/вуз_сессия/ипотека_декрет/карьера/внуки_пенсия),
 realia (год из упомянутых реалий эпохи). Лексиконы (`age_style/lexicons/*.txt`) — данные, не код.
 
+**v2 (2026-07-03, `TABLE_VERSION=age-style-v2`/`RULES_VERSION=age-rules-v2` — на боксе нужен
+полный пересчёт):** fixager Ф1-Ф4 (лексиконы: `=`-точный матч убил омонимы «база/аккурат/диал/
+сериал»; support_n=ХИТЫ, не корпус — у slang/archaism тоже; z ВСЕГДА по полной популяции,
+stale-фильтр только на записи; пол ширины интервала = span доминирующей группы × widen).
+Новые оси: **discourse** (репертуар филлеров «типа/короче/жесть» vs «значит/понимаешь/стало
+быть», по RAW-доле young/(young+old), гейт ≥3 хитов), **kancelyarit** (однонаправленный вверх,
+business-тема ×0.6), **morphosyntax** (предлоги М3 + подчинит. союзы С3 закрытыми списками,
+ОДИН объединённый голос как diversity), **tempo** (слов/сек из start_ms/end_ms OTHER-сегментов,
+FRAGILE ×0.4, ↓ с возрастом), **prior** (популяционный приор G3-G5 взрослых контактов, вес 0.25,
+всегда голосует — гасит ложные G1/G2; пустые фичи → пул = приор, НЕ uniform; в marker_conflict
+НЕ участвует). Лексиконы умеют БИГРАММЫ (пробел в стеме: «ласковый май», «стало быть», «по
+блату»). Реалии пере-датированы по reminiscence bump (артефакт пика Y → рождение Y-30..Y-10;
+пейджер 1960-82, денди/сега 1980-92) + одиночные хиты разных стемов дают ПЕРЕСЕЧЕНИЕ эпох
+(дизъюнктные → None). Синт-генератор G4 очищен от советизмов (был подгон под v1-таблицы).
+
 **CLI:** `age-style --user X [--stale-only]`. **Watcher:** `_run_insight_fit` зовёт
 `run_style_estimate(stale_only=True)` инкрементально, безмодельно (numpy/regex — не конфликтует
 с ASR-GPU, в отличие от `age-estimate --llm`). **Dashboard:** секция «Возраст (стиль)» в досье
@@ -195,7 +223,26 @@ realia (год из упомянутых реалий эпохи). Лексик�
 не получали возраст в списке вообще.
 
 Тесты: `tests/insight/test_age_{markers_vnukovo,style_schema,features,scorer,style_estimate}.py`
-+ `tests/test_dashboard_age_style.py`.
++ `tests/test_dashboard_age_style.py` + v2: `test_age_{markers_v2,kin,discourse,tempo,
+morphosyntax,prior,realia_v2,lexicons_fp,features_support_n,markers_guards,fusion}.py`.
+
+---
+
+## Возраст-FUSION — единая итоговая оценка (2026-07-03)
+
+`insight/age_fusion.py::fuse_age(marker_row, style_row, ref_year)` — ЧИСТАЯ функция
+(`FUSION_VERSION='fuse-v1'`), без БД: вычисляется на ЧТЕНИИ (db_reader/tools), НЕ хранится —
+нет staleness и нет цикла «стиль читает своё же» (contact_age_estimates не трогается).
+Правила: (1) marker∩style непусто → интервал ОТ МАРКЕРА (стиль шумный, не сужает), conf+5
+cap 95, source='marker+style'; (2) дизъюнкт → маркер побеждает, conf−10 floor 20, warning
+«стиль расходится»; (3) только marker → как есть; llm-метод → cap 50, source='llm'/'llm+style';
+(4) только style (level≥2, birth_point есть) → cap conf 70, source='style'; (5) ничего → None.
+Потребители: `get_people` (колонка возраста списка = fused, `age_source`),
+`get_person_dossier` → `age_fused` (первая строка возрастного блока досье), ответ
+`age-recompute`. **Кнопка «Пересчитать возраст ↻»** (досье, ВСЕГДА видна): маркер-пасс этого
+контакта (`run_age_estimate(contact_id=…, owner_birth_year=…)`, БЕЗ LLM) + `run_style_estimate`
+всей популяции → возвращает age/age_style/age_fused + hints: `owner_birth_year` не задан (P8),
+`hint_diarization` при 0 OTHER-реплик (P9).
 
 ---
 

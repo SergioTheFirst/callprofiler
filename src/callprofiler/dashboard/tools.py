@@ -165,6 +165,7 @@ class DashboardTools:
     def _age_recompute_sync(self, contact_id: int) -> dict[str, Any]:
         try:
             from callprofiler.db.repository import Repository
+            from callprofiler.insight.age_estimate import run_age_estimate
             from callprofiler.insight.age_style.estimate_style import run_style_estimate
             from callprofiler.dashboard.db_reader import DashboardDBReader
 
@@ -172,14 +173,53 @@ class DashboardTools:
             # relative to the user's whole contact population, so scoring one contact
             # requires the same population pass anyway (feature_store.standardize).
             repo = Repository(str(self.db_path))
-            stats = run_style_estimate(repo._get_conn(), self.user_id)
+            conn = repo._get_conn()
+
+            # Ф6.1: маркер-пасс (этот контакт) + стиль (вся популяция)
+            owner_birth_year = getattr(self.config, "owner_birth_year", 0) or 0
+            mstats = run_age_estimate(conn, self.user_id, contact_id=contact_id,
+                                      owner_birth_year=owner_birth_year)
+            stats = run_style_estimate(conn, self.user_id)
+
+            # C3: hint_diarization — проверить есть ли OTHER-реплики для контакта
+            has_other_lines = conn.execute(
+                "SELECT 1 FROM transcripts t JOIN calls c ON c.call_id = t.call_id "
+                "WHERE c.user_id = ? AND c.contact_id = ? AND t.speaker = 'OTHER' LIMIT 1",
+                (self.user_id, contact_id)
+            ).fetchone()
+            hint_diarization = None
+            if not has_other_lines:
+                # Если есть звонки но нет OTHER-реплик → диаризация не сработала
+                has_calls = conn.execute(
+                    "SELECT 1 FROM calls WHERE user_id = ? AND contact_id = ? LIMIT 1",
+                    (self.user_id, contact_id)
+                ).fetchone()
+                if has_calls:
+                    hint_diarization = ("реплики контакта не размечены (UNKNOWN) — "
+                                       "стилометрия невозможна, только маркеры/LLM")
+
             repo.close()
 
             reader = DashboardDBReader(self.config.data_dir)
             dossier = reader.get_person_dossier(contact_id, self.user_id)
-            self._log(f"age-recompute: {stats.get('estimated', 0)} contacts")
-            return {"status": "ok", "stats": stats,
-                    "age_style": (dossier or {}).get("age_style")}
+            self._log(f"age-recompute: markers={mstats.get('estimated', 0)}, "
+                     f"styles={stats.get('estimated', 0)}")
+
+            result = {"status": "ok", "stats": stats, "marker_stats": mstats}
+            if dossier:
+                result["age"] = dossier.get("age")
+                result["age_style"] = dossier.get("age_style")
+                result["age_fused"] = dossier.get("age_fused")
+
+            # Ф6.4: диагностика owner_birth_year
+            if owner_birth_year == 0:
+                result["hint"] = "owner_birth_year не задан в base.yaml — реляционные якоря выключены"
+
+            # C3: добавить hint_diarization если есть
+            if hint_diarization:
+                result["hint_diarization"] = hint_diarization
+
+            return result
         except Exception as e:
             log.error("age-recompute failed: %s", e)
             return {"status": "error", "message": str(e)}

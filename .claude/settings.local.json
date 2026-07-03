@@ -93,6 +93,8 @@
       "PowerShell(*)",
       "Bash(*)",
       "PowerShell($env:PYTHONPATH=\"C:\\\\pro\\\\callprofiler\\\\src\"; python -m pytest tests/ -q 2>&1 | Select-Object -Last 15)",
+      "PowerShell(*)",
+      "Bash(*)",
       "PowerShell(*)"
     ]
   }
