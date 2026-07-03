@@ -73,14 +73,41 @@ _STAGES = [
         r"\bшколу\s+заканчива|\bвыпускной\s+класс|\b11[-\s]?класс", re.IGNORECASE), 15, 18, 70),
 ]
 
+# B3: Новые прямые маркеры (класс 3)
+_RE_BORN_IN = re.compile(r"\bя\s+(?:родил(?:ся|ась)|рождён|рождена)\s+в\s+(\d{2,4})(?:-м)?\s*(?:году)?", re.IGNORECASE)
+_RE_SINCE_YEAR = re.compile(r"\bя\s+(?:с\s+)?(\d{2})(?:-го)?\s+года\b", re.IGNORECASE)
+_SLANG_NUMS = {"тридцатник": 30, "сорокет": 40, "сороковник": 40, "полтинник": 50, "полтос": 50}
+_RE_AGE_SLANGNUM = re.compile(
+    r"\bмне\s+(" + "|".join(re.escape(k) for k in _SLANG_NUMS) + r")", re.IGNORECASE)
+_RE_AGE_APPROX = re.compile(
+    r"\bмне\s+(?:уже\s+)?(?:под|за|к)\s+(тридцать|сорок|пятьдесят|шестьдесят|семьдесят)", re.IGNORECASE)
+
+# B3: Год-якорные события (класс 2)
+_RE_SCHOOL_FINISH_YEAR = re.compile(r"\bшколу\s+(?:за|о)конч\w+\s+в\s+(\d{2,4})", re.IGNORECASE)
+_RE_UNI_ENTER_YEAR = re.compile(r"\bпоступ\w+\s+(?:в\s+\w+\s+)?в\s+(\d{4})", re.IGNORECASE)
+_RE_UNI_FINISH_YEAR = re.compile(r"(?:за|о)конч\w+\s+(?:институт|универ\w*|вуз|академи\w+)\s+в\s+(\d{2,4})", re.IGNORECASE)
+_RE_ARMY_YEAR = re.compile(r"(?:в\s+армию\s+(?:пошел|пошёл|призвали|забрали)|служил)\s+в\s+(\d{2,4})", re.IGNORECASE)
+
 # "внуково" склоняется («Внукова», «Внуковом») — регэксп grandkids не всегда
 # ловит суффикс; доп. гейт по контексту аэропорта/рейса.
 _RE_GRANDKIDS_NOT = re.compile(r"внуково|аэропорт|рейс|прил[её]т|вылет|терминал", re.IGNORECASE)
 
-# Третье лицо непосредственно перед маркером → реплика не о говорящем
+# Третье лицо непосредственно перед маркером → реплика не о говорящем (Ф5: расширено)
 _RE_THIRD_PERSON = re.compile(
-    r"(?:мам[ае]?|пап[ае]?|сын[уа]?|доч(?:ь|ке|ка)|муж[у]?|жен[ае]|брат[у]?|сестр[ае]|"
-    r"бабушк[ае]|дедушк[ае]|он|она|ему|ей|им|у\s+(?:него|неё|нее|них))\s*$",
+    r"(?:мам[ае]?|пап[ае]?|сын\w*|доч(?:ь|к\w*)|муж[у]?|жен[ае]|брат[у]?|сестр[ае]|"
+    r"бабушк[ае]|дедушк[ае]|он|она|ему|ей|им|реб[её]нк\w*|дет(?:и|ей|ям|ьми)|"
+    r"учени\w*|классе\s+у|репетитор|внук\w*|внучк\w*|"
+    r"у\s+(?:него|неё|нее|них|дочк|сына|детей|ребенка|реб[её]нка))\s*$",
+    re.IGNORECASE,
+)
+
+# Ф5: гарды для специфичных маркеров
+_RE_PENSION_FUTURE = re.compile(
+    r"выйд[уе]\w*|через\s+\S+\s*(?:лет|год)|до\s+пенси|накоп|будущ|доживу|когда\s+вы[йи]д",
+    re.IGNORECASE,
+)
+_RE_EXAM_NOT_SELF = re.compile(
+    r"доч|сын|реб[её]нк|дет[еиь]|учени|классе\s+у|репетитор",
     re.IGNORECASE,
 )
 
@@ -149,7 +176,74 @@ def extract_marker_signals(text: str, call_dt) -> list[AgeSignal]:
         if name == "grandkids" and _RE_GRANDKIDS_NOT.search(
                 text[max(0, m.start() - 30):m.end() + 30]):
             continue
+        # Ф5 гарды: pension-future, exam-not-self
+        if name == "pension" and _RE_PENSION_FUTURE.search(
+                text[max(0, m.start() - 40):m.end() + 20]):
+            continue
+        if name == "school_exam" and _RE_EXAM_NOT_SELF.search(
+                text[max(0, m.start() - 30):m.end() + 30]):
+            continue
         out.append(AgeSignal(year - ahi, year - alo, conf, _quote(text, m), name, dt))
+
+    # B3: Новые прямые маркеры (класс 3)
+    for m in _RE_BORN_IN.finditer(text):
+        if _third_person(text, m):
+            continue
+        by = int(m.group(1))
+        if 1930 <= by <= 2015:
+            out.append(AgeSignal(by, by, 92, _quote(text, m), "born_in", dt))
+
+    # B3: since_year (с NN-го года) — без глагола занятости
+    for m in _RE_SINCE_YEAR.finditer(text):
+        if _third_person(text, m):
+            continue
+        y2 = int(m.group(1))
+        by = (1900 + y2) if y2 >= 30 else (2000 + y2)
+        if 1930 <= by <= 2015:
+            ctx = text[m.end():min(m.end() + 20, len(text))]
+            if re.search(r"работ|живу|начал|учусь|служу", ctx, re.IGNORECASE):
+                continue
+            conf = 92 if "рожден" in text[max(0, m.start() - 50):m.end()] else 78
+            out.append(AgeSignal(by, by, conf, _quote(text, m), "since_year", dt))
+
+    # B3: age_slangnum (тридцатник, сорокет и т.д.)
+    for m in _RE_AGE_SLANGNUM.finditer(text):
+        if _third_person(text, m):
+            continue
+        age = _SLANG_NUMS.get(m.group(1).lower(), None)
+        if age:
+            out.append(AgeSignal(year - age - 1, year - age, 80, _quote(text, m), "age_slangnum", dt))
+
+    # B3: age_approx (под/за/к + число)
+    for m in _RE_AGE_APPROX.finditer(text):
+        if _third_person(text, m):
+            continue
+        tens = _TENS.get(m.group(1).lower(), None)
+        if tens:
+            prefix = text[max(0, m.start()):m.start() + 6].lower()
+            if "под" in prefix:
+                alo, ahi = tens - 3, tens - 1
+            elif "за" in prefix:
+                alo, ahi = tens + 1, tens + 9
+            else:  # "к"
+                alo, ahi = tens - 3, tens - 1
+            out.append(AgeSignal(year - ahi, year - alo, 65, _quote(text, m), "age_approx", dt))
+
+    # B3: Год-якорные события (класс 2)
+    for rex, (alo, ahi), conf, name in [
+        (_RE_SCHOOL_FINISH_YEAR, (16, 18), 80, "school_finish_year"),
+        (_RE_UNI_ENTER_YEAR, (16, 19), 70, "uni_enter_year"),
+        (_RE_UNI_FINISH_YEAR, (21, 24), 70, "uni_finish_year"),
+        (_RE_ARMY_YEAR, (18, 20), 70, "army_year"),
+    ]:
+        for m in rex.finditer(text):
+            if _third_person(text, m):
+                continue
+            yy = int(m.group(1))
+            by = (1900 + yy) if yy >= 30 else (2000 + yy)
+            if 1945 <= by <= int(str(year or 2026)):
+                birth_lo, birth_hi = year - ahi, year - alo
+                out.append(AgeSignal(birth_lo, birth_hi, conf, _quote(text, m), name, dt))
 
     return out
 
@@ -201,4 +295,85 @@ def extract_relation_signals(owner_lines, contact_lines,
     _scan(owner_lines, _REL_OWNER_SAYS)
     _scan(contact_lines, _REL_CONTACT_SAYS)
     _scan(list(owner_lines) + list(contact_lines), _REL_SYMMETRIC)
+    return out
+
+
+# B4: KIN-арифметика: информация о своих родных контакта => возраст контакта
+_RE_KIN_NOT = re.compile(r"тво|ваш|у\s+тебя|у\s+вас", re.IGNORECASE)
+# «мне» в зазоре => речь о себе, не о возрасте ребёнка («дочь родилась, мне 30 лет»)
+_RE_KIN_CHILD_AGE = re.compile(
+    r"(?:доч\w*|сын\w*)\s*(?:у\s+(?:меня|нас)\s*)?(?:(?!мне).){0,12}?\b(\d{1,2})\s*"
+    r"(?:лет|год\w*)\b", re.IGNORECASE)
+_RE_KIN_PARENT_AGE = re.compile(
+    r"(?:мам\w*|пап\w*|отц\w*|матер\w*)\s*(?:(?!мне).){0,10}?\b(\d{2})\s*(?:лет|год\w*)",
+    re.IGNORECASE)
+# Этапы жизни ребёнка контакта -> возраст ребёнка -> возраст контакта (+20..+40)
+_RE_KIN_WORD = re.compile(r"\b(?:доч\w*|сын\w*|реб[её]нк\w*|дет(?:и|ей|ям|ьми))\b", re.IGNORECASE)
+_KIN_STAGES = [  # (имя, regex этапа, возраст ребёнка lo..hi, conf)
+    ("kin_child_stage", re.compile(r"садик|детсад|ясл[ия]", re.IGNORECASE), 2, 7, 55),
+    ("kin_child_stage", re.compile(r"\bЕГЭ\b|выпускн|11[-\s]?класс", re.IGNORECASE), 16, 18, 60),
+    ("kin_child_stage", re.compile(r"школ\w*|урок\w*", re.IGNORECASE), 7, 17, 55),
+    ("kin_child_stage", re.compile(r"универ\w*|сесси[юи]|поступ\w*|институт", re.IGNORECASE), 17, 23, 55),
+]
+_RE_GRANDKID_WORD = re.compile(r"\bвну[кч](?!ово)\w*", re.IGNORECASE)
+_RE_GRANDKID_CTX = re.compile(r"садик|детсад|школ|выпускн|родил|поступ", re.IGNORECASE)
+
+
+def extract_kin_signals(text: str, call_dt) -> list[AgeSignal]:
+    """B4: KIN-арифметика — информация о своих родных контакта.
+
+    Гард: перед kin-словом в −25 символах НЕТ 'тво|ваш|у тебя|у вас' (чужие родные).
+    Возвращает сигналы класса 2 (method='marker', priority 2).
+    """
+    year = _year(call_dt)
+    if year is None or not text:
+        return []
+    out = []
+    dt = str(call_dt)
+
+    # kin_child_age: доч/сын + возраст => контакт = возраст ребёнка + [20..40]
+    for m in _RE_KIN_CHILD_AGE.finditer(text):
+        ctx_before = text[max(0, m.start() - 25):m.start()]
+        if _RE_KIN_NOT.search(ctx_before):
+            continue
+        child_age = int(m.group(1))
+        if 1 <= child_age <= 45:
+            birth_lo = year - child_age - 40
+            birth_hi = year - child_age - 20
+            out.append(AgeSignal(birth_lo, birth_hi, 60, _quote(text, m), "kin_child_age", dt, method="marker"))
+
+    # kin_child_stage: kin-слово + этап ребёнка в окне +30 => возраст ребёнка -> контакта
+    for m in _RE_KIN_WORD.finditer(text):
+        ctx_before = text[max(0, m.start() - 25):m.start()]
+        if _RE_KIN_NOT.search(ctx_before):
+            continue
+        window = text[m.start():m.end() + 30]
+        for name, rex, clo, chi, conf in _KIN_STAGES:
+            if rex.search(window):
+                out.append(AgeSignal(year - chi - 40, year - clo - 20, conf,
+                                     _quote(text, m), name, dt, method="marker"))
+                break  # один этап на kin-упоминание (первый по специфичности)
+
+    # kin_grandchild: внук/внучка в этап-контексте => контакт 50-85 (бабушка/дед)
+    for m in _RE_GRANDKID_WORD.finditer(text):
+        ctx_before = text[max(0, m.start() - 25):m.start()]
+        if _RE_KIN_NOT.search(ctx_before):
+            continue
+        window = text[max(0, m.start() - 30):m.end() + 30]
+        if _RE_GRANDKIDS_NOT.search(window) or not _RE_GRANDKID_CTX.search(window):
+            continue
+        out.append(AgeSignal(year - 85, year - 50, 60, _quote(text, m),
+                             "kin_grandchild", dt, method="marker"))
+
+    # kin_parent_age: мам/пап + возраст (50-99) => контакт = родитель − [18..40]
+    for m in _RE_KIN_PARENT_AGE.finditer(text):
+        ctx_before = text[max(0, m.start() - 25):m.start()]
+        if _RE_KIN_NOT.search(ctx_before):
+            continue
+        parent_age = int(m.group(1))
+        if 50 <= parent_age <= 99:
+            birth_lo = year - parent_age + 18
+            birth_hi = year - parent_age + 40
+            out.append(AgeSignal(birth_lo, birth_hi, 55, _quote(text, m), "kin_parent_age", dt, method="marker"))
+
     return out

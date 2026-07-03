@@ -11,8 +11,9 @@ _CACHE: dict[str, tuple[tuple[str, ...], ...]] = {}
 def load_lexicon(name: str) -> tuple[tuple[str, ...], ...]:
     """Читает `<name>.txt`: TAB-разделённые строки, `#`-комментарии/пустые пропущены.
 
-    Каждая строка → tuple колонок (первая — стем, ё→е+lower, матчится через
-    token.startswith(стем) — без pymorphy2, см. lexical_age.py).
+    Каждая строка → tuple колонов (первая — стем, ё→е+lower). Стем, начинающийся с `=`,
+    означает точное совпадение токена (без startswith). Флаг `=` сохраняется в стеме
+    для использования в _stem_hit (lexical_age.py).
     Кэшируется по имени (лексиконы неизменны в рантайме).
     """
     if name in _CACHE:
@@ -24,7 +25,12 @@ def load_lexicon(name: str) -> tuple[tuple[str, ...], ...]:
         if not line or line.startswith("#"):
             continue
         cols = [c.strip() for c in line.split("\t")]
-        cols[0] = normalize_lemma(cols[0].lower())
+        stem = cols[0].lower()
+        exact_prefix = ""
+        if stem.startswith("="):
+            exact_prefix = "="
+            stem = stem[1:]
+        cols[0] = exact_prefix + normalize_lemma(stem)
         rows.append(tuple(cols))
     result = tuple(rows)
     _CACHE[name] = result

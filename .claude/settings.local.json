@@ -82,7 +82,18 @@
       "Bash(export PYTHONPATH=\"C:/pro/callprofiler/src\")",
       "Bash(python -c \"import sys; print\\(sys.path[:2]\\)\")",
       "Bash(python -m pytest tests/ -q)",
-      "Bash(*)"
+      "Bash(*)",
+      "PowerShell(git *)",
+      "PowerShell(\\(Get-Content C:\\\\pro\\\\callprofiler\\\\CHANGELOG.md | Measure-Object -Line\\).Lines)",
+      "PowerShell(cd C:\\\\pro\\\\callprofiler; $env:PYTHONPATH=\"C:\\\\pro\\\\callprofiler\\\\src\"; python -m pytest tests/insight/test_age_lexicons_fp.py -q)",
+      "PowerShell(cd C:\\\\pro\\\\callprofiler; $env:PYTHONPATH=\"C:\\\\pro\\\\callprofiler\\\\src\"; python -m pytest tests/insight/test_age_features.py -q)",
+      "PowerShell(cd C:\\\\pro\\\\callprofiler; $env:PYTHONPATH=\"C:\\\\pro\\\\callprofiler\\\\src\"; python -m pytest tests/insight/test_age_features_support_n.py -q)",
+      "PowerShell(cd C:\\\\pro\\\\callprofiler; $env:PYTHONPATH=\"C:\\\\pro\\\\callprofiler\\\\src\"; python -m pytest tests/insight/test_age_style_estimate.py -q)",
+      "PowerShell(cd C:\\\\pro\\\\callprofiler; $env:PYTHONPATH=\"C:\\\\pro\\\\callprofiler\\\\src\"; python -m pytest tests/insight/test_age_style_estimate.py::test_idempotent -q)",
+      "PowerShell(*)",
+      "Bash(*)",
+      "PowerShell($env:PYTHONPATH=\"C:\\\\pro\\\\callprofiler\\\\src\"; python -m pytest tests/ -q 2>&1 | Select-Object -Last 15)",
+      "PowerShell(*)"
     ]
   }
 }

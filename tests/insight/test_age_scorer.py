@@ -23,8 +23,9 @@ def test_readability_counted_once():
              "yule_k": {"z": 1.5, "support_n": 100}}  # ↓-признак, инвертируется -> тот же сигнал
     p_one, contrib_one, _ = scorer.score_contact(one)
     p_three, contrib_three, _ = scorer.score_contact(three)
-    assert set(contrib_one.keys()) == {"life_stage", "diversity"}
-    assert set(contrib_three.keys()) == {"life_stage", "diversity"}  # не 4 ключа
+    # B5.5: prior — всегда в contributions
+    assert set(contrib_one.keys()) == {"life_stage", "diversity", "prior"}
+    assert set(contrib_three.keys()) == {"life_stage", "diversity", "prior"}  # не 5 ключей
     for g in p_one:
         assert abs(p_one[g] - p_three[g]) < 0.05
 
@@ -88,11 +89,13 @@ def test_edge_bonus_and_bimodal():
     assert rules.sanity_bimodal(unimodal) is False
 
 
-def test_score_contact_no_features_returns_uniform():
+def test_score_contact_no_features_returns_prior():
+    # B5.5: пустые фичи -> пул == популяционный приор (не uniform)
+    from callprofiler.insight.age_style.tables import PRIOR_DIST
     p, contrib, conflict = scorer.score_contact({})
-    assert contrib == {}
+    assert set(contrib.keys()) == {"prior"}
     assert conflict is False
-    assert all(abs(v - 1.0 / 6) < 1e-9 for v in p.values())
+    assert all(abs(p[g] - PRIOR_DIST[g]) < 1e-9 for g in p)
 
 
 def test_marker_reinforces_agreeing_style():

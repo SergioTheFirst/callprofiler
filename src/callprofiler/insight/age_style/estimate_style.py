@@ -23,8 +23,8 @@ from .rules import edge_bonus, gate_enough_data, sanity_bimodal
 from .scorer import score_contact
 from .tables import RULES_VERSION, TABLE_VERSION
 from ..feature_store import assemble_matrix, standardize
-from ..features import diversity_age, lexical_age, morphosyntax_age, readability_age
-from ..features.base import tokenize
+from ..features import diversity_age, lexical_age, morphosyntax_age, readability_age, discourse_age, tempo_age
+from ..features.base import tokenize, Feature
 from ..features.formality import compute_formality
 
 log = logging.getLogger(__name__)
@@ -36,10 +36,13 @@ _SCALAR_FEATURE_FNS = {
     "yule_k": diversity_age.yule_k,
     "slang": lexical_age.slang_density,
     "archaism": lexical_age.archaism_density,
+    "kancelyarit": lexical_age.kancelyarit_density,  # B5.2
     "i_ratio": morphosyntax_age.pronoun_i_ratio,
+    "prep_share": morphosyntax_age.preposition_share,  # B5.3
+    "subord_ratio": morphosyntax_age.subordination_ratio,  # B5.3
 }
-_Z_SCALAR_IDS = ("ch6", "mattr", "mtld", "yule_k", "i_ratio", "vy_ratio")
-_RAW_Z_IDS = ("slang", "archaism")
+_Z_SCALAR_IDS = ("ch6", "mattr", "mtld", "yule_k", "i_ratio", "vy_ratio", "prep_share", "subord_ratio", "tempo")  # tempo считается отдельно
+_RAW_Z_IDS = ("slang", "archaism", "kancelyarit")
 
 
 def _anchor_year(call_rows) -> int | None:
@@ -52,9 +55,9 @@ def _anchor_year(call_rows) -> int | None:
 
 
 def _gather_contact(conn, user_id, contact_id):
-    """Реплики speaker='OTHER' (§2.7, не UNKNOWN) + число звонков + темы + якорь-год."""
+    """Реплики speaker='OTHER' (§2.7, не UNKNOWN) + число звонков + темы + якорь-год + seg_stats."""
     rows = conn.execute(
-        "SELECT t.speaker, t.text FROM transcripts t "
+        "SELECT t.speaker, t.text, t.start_ms, t.end_ms FROM transcripts t "
         "JOIN calls c ON c.call_id = t.call_id "
         "WHERE c.user_id = ? AND c.contact_id = ? "
         "ORDER BY t.call_id, t.start_ms",
@@ -62,8 +65,16 @@ def _gather_contact(conn, user_id, contact_id):
     ).fetchall()
     other_segments = [{"speaker": "OTHER", "text": r[1]} for r in rows if r[0] == "OTHER"]
     tokens = []
-    for seg in other_segments:
-        tokens.extend(tokenize(seg["text"] or ""))
+    seg_stats = []  # B5.4: (n_tokens, dur_ms) для OTHER-сегментов
+    for i, row in enumerate(rows):
+        if row[0] == "OTHER":
+            segment_tokens = tokenize(row[1] or "")
+            tokens.extend(segment_tokens)
+            start_ms = row[2]
+            end_ms = row[3]
+            dur_ms = (end_ms - start_ms) if (start_ms is not None and end_ms is not None) else None
+            if dur_ms is not None:
+                seg_stats.append((len(segment_tokens), dur_ms))
     call_rows = conn.execute(
         "SELECT call_datetime FROM calls WHERE user_id = ? AND contact_id = ?",
         (user_id, contact_id),
@@ -73,12 +84,17 @@ def _gather_contact(conn, user_id, contact_id):
         "WHERE c.user_id = ? AND c.contact_id = ? AND a.call_type IS NOT NULL",
         (user_id, contact_id),
     ).fetchall()
-    return tokens, other_segments, len(call_rows), [r[0] for r in ct_rows], _anchor_year(call_rows)
+    return tokens, other_segments, len(call_rows), [r[0] for r in ct_rows], _anchor_year(call_rows), seg_stats
 
 
-def _raw_features(tokens, other_segments):
+def _raw_features(tokens, other_segments, seg_stats=None):
     feats = {name: fn(tokens) for name, fn in _SCALAR_FEATURE_FNS.items()}
     feats.update(compute_formality(other_segments))  # {"vy_ratio": Feature} либо {}
+    # B5.1: Discourse (by raw share)
+    feats.update({"discourse": discourse_age.filler_repertoire(tokens)})
+    # B5.4: Tempo (by seg_stats, отдельно от _Z_SCALAR_IDS)
+    if seg_stats:
+        feats["tempo"] = tempo_age.words_per_sec(seg_stats)
     return feats
 
 
@@ -119,20 +135,11 @@ def run_style_estimate(conn, user_id: str, *, reference_now=None,
 
     stats = {"contacts": 0, "estimated": 0, "skipped_fresh": 0, "skipped_no_data": 0}
 
-    target_ids = []
-    for cid in contact_ids:
-        if stale_only and cid in computed:
-            last_norm = str(last_call.get(cid, "") or "").replace("T", " ")
-            comp_norm = str(computed[cid] or "").replace("T", " ")
-            if last_norm and last_norm <= comp_norm:
-                stats["skipped_fresh"] += 1
-                continue
-        target_ids.append(cid)
-
+    # Собрать матрицу для ВСЕХ контактов (независимо от stale) для z-нормирования
     per_contact_matrix, per_contact_extra = {}, {}
-    for cid in target_ids:
+    for cid in contact_ids:
         try:
-            tokens, other_segments, n_conv, call_types, anchor = _gather_contact(
+            tokens, other_segments, n_conv, call_types, anchor, seg_stats = _gather_contact(
                 conn, user_id, cid)
         except Exception as exc:  # noqa: BLE001 — pipeline.md: non-fatal, continue
             log.warning("age-style: сбор данных contact=%s: %s", cid, exc)
@@ -141,7 +148,7 @@ def run_style_estimate(conn, user_id: str, *, reference_now=None,
         if n_conv == 0 or total_tokens == 0:
             stats["skipped_no_data"] += 1
             continue
-        per_contact_matrix[cid] = _raw_features(tokens, other_segments)
+        per_contact_matrix[cid] = _raw_features(tokens, other_segments, seg_stats)  # B5.4: tempo
         per_contact_extra[cid] = {
             "n_conversations": n_conv, "total_tokens": total_tokens,
             "call_types": call_types, "anchor_year": anchor or ref_year,
@@ -156,11 +163,35 @@ def run_style_estimate(conn, user_id: str, *, reference_now=None,
     z = standardize(x, w)
     name_idx = {nm: j for j, nm in enumerate(names)}
 
+    # Фаза 3: стало-фильтр применяется в цикле записи, а не при сборе матрицы
+    if stale_only:
+        fresh_set = set()
+        for cid in cids:
+            if cid in computed:
+                last_norm = str(last_call.get(cid, "") or "").replace("T", " ")
+                comp_norm = str(computed[cid] or "").replace("T", " ")
+                if last_norm and last_norm <= comp_norm:
+                    fresh_set.add(cid)
+    else:
+        fresh_set = set()
+
+    if len(cids) < 5:
+        stats["small_population"] = len(cids)
+
     for i, cid in enumerate(cids):
+        # Фаза 3: stale-фильтр при записи (но z считалась по ВСЕЙ популяции)
+        if stale_only and cid in fresh_set:
+            stats["skipped_fresh"] += 1
+            continue
+
         try:
             stats["contacts"] += 1
+            # Добавить warning при малой популяции в каждую строку
+            warnings = []
+            if len(cids) < 5:
+                warnings.append("малая популяция для z-нормировки")
             _score_and_save(conn, user_id, cid, per_contact_matrix[cid],
-                            per_contact_extra[cid], z[i], name_idx)
+                            per_contact_extra[cid], z[i], name_idx, warnings=warnings)
             stats["estimated"] += 1
         except Exception as exc:  # noqa: BLE001 — pipeline.md: non-fatal, continue
             log.warning("age-style: contact=%s: %s", cid, exc)
@@ -168,7 +199,9 @@ def run_style_estimate(conn, user_id: str, *, reference_now=None,
     return stats
 
 
-def _score_and_save(conn, user_id, cid, raw, extra, z_row, name_idx):
+def _score_and_save(conn, user_id, cid, raw, extra, z_row, name_idx, warnings=None):
+    from .tables import GROUP_RANGES
+
     anchor_year = extra["anchor_year"]
     features = {}
     for fid in _Z_SCALAR_IDS:
@@ -180,11 +213,14 @@ def _score_and_save(conn, user_id, cid, raw, extra, z_row, name_idx):
         if f is not None:
             zval = float(z_row[name_idx[fid]]) if fid in name_idx and f.support_n > 0 else None
             features[fid] = {"raw": f.value, "z": zval, "support_n": f.support_n}
+    f = raw.get("discourse")  # B5.1: по raw-доле, z не нужен
+    if f is not None and f.support_n > 0:
+        features["discourse"] = {"raw": f.value, "support_n": f.support_n}
     ls = extra["life_stage"]
     features["life_stage"] = {"cluster": ls.get("cluster"),
                               "support_n": ls["density"].support_n}
     if extra["realia"] is not None:
-        features["realia"] = {"year_range": extra["realia"], "support_n": extra["total_tokens"]}
+        features["realia"] = {"year_range": extra["realia"], "support_n": 10}
 
     marker = _get_marker(conn, user_id, cid)
     p_group, contributions, marker_conflict = score_contact(
@@ -206,13 +242,17 @@ def _score_and_save(conn, user_id, cid, raw, extra, z_row, name_idx):
     else:
         birth_low, birth_high, birth_point = to_birth_year(p_group, anchor_year)
         # §7.4: ширина интервала = масса незнания (1 - confidence/100).
-        # ponytail: линейный widen-коэффициент — стартовая калибровка (§15).
+        # Ф4: полуширина не меньше половины span доминирующей группы.
+        dom = max(p_group, key=p_group.get)
+        span = GROUP_RANGES[dom][1] - GROUP_RANGES[dom][0]
+        if dom == "G6":
+            span = min(span, 20)  # Для G6 cap при 20, не 140 (200-60)
         widen = max(1.0, (100 - conf) / 40.0)
-        half = max(1, (birth_high - birth_low) / 2.0 * widen)
+        half = max(span / 2.0, (birth_high - birth_low) / 2.0) * widen
         birth_low = int(round(birth_point - half))
         birth_high = int(round(birth_point + half))
 
-    warnings = []
+    warnings = list(warnings or [])  # Ф3: начать с переданных warnings
     if not enough:
         warnings.append("мало данных")
     if bimodal:

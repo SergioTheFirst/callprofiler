@@ -20,7 +20,7 @@ import re
 from datetime import date
 from pathlib import Path
 
-from .age_markers import AgeSignal, extract_marker_signals, extract_relation_signals
+from .age_markers import AgeSignal, extract_marker_signals, extract_relation_signals, extract_kin_signals
 
 log = logging.getLogger(__name__)
 
@@ -42,8 +42,11 @@ _CONF_CAP = 95                  # потолок итоговой уверенн
 # Класс точности сигнала: конфликт решается в пользу высшего класса
 _PRIORITY = {
     "direct_age": 3, "birth_year": 3, "jubilee": 3,
+    "born_in": 3, "since_year": 3, "age_slangnum": 3, "age_approx": 3,  # B3
     "pension": 2, "grandkids": 2, "army_done": 2, "student": 2,
     "school_exam": 2, "school_finish": 2,
+    "school_finish_year": 2, "uni_enter_year": 2, "uni_finish_year": 2, "army_year": 2,  # B3
+    "kin_child_age": 2, "kin_child_stage": 2, "kin_parent_age": 2, "kin_grandchild": 2,  # B4
 }
 
 # Возрастно-информативные обращения владельца (идут в LLM-контекст)
@@ -89,7 +92,8 @@ def _aggregate(signals: list[AgeSignal]) -> dict | None:
         bl, bh = base.birth_low, base.birth_high
         agreed = {base.signal}
         contributing.append(base)
-        conflict = False
+        core_conflict = False  # конфликт ВНУТРИ класса (core)
+        lower_conflict_count = 0  # число конфликтующих сигналов из rest
         for s in sorted(core, key=lambda s: -s.confidence):
             if s is base:
                 continue
@@ -98,11 +102,12 @@ def _aggregate(signals: list[AgeSignal]) -> dict | None:
                 bl, bh = max(bl, s.birth_low), min(bh, s.birth_high)
                 agreed.add(s.signal)
             else:
-                conflict = True
-        if conflict:  # противоречие равных по классу → расширение диапазона
+                core_conflict = True
+        if core_conflict:  # противоречие равных по классу → расширение диапазона (как было)
             bl = min(s.birth_low for s in core)
             bh = max(s.birth_high for s in core)
         conf = base.confidence + 10 * (len(agreed) - 1)
+        # Ф5: мягкий конфликт низшего класса — не обвал до min, а штраф -10 за каждый
         for s in sorted(rest, key=lambda s: -s.confidence):
             contributing.append(s)
             if _overlap(bl, bh, s):
@@ -110,9 +115,10 @@ def _aggregate(signals: list[AgeSignal]) -> dict | None:
                     agreed.add(s.signal)
                     conf += 10
             else:
-                conflict = True  # низший класс спорит → высший побеждает, conf вниз
-        if conflict:
-            conf = min(s.confidence for s in contributing) + 10
+                lower_conflict_count += 1  # счётчик конфликтующих низшего класса
+        # Ф5: мягкое правило: -10 за каждый конфликт низшего класса, не обвал
+        if lower_conflict_count > 0:
+            conf -= 10 * lower_conflict_count
         methods = {s.method for s in contributing}
 
     for s in llms:
@@ -349,6 +355,7 @@ def run_age_estimate(conn, user_id: str, *, use_llm: bool = False,
         signals: list[AgeSignal] = []
         for text, dt in contact_lines:
             signals.extend(extract_marker_signals(text, dt))
+            signals.extend(extract_kin_signals(text, dt))
         signals.extend(extract_relation_signals(owner_lines, contact_lines,
                                                 owner_birth_year))
 

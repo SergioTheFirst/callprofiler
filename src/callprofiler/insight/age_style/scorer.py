@@ -20,8 +20,8 @@
 
 Любой ключ можно опустить (фича не посчитана/не хватило данных).
 """
-from .tables import GROUP_CODES, TABLES, bin_z_3, bin_z_5, uniform_dist, year_range_to_group_dist
-from .weights import feature_weight
+from .tables import GROUP_CODES, TABLES, bin_z_3, bin_z_5, uniform_dist, year_range_to_group_dist, PRIOR_DIST
+from .weights import feature_weight, PRIOR_WEIGHT
 
 SUPPORT_FLOOR = 2  # §4.4: признаки ниже порога не голосуют (не импутируются шумом)
 
@@ -64,6 +64,22 @@ def _onedirectional_vote(fid: str, f: dict, call_types: list | None):
     return w, TABLES[fid][bin_label], {"bin": bin_label}
 
 
+def _morphosyntax_vote(features: dict, call_types: list | None):
+    """B5.3: М3/С3 — среднее z двух осей; 3 бина (↑ с возрастом)."""
+    zs, sups = [], []
+    for fid in ("prep_share", "subord_ratio"):
+        f = features.get(fid)
+        if f and f.get("z") is not None and f.get("support_n", 0) >= SUPPORT_FLOOR:
+            zs.append(f["z"])
+            sups.append(f["support_n"])
+    if not zs:
+        return None
+    combined_z = sum(zs) / len(zs)
+    bin_label = bin_z_3(combined_z)
+    w = feature_weight("morphosyntax", max(sups), call_types)
+    return w, TABLES["morphosyntax"][bin_label], {"bin": bin_label, "n_measures": len(zs)}
+
+
 def _pool(votes: list[tuple[str, float, dict]]) -> dict:
     total_w = sum(w for _, w, _ in votes if w > 0)
     if total_w <= 0:
@@ -100,6 +116,10 @@ def score_contact(features: dict, call_types: list | None = None,
     call_types = call_types or []
     votes: list[tuple[str, float, dict]] = []
     contributions: dict = {}
+
+    # B5.5: Prior всегда первым голосом
+    votes.append(("prior", PRIOR_WEIGHT, PRIOR_DIST))
+    contributions["prior"] = {"weight": PRIOR_WEIGHT}
 
     div = _diversity_vote(features, call_types)
     if div is not None:
@@ -138,6 +158,48 @@ def score_contact(features: dict, call_types: list | None = None,
             votes.append(("life_stage", w, dist))
             contributions["life_stage"] = {"weight": w, "cluster": f["cluster"]}
 
+    # B5.1: Discourse (молодой/смешанный/старший по raw-доле, z не нужен)
+    f = features.get("discourse")
+    if f and f.get("raw") is not None and f.get("support_n", 0) >= SUPPORT_FLOOR:
+        share = f["raw"]
+        if share > 0.65:
+            bin_label = "молодой"
+        elif share < 0.35:
+            bin_label = "старший"
+        else:
+            bin_label = "смешанный"
+        w = feature_weight("discourse", f["support_n"], call_types)
+        votes.append(("discourse", w, TABLES["discourse"][bin_label]))
+        contributions["discourse"] = {"weight": w, "bin": bin_label}
+
+    # B5.2: Kancelyarit (однонаправленный, как slang/archaism)
+    f = features.get("kancelyarit")
+    if f and f.get("support_n", 0) >= SUPPORT_FLOOR:
+        w, dist, meta = _onedirectional_vote("kancelyarit", f, call_types)
+        votes.append(("kancelyarit", w, dist))
+        contributions["kancelyarit"] = {"weight": w, **meta}
+
+    # B5.3: Morphosyntax (М3/С3 объединённый)
+    morph = _morphosyntax_vote(features, call_types)
+    if morph is not None:
+        w, dist, meta = morph
+        votes.append(("morphosyntax", w, dist))
+        contributions["morphosyntax"] = {"weight": w, **meta}
+
+    # B5.4: Tempo (3 бина по z, быстрый = z>0.5)
+    f = features.get("tempo")
+    if f and f.get("z") is not None and f.get("support_n", 0) >= SUPPORT_FLOOR:
+        z = f["z"]
+        if z > 0.5:
+            bin_label = "быстрый"
+        elif z < -0.5:
+            bin_label = "медленный"
+        else:
+            bin_label = "средний"
+        w = feature_weight("tempo", f["support_n"], call_types)
+        votes.append(("tempo", w, TABLES["tempo"][bin_label]))
+        contributions["tempo"] = {"weight": w, "bin": bin_label}
+
     f = features.get("realia")
     if f and f.get("year_range") and f.get("support_n", 0) >= SUPPORT_FLOOR:
         lo, hi = f["year_range"]
@@ -149,8 +211,9 @@ def score_contact(features: dict, call_types: list | None = None,
     marker_conflict = False
     if marker is not None:
         # конфликт меряем ПРОТИВ чисто-стилевого голоса (до добавления маркера) —
-        # пустой/равномерный style-only не даёт реального мнения для сравнения.
-        style_only = _pool(votes) if votes else None
+        # prior не мнение стиля: только prior в пуле => сравнивать не с чем.
+        non_prior = [v for v in votes if v[0] != "prior"]
+        style_only = _pool(non_prior) if non_prior else None
         marker_dist = year_range_to_group_dist(
             marker["birth_low"], marker["birth_high"], reference_year)
         if style_only is not None:

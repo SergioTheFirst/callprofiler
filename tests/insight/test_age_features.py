@@ -68,12 +68,14 @@ def test_life_stage_maps_group():
     old_profile = lexical_age.life_stage_profile(grandkids)
     assert school_profile["cluster"] == "школа_егэ"
     assert old_profile["cluster"] == "внуки_пенсия"
-    assert school_profile["density"].support_n == len(school)
+    # Ф2: support_n — число попаданий (4: егэ, школы, уроки, продлёнка), не len(school)=7
+    assert school_profile["density"].support_n == 4
     assert lexical_age.life_stage_profile([])["cluster"] is None
 
 
 def test_realia_birth_year():
-    old = "помню дискотеку кассету пейджер".split()
+    # B6-лексикон: одиночные хиты разных стемов -> пересечение эпох
+    old = "помню дискотеку кассетник пейджер".split()
     young = "смотрю тикток твич аниме".split()
     neutral = "хорошо давай встретимся завтра".split()
     lo_o, hi_o = lexical_age.realia_birth_year(old)

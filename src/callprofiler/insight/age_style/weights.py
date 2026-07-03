@@ -15,6 +15,13 @@ BASE_WEIGHTS = {
     "yule_k": 0.55,       # Р5 — часть блока "diversity"
     "vy_ratio": 0.60,     # Ст1
     "diversity": 0.78,    # объединённый голос Р3/Р4/Р5 (среднее их старт-весов)
+    "discourse": 0.55,    # Д4 (B5.1)
+    "kancelyarit": 0.50,  # Л6 (B5.2)
+    "morphosyntax": 0.50, # М3/С3 (B5.3)
+    "tempo": 0.50,        # Темп (B5.4)
+    "prior": 0.25,        # Популяционный приор (B5.5)
+    "prep_share": 0.40,   # М3 — часть morphosyntax
+    "subord_ratio": 0.40, # С3 — часть morphosyntax
 }
 
 FEATURE_TIER = {
@@ -22,15 +29,23 @@ FEATURE_TIER = {
     "archaism": Tier.IMMUNE, "i_ratio": Tier.IMMUNE,
     "ch6": Tier.ROBUST, "mattr": Tier.ROBUST, "mtld": Tier.ROBUST,
     "yule_k": Tier.ROBUST, "vy_ratio": Tier.ROBUST, "diversity": Tier.ROBUST,
+    "discourse": Tier.ROBUST, "kancelyarit": Tier.ROBUST, "morphosyntax": Tier.ROBUST,
+    "tempo": Tier.FRAGILE, "prep_share": Tier.IMMUNE, "subord_ratio": Tier.ROBUST,
+    "prior": Tier.IMMUNE,
 }
 
 TIER_MULT = {Tier.IMMUNE: 1.0, Tier.ROBUST: 0.8, Tier.AFFECTIVE: 0.6, Tier.FRAGILE: 0.4}
 
+# B5.5: вес популяционного приора в score_contact (всегда первым голосом)
+PRIOR_WEIGHT = 0.25
+
 # support_n, при котором support_factor достигает 1.0 (§4.3)
 SUPPORT_N0 = {
     "ch6": 30, "mattr": 50, "mtld": 50, "yule_k": 50, "diversity": 50,
-    "slang": 100, "archaism": 100, "i_ratio": 10, "vy_ratio": 5,
-    "life_stage": 20, "realia": 10,
+    "slang": 3, "archaism": 3, "i_ratio": 10, "vy_ratio": 5,  # B2: slang/archaism support_n = хиты теперь, не корпус
+    "life_stage": 5, "realia": 10,
+    "discourse": 6, "kancelyarit": 4, "morphosyntax": 30, "tempo": 10,  # B5
+    "prep_share": 30, "subord_ratio": 6, "prior": 1,  # B5.3, B5.5
 }
 
 _BUSINESS_HINTS = ("business", "работ", "делов")
@@ -42,6 +57,8 @@ def context_mod(feature_id: str, call_types: list | None) -> float:
     types_joined = " ".join(str(t).lower() for t in (call_types or []) if t)
     if feature_id == "slang" and any(h in types_joined for h in _BUSINESS_HINTS):
         return 0.5
+    if feature_id == "kancelyarit" and any(h in types_joined for h in _BUSINESS_HINTS):
+        return 0.6  # B5.2: профессия перебивает возраст (юристы/чиновники)
     if feature_id == "life_stage" and any(h in types_joined for h in _PERSONAL_HINTS):
         return 1.2
     return 1.0
