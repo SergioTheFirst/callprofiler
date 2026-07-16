@@ -23,23 +23,48 @@ collapsible, СВЕРХУ вкладки) → таблица людей `#people
 SSE-тик обновляет активную вкладку (bugs.md 2026-06-05).
 
 **Досье-UI (Ф3):** клик по строке людей / точке PCA (`_cid` в data) / узлу эго-сети (`id='c{cid}'`)
-→ модал `#person-overlay` (`openPersonDossier`/`renderDossier` в app.js): шапка-архетип → индексы
-(Риск/BS по `bs_thresholds` если есть/Доверие) → **возраст** («~48 лет (40–55) · уверенность 35/100»
-+ evidence-цитаты; из `contact_age_estimates`, возраст к ТЕКУЩЕМУ году из birth_year_point) →
-**возраст (стиль)** (group-бары G1-G6/★-доверие/топ-вклады/явные маркеры/кнопка «Определить
-возраст ↻» → `POST /api/tools/age-recompute?contact_id=`; из `contact_age_style`, полностью
-отдельный 4-й сигнальный класс — `.claude/rules/insight.md` секция «Возраст-стиль») →
-**«Моя заметка»** (M6, 2026-07-17: свободное ручное поле владельца, `contact_notes` table,
-`_has_table`-guarded read в `get_person_dossier` → ключ `owner_note`; `POST /api/tools/
-contact-note` {contact_id,note} — пустая строка удаляет, cap 2000, UPSERT user-guarded
-как age/archetype-таблицы; `set_contact_note` сама вызывает `apply_insight_schema` — не
-зависит от того, запускались ли другие insight-команды) →
-черты-фразы → паттерны (severity-цвет) → психотип →
-ритм (тренд словами TREND_RU) → факты-цитаты → противоречия → обещания → личное → связи → динамика
-по годам → интерпретация (persisted или подсказка `profile-all`) → совет → звонки (клик → call detail)
-→ кнопки «ЭКГ →» (insight-пикер) и «Граф-персона →» (старая entity-модалка).
+→ модал `#person-overlay` (`openPersonDossier`/`renderDossier` в app.js): шапка-архетип + **Admiralty-
+грейд строкой под именем** (A7, `d.admiralty`, `grade_line()` реюз из A6) → индексы
+(Риск/BS по `bs_thresholds` если есть/Доверие) →
+
+**группа «Речь»** (`dossierLayer()` — заголовок-разделитель, CSS `.dossier-layer-title`):
+**возраст** («~48 лет (40–55) · уверенность 35/100» + evidence-цитаты; из `contact_age_estimates`,
+возраст к ТЕКУЩЕМУ году из birth_year_point) → **возраст (стиль)** (group-бары G1-G6/★-доверие/
+топ-вклады/явные маркеры/кнопка «Определить возраст ↻» → `POST /api/tools/age-recompute?contact_id=`;
+из `contact_age_style`, отдельный 4-й сигнальный класс — `.claude/rules/insight.md` «Возраст-стиль»)
+→ черты-фразы («Отличительное»).
+
+**группа «Поведение»:** паттерны (severity-цвет) → психотип → ритм (TREND_RU) → факты-цитаты →
+противоречия → обещания.
+
+**группа «Место в сети»:** личное → связи.
+
+**группа «Динамика»:** динамика по годам → **«Поворотные сцены»** (A7, 2026-07-17: `d.pivotal_scenes`,
+дата+synopsis≤300; guarded `_has_table('bio_scene_entities')`+`('bio_scenes')`; см. ниже — НЕ читает
+`bio_portraits.pivotal_scenes`).
+
+**«Напряжения»** (A7, вне 5-слойной сетки — по смыслу межслойная, сводит их): `d.tensions`, каждая
+строка фраза+2 evidence; `insight/tension.py::cross_layer_tensions()`, ровно 5 детерминированных
+правил по `dims`(distinctive_dims сырые z из contact_archetypes)/`evolution`/`indices.
+emotional_pattern`, без данных → правило молча не срабатывает.
+
+**группа «Что делать»:** **«Моя заметка»** (M6: свободное ручное поле владельца, `contact_notes`
+table, `_has_table`-guarded read → ключ `owner_note`; `POST /api/tools/contact-note`
+{contact_id,note} — пустая строка удаляет, cap 2000, UPSERT user-guarded; `set_contact_note` сама
+вызывает `apply_insight_schema`) → интерпретация (persisted или подсказка `profile-all`) → совет.
+
+звонки (клик → call detail) → кнопки «ЭКГ →» (insight-пикер) и «Граф-персона →» (старая entity-модалка).
 **Ф4 уже встроена:** `profile-all --user me` зовёт `build_profile` (LLM on) → интерпретации
 персистятся в `entity_profiles` с memoization-сигнатурой; досье их читает. Запускать в LLM-окне.
+
+**Поворотные сцены — источник (A7 non-obvious):** `bio_scenes` has NO `entity_id` column, и
+`bio_portraits.pivotal_scenes` хранит LLM-time позиционные индексы в ЭФЕМЕРНЫЙ список сцен,
+переданный в промпт при сборке портрета — НЕ стабильный `scene_id` (резолвить их означало бы
+показать ЧУЖУЮ сцену без предупреждения, тот же класс ошибки, что id-пространство bio_entities
+≠ graph entities, bugs.md 2026-07-02). Реальная связь — junction `bio_scene_entities(scene_id,
+entity_id)`. Читаем top-`importance` сцены контакта через
+`bio_scene_entities ⋈ bio_scenes ⋈ bio_entities` (имя контакта = `canonical_name`, регистронезависимо,
+связь ТОЛЬКО по имени как и весь остальной bio-слой) — надёжно, ничего не гадаем.
 
 ## Эндпоинты (server.py, все через DashboardDBReader, `WHERE user_id=?`)
 - Обработка: `/api/overview` `/api/calls[/{id}]` `/api/search` `/api/system[/logs]` `/api/sse`

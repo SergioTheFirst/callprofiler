@@ -8,6 +8,37 @@
 
 ## [Unreleased]
 
+### Added — A7: досье 5 слоёв + Admiralty в шапке + напряжения (2026-07-17)
+- `insight/tension.py::cross_layer_tensions(d)` — ровно 5 детерминированных правил расхождения
+  слоёв (§6 STRATEGIC_PLAN), читает `dims` (сырые distinctive_dims z-score из `contact_archetypes`,
+  дешёвый путь — уже посчитано) + `evolution` (per-year avg_risk) + `indices.emotional_pattern`;
+  без данных правило молча не срабатывает, никогда не падает.
+- `db_reader.get_person_dossier`: ключ `admiralty` (реюз `insight/admiralty.py` из A6, guarded
+  try/except) · ключ `layers` (presentational 5-way маппинг существующих секций, `*`-поля для
+  Ф-B/Ф-C ещё не реализованных сигналов) · ключ `tensions` (`cross_layer_tensions`, до русской
+  локализации) · ключ `pivotal_scenes`.
+- **Баг пойман до коммита (не попал в код):** первая версия «поворотных сцен» читала
+  `bio_portraits.pivotal_scene_indices` (реальная колонка — `pivotal_scenes`) и
+  `bio_scenes.entity_id` (такой колонки нет вовсе — bio_scenes её никогда не имела). Хуже: даже
+  с верным именем колонки `pivotal_scenes` — это LLM-time позиционные индексы в ЭФЕМЕРНЫЙ список
+  сцен, переданный в промпт при сборке портрета, а не стабильный `scene_id` — резолвить их значило
+  бы молча показать чужую сцену (тот же класс ошибки, что id-пространство bio_entities≠graph
+  entities, bugs.md 2026-07-02). Поймано verify-граппом по `biography/schema.py` перед тестами
+  (дисциплина из bugs.md: bio_* колонки не угадывать). **Fix:** резолв через junction
+  `bio_scene_entities(scene_id,entity_id)` ⋈ `bio_scenes` ⋈ `bio_entities` (имя контакта =
+  `canonical_name`, регистронезависимо) — top-`importance` сцены, никаких индексов не гадаем.
+- `app.js::renderDossier` — Admiralty-строка под именем; 5 заголовков-разделителей
+  (`dossierLayer()`, CSS `.dossier-layer-title`) группируют существующие секции (рендер-функции
+  секций не переписаны, только порядок «Моя заметка» сдвинут в группу «Что делать» и вставлены
+  заголовки); секции «Поворотные сцены» (дата+synopsis≤300) и «Напряжения» (фраза+2 evidence,
+  вне 5-слойной сетки — она межслойная и сводит их).
+- Tests: `tests/insight/test_tension.py` (12: пусто/без данных, каждое из 5 правил + его
+  анти-случай, несколько правил разом, форма результата) + `tests/test_dashboard_dossier.py`
+  (+1 новый: junction-резолв поворотных сцен по importance DESC с cap/truncation; +4 assert в
+  `test_dossier_full`: admiralty-строка, ключи 5 слоёв, пустые tensions, отсутствие pivotal_scenes
+  без bio-схемы). `.claude/rules/dashboard.md` обновлён (слои/admiralty/tensions/pivotal-scenes
+  non-obvious). 982 passed/2 skipped.
+
 ### Added — A3: «Зеркало» владельца — self-dossier агрегаты (2026-07-17)
 - `insight/mirror.py` (`build_mirror`/`save_mirror`): 4 read-only блока поверх уже имеющихся
   данных — `promises` (A1 overdue/open, side='owner'), `risk_trend` (AVG(risk_score) по

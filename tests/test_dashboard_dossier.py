@@ -143,6 +143,57 @@ def test_dossier_full(tmp_path):
     assert d["advice"] == "осторожно"
     assert d["interpretation"] is None  # LLM не зван и не сохранён
     assert d["recent_calls"]
+    # A7: Admiralty-грейд + 5-слойная группировка + напряжения (пусто без bio-схемы).
+    assert d["admiralty"] == "F2 — данных мало, информация вероятно верна"
+    assert set(d["layers"]) == {"behavioral", "speech", "relational", "dynamic", "practical"}
+    assert d["tensions"] == []
+    assert "pivotal_scenes" not in d  # biography-схема не сидировалась в этом фикстуре
+
+
+def test_dossier_pivotal_scenes_via_bio_scene_entities_junction(tmp_path):
+    """A7 regress: bio_scenes has NO entity_id column and bio_portraits.pivotal_scenes
+    holds LLM-time positional indices (unreliable, id-space precedent bugs.md
+    2026-07-02) — real resolution is the bio_scene_entities junction, top-importance
+    first, capped at _MAX_PIVOTAL_SCENES."""
+    from callprofiler.biography.schema import apply_biography_schema
+    from callprofiler.dashboard.db_reader import _MAX_PIVOTAL_SCENES
+
+    db, cid, eid = _seed_db(tmp_path)
+    repo = Repository(db)
+    conn = repo._get_conn()
+    apply_biography_schema(conn)
+    conn.execute(
+        "INSERT INTO bio_entities(entity_id, user_id, canonical_name, entity_type) "
+        "VALUES (?, 'me', 'Дмитрий Бердников', 'person')", (eid,))
+    call_ids = [r[0] for r in conn.execute(
+        "SELECT call_id FROM calls WHERE contact_id = ? ORDER BY call_id", (cid,)
+    ).fetchall()]
+    assert len(call_ids) >= 4
+    importances = [10, 90, 50, 70]
+    for call_id, importance in zip(call_ids, importances):
+        cur = conn.execute(
+            "INSERT INTO bio_scenes(user_id, call_id, importance, synopsis) "
+            "VALUES ('me', ?, ?, ?)",
+            (call_id, importance, f"синопсис звонка {call_id}" + "x" * 310),
+        )
+        conn.execute(
+            "INSERT INTO bio_scene_entities(scene_id, entity_id) VALUES (?, ?)",
+            (cur.lastrowid, eid),
+        )
+    conn.commit()
+    repo.close()
+
+    r = _reader(db)
+    d = r.get_person_dossier(cid, "me")
+    r.close()
+
+    scenes = d["pivotal_scenes"]
+    assert len(scenes) <= _MAX_PIVOTAL_SCENES
+    # top-importance first (90, 70, 50, 10, ...) — не порядок вставки/call_id
+    assert [s["call_id"] for s in scenes] == [
+        cid_ for _, cid_ in sorted(zip(importances, call_ids), reverse=True)
+    ]
+    assert all(len(s["synopsis"]) <= 300 for s in scenes)
 
 
 def test_dossier_readonly_conn_not_written(tmp_path):

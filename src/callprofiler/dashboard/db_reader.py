@@ -18,6 +18,8 @@ from callprofiler.dashboard.config import DB_QUERY_TIMEOUT_SEC
 
 log = logging.getLogger(__name__)
 
+_MAX_PIVOTAL_SCENES = 5
+
 
 class DashboardDBReader:
     """Read-only database access for dashboard."""
@@ -691,7 +693,7 @@ class DashboardDBReader:
                 "global_risk": base.get("global_risk"),
                 "avg_bs_score": base.get("avg_bs_score"),
                 "bs_index": None, "trust_score": None, "avg_risk": None,
-                "volatility": None, "conflict_count": None,
+                "volatility": None, "conflict_count": None, "emotional_pattern": None,
             },
             "owner_note": None,
             "archetype": None,
@@ -742,6 +744,8 @@ class DashboardDBReader:
                     "membership": row["membership"],
                     "confidence": row["confidence"],
                     "traits": [d.get("phrase") for d in dims if d.get("phrase")],
+                    # A7 tension.py: сырые (dim,z) — traits выше уже редуцировал до фраз
+                    "dims": [{"dim": d.get("dim"), "z": d.get("z")} for d in dims if d.get("dim")],
                 }
 
         if self._has_table("contact_age_estimates"):
@@ -886,7 +890,7 @@ class DashboardDBReader:
             if prof:
                 metrics = prof.get("metrics") or {}
                 for key in ("bs_index", "avg_risk", "trust_score",
-                            "volatility", "conflict_count"):
+                            "volatility", "conflict_count", "emotional_pattern"):
                     if metrics.get(key) is not None:
                         dossier["indices"][key] = metrics.get(key)
                 dossier["patterns"] = prof.get("patterns") or []
@@ -943,6 +947,71 @@ class DashboardDBReader:
                     "ok_n": row["ok_n"] or 0,
                     "last_wrong": row["last_wrong"],
                 }
+
+        # A7: Admiralty-грейд в шапку (реюз insight/admiralty.py из A6).
+        try:
+            from callprofiler.insight.admiralty import grade_line, info_grade, source_grade
+            bs_label = None
+            if entity_id is not None:
+                row = self._conn.execute(
+                    "SELECT bs_index FROM entity_metrics WHERE entity_id = ? AND user_id = ?",
+                    (entity_id, user_id),
+                ).fetchone()
+                if row is not None:
+                    from callprofiler.graph.calibration import BSCalibrator
+                    from callprofiler.graph.repository import GraphRepository
+                    bs_label, _ = BSCalibrator(GraphRepository(self._conn)).get_label(
+                        row["bs_index"], user_id)
+            avg_conf_row = self._conn.execute(
+                """SELECT AVG(confidence) AS avg_conf FROM events
+                    WHERE user_id = ? AND contact_id = ?
+                      AND created_at >= datetime('now', '-180 days')""",
+                (user_id, contact_id),
+            ).fetchone()
+            avg_confidence = avg_conf_row["avg_conf"] if avg_conf_row is not None else None
+            dossier["admiralty"] = grade_line(source_grade(bs_label), info_grade(avg_confidence))
+        except Exception as exc:  # noqa: BLE001 — шапка не должна ронять досье
+            log.debug("dossier: admiralty-грейд недоступен: %s", exc)
+
+        # A7: поворотные сцены. bio_scenes has NO entity_id (schema.py) — real link is
+        # the bio_scene_entities junction. bio_portraits.pivotal_scenes holds LLM-time
+        # positional indices into an ephemeral per-call scene list, not stable scene_id —
+        # resolving those would silently show the WRONG scene (bugs.md 2026-07-02 id-space
+        # precedent). Use top-importance scenes via the junction instead: reliable, no guess.
+        if self._has_table("bio_scene_entities") and self._has_table("bio_scenes") and dossier["contact"].get("display_name"):
+            try:
+                scene_rows = self._conn.execute(
+                    """SELECT bs.call_id, bs.call_datetime, bs.synopsis, bs.importance
+                         FROM bio_scene_entities bse
+                         JOIN bio_scenes bs ON bs.scene_id = bse.scene_id
+                         JOIN bio_entities be ON be.entity_id = bse.entity_id
+                        WHERE be.user_id = ? AND bs.user_id = ?
+                          AND LOWER(be.canonical_name) = LOWER(?)
+                        ORDER BY bs.importance DESC LIMIT ?""",
+                    (user_id, user_id, dossier["contact"]["display_name"], _MAX_PIVOTAL_SCENES),
+                ).fetchall()
+                if scene_rows:
+                    dossier["pivotal_scenes"] = [
+                        {"call_id": r["call_id"], "call_datetime": r["call_datetime"],
+                         "synopsis": (r["synopsis"] or "")[:300]}
+                        for r in scene_rows
+                    ]
+            except Exception as exc:  # noqa: BLE001 — bio-связь по имени необязательна
+                log.debug("dossier: поворотные сцены недоступны: %s", exc)
+
+        # A7: 5-слойная презентационная группировка (маппинг существующих секций;
+        # ключи с * появятся в Ф-B/Ф-C, рендер app.js для них уже guarded).
+        dossier["layers"] = {
+            "behavioral": ["patterns", "temporal", "promise_outcomes"],
+            "speech": ["age_style", "formality", "traits"],
+            "relational": ["network", "mentions", "finance"],
+            "dynamic": ["evolution", "drift", "pivotal_scenes"],
+            "practical": ["advice", "obligations", "best_time"],
+        }
+
+        # A7: детерминированные напряжения между слоями (ДО локализации).
+        from callprofiler.insight.tension import cross_layer_tensions
+        dossier["tensions"] = cross_layer_tensions(dossier)
 
         # Психотип/паттерны/факты/тренд/противоречия — целиком по-русски.
         return labels_ru.localize_dossier(dossier)

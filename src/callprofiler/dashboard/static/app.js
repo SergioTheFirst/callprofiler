@@ -959,6 +959,10 @@
         return '<div class="detail-section"><h4>' + title + '</h4>' + inner + '</div>';
     }
 
+    function dossierLayer(title) {
+        return '<div class="dossier-layer-title">' + escapeHtml(title) + '</div>';
+    }
+
     function dossierIdx(label, value, cls) {
         return '<div class="db-stat-card"><div class="db-stat-val' + (cls ? ' ' + cls : '') + '">' +
             value + '</div><div class="db-stat-lbl">' + label + '</div></div>';
@@ -1008,6 +1012,12 @@
             escapeHtml(d.entity.canonical_name || '') + ' (' + escapeHtml(d.entity.link_method || '') + ')</span>');
         if (head.length) html += '<div class="detail-section">' + head.join(' &nbsp; ') + '</div>';
 
+        // A7: Admiralty-грейд под именем
+        if (d.admiralty) {
+            html += '<div class="detail-section" style="color:var(--text-muted);font-size:12px">' +
+                escapeHtml(d.admiralty) + '</div>';
+        }
+
         if (d.feedback && d.feedback.wrong_n > 0) {
             html += '<div class="detail-section" style="color:#e0922a">Сводки этого контакта помечались как неверные' +
                 (d.feedback.last_wrong ? ' (последний раз: ' + escapeHtml(d.feedback.last_wrong) + ')' : '') +
@@ -1025,6 +1035,9 @@
             (idx.trust_score != null ? dossierIdx('Доверие', Number(idx.trust_score).toFixed(0), '') : '') +
             (idx.conflict_count != null ? dossierIdx('Конфликты', idx.conflict_count, '') : '') +
             '</div></div>';
+
+        // A7: группа «Речь» — возраст (маркер/стиль — стилометрия — и заявленный) + черты
+        html += dossierLayer('Речь');
 
         // Возраст: «~48 лет (40–55) · уверенность 35/100» + evidence-цитаты
         if (d.age && d.age.age_point != null) {
@@ -1125,14 +1138,16 @@
             html += dossierSec('Возраст', ageHtml);
         }
 
-        // M6: заметка владельца — свободное ручное поле, не автогенерат
+        // M6: заметка владельца — свободное ручное поле, не автогенерат. HTML собирается
+        // здесь, выводится ниже в группе «Что делать» (A7); переменная нужна и
+        // обработчику кнопки «изменить» ниже.
         var ownerNoteText = (d.owner_note && d.owner_note.note) || '';
-        html += dossierSec('Моя заметка', '<div id="dossier-note-view">' +
+        var ownerNoteHtml = '<div id="dossier-note-view">' +
             (ownerNoteText
                 ? '<p style="font-size:13px;color:var(--text-secondary);white-space:pre-wrap">' + escapeHtml(ownerNoteText) + '</p>'
                 : '<p style="font-size:13px;color:var(--text-muted);font-style:italic">нет заметки</p>') +
             '<button class="btn btn-outline btn-sm" id="dossier-note-edit-btn" data-cid="' + (c.contact_id || '') + '">' +
-            (ownerNoteText ? 'изменить' : 'добавить') + '</button></div>');
+            (ownerNoteText ? 'изменить' : 'добавить') + '</button></div>';
 
         // Черты-фразы архетипа
         if (d.archetype && d.archetype.traits && d.archetype.traits.length) {
@@ -1140,6 +1155,9 @@
                 return '<span class="sr-tag call-type" style="margin:0 4px 4px 0;display:inline-block">' + escapeHtml(t) + '</span>';
             }).join(''));
         }
+
+        // A7: группа «Поведение» — паттерны, психотип, ритм, факты, противоречия, обещания
+        html += dossierLayer('Поведение');
 
         // Паттерны поведения
         if (d.patterns && d.patterns.length) {
@@ -1201,6 +1219,9 @@
                 }).join('') + '</ul>');
         }
 
+        // A7: группа «Место в сети» — личное, связи
+        html += dossierLayer('Место в сети');
+
         // Личные факты (из карточки контакта)
         if (d.personal_facts && d.personal_facts.length) {
             html += dossierSec('Личное', '<ul class="detail-promises">' +
@@ -1220,6 +1241,9 @@
             }).join(''));
         }
 
+        // A7: группа «Динамика» — риск по годам, поворотные сцены
+        html += dossierLayer('Динамика');
+
         // Динамика по годам
         if (d.evolution && d.evolution.length) {
             html += dossierSec('Динамика риска по годам', '<dl class="detail-meta">' +
@@ -1229,6 +1253,28 @@
                     return '<dt>' + escapeHtml(String(yr)) + '</dt><dd>' + rv + '</dd>';
                 }).join('') + '</dl>');
         }
+
+        // A7: Поворотные сцены (bio_scene_entities junction — reliable, top-importance)
+        if (d.pivotal_scenes && d.pivotal_scenes.length) {
+            html += dossierSec('Поворотные сцены', d.pivotal_scenes.map(function(s) {
+                return '<div class="dossier-quote">«' + escapeHtml(s.synopsis || '') + '»' +
+                    (s.call_datetime ? '<div class="dossier-quote-meta">' +
+                        escapeHtml(String(s.call_datetime).slice(0, 10)) + '</div>' : '') + '</div>';
+            }).join(''));
+        }
+
+        // A7: Напряжения — межслойное расхождение, вне 5-слойной сетки (сводит их)
+        if (d.tensions && d.tensions.length) {
+            html += dossierSec('Напряжения', d.tensions.map(function(t) {
+                return '<div class="dossier-pattern">' + escapeHtml(t.phrase || '') +
+                    '<div class="dossier-quote-meta">' + escapeHtml(t.evidence_a || '') +
+                    ' &nbsp;·&nbsp; ' + escapeHtml(t.evidence_b || '') + '</div></div>';
+            }).join(''));
+        }
+
+        // A7: группа «Что делать» — заметка, интерпретация, совет
+        html += dossierLayer('Что делать');
+        html += dossierSec('Моя заметка', ownerNoteHtml);
 
         // Интерпретация (3 абзаца, persisted)
         html += dossierSec('Интерпретация', d.interpretation
