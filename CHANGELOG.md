@@ -8,6 +8,23 @@
 
 ## [Unreleased]
 
+### Added — role-fragile флаг звонка (инлайн-задача №7, шум-доктрина) (2026-07-16)
+- `calls.role_fragile` (аддитивная миграция `db/repository.py::_migrate` + `schema.sql`,
+  default 0). `diarize/role_assigner.py::is_role_fragile(segments)` — `True` если доля
+  `speaker='UNKNOWN'` > `UNKNOWN_SHARE_THRESHOLD=0.3` (module-level константа; margin-критерий
+  недоступен — `assign_speakers` не отдаёт скалярную уверенность overlap-назначения, только
+  UNKNOWN-доля). Пустой список сегментов → False.
+- `Repository.set_role_fragile(call_id, fragile)`; вызывается в `orchestrator.py` сразу после
+  `save_transcripts` в ОБОИХ путях (`process_call` одиночный + `process_batch` batch-transcribe).
+- Дашборд: `get_call_detail` отдаёт `role_fragile`; `app.js::renderCallDetail` — бейдж
+  «⚠ роли могли спутаться (много UNKNOWN) — не полагайтесь на [me]/[s2] в этом звонке».
+- Контракт потребителей (M8/B3/B5/B7 дропают who-критичные items с fragile-звонков; A1/F5
+  помечают строки `(?)`) зафиксирован в `.claude/rules/insight.md` — применяется при
+  исполнении этих задач.
+- Tests: `tests/test_role_fragile.py` (8: критерий обе ветки + граница ровно на пороге + пусто,
+  запись флага в БД, аддитивность схемы на «старой» БД, идемпотентность миграции).
+  852 passed/2 skipped.
+
 ### Added — 0.4: role-UNKNOWN% master-gate на System tab (2026-07-16)
 - `db_reader.get_role_unknown_share(user_id, days=30)` — доля `transcripts.speaker='UNKNOWN'`
   за окно дней. **Кэш класс-уровня** (не instance — `server.py::_system()` конструирует НОВЫЙ

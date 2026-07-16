@@ -25,7 +25,7 @@ from callprofiler.analyze.response_parser import parse_llm_response
 from callprofiler.audio.normalizer import get_duration_sec, normalize
 from callprofiler.deliver.card_generator import CardGenerator
 from callprofiler.deliver.telegram_bot import TelegramNotifier
-from callprofiler.diarize.role_assigner import assign_speakers
+from callprofiler.diarize.role_assigner import assign_speakers, is_role_fragile
 from callprofiler.models import Segment
 from callprofiler.transcribe.whisper_runner import WhisperRunner
 
@@ -198,6 +198,7 @@ class Orchestrator:
             # Сохранить транскрипт (БД = источник истины) + читабельный .txt
             self.repo.save_transcripts(call_id, segments)
             self._export_text(call, segments)
+            self.repo.set_role_fragile(call_id, is_role_fragile(segments))
             self.repo.update_pipeline_stage(call_id, 2)
 
             # ── Шаг 4: Analyze ───────────────────────────────
@@ -362,6 +363,7 @@ class Orchestrator:
                         logger.info("Transcribe: call_id=%d, %d сегментов", call_id, len(segs))
                         self.repo.save_transcripts(call_id, segs)
                         self._export_text(call, segs)
+                        self.repo.set_role_fragile(call_id, is_role_fragile(segs))
                         self.repo.update_pipeline_stage(call_id, 2)
                         call["pipeline_stage"] = 2
                     except Exception as exc:

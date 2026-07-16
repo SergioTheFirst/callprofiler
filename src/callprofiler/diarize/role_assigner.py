@@ -16,6 +16,23 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Роль-шум-доктрина (OzaluplivanieFable.md §4.2): assign_speakers не отдаёт
+# скалярную уверенность overlap-назначения (margin недоступен — только
+# UNKNOWN-критерий, см. .claude/rules/insight.md).
+UNKNOWN_SHARE_THRESHOLD = 0.3
+
+
+def is_role_fragile(segments: list[Segment]) -> bool:
+    """True если доля сегментов speaker='UNKNOWN' превышает порог.
+
+    Пустой список сегментов -> False (нет транскрипта = нечему быть
+    ненадёжным; who-критичные извлечения и так не сработают без текста).
+    """
+    if not segments:
+        return False
+    unknown = sum(1 for s in segments if s.speaker == "UNKNOWN")
+    return (unknown / len(segments)) > UNKNOWN_SHARE_THRESHOLD
+
 
 def assign_speakers(
     segments: list[Segment],

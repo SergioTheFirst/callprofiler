@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS calls (
     duration_sec   INTEGER,
     status         TEXT NOT NULL DEFAULT 'new',
     pipeline_stage INTEGER NOT NULL DEFAULT 0,
+    role_fragile   INTEGER NOT NULL DEFAULT 0,
     retry_count    INTEGER NOT NULL DEFAULT 0,
     error_message  TEXT,
     created_at     TEXT NOT NULL DEFAULT (datetime('now')),

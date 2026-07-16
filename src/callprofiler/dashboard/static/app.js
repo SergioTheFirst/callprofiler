@@ -438,6 +438,10 @@
             '<audio id="call-audio-player" controls preload="none" src="/api/audio/' + d.call_id + '" ' +
             'style="width:100%"></audio></div>';
 
+        var fragileHtml = d.role_fragile
+            ? '<div class="detail-section" style="color:#e0922a">⚠ роли могли спутаться (много UNKNOWN) — не полагайтесь на [me]/[s2] в этом звонке</div>'
+            : '';
+
         $('#detail-content').innerHTML =
             '<div class="detail-section"><h4>Metadata</h4><dl class="detail-meta">' +
             '<dt>Call #</dt><dd>' + d.call_id + '</dd>' +
@@ -452,7 +456,7 @@
             '<dt>Call Type</dt><dd>' + escapeHtml(d.call_type || '--') + '</dd>' +
             '<dt>Model</dt><dd>' + escapeHtml(d.model || '--') + '</dd>' +
             '</dl></div>' +
-            audioHtml +
+            audioHtml + fragileHtml +
             '<div class="detail-section"><h4>Summary</h4><p style="font-size:13px;color:var(--text-secondary);line-height:1.6">' + escapeHtml(summary) + '</p></div>' +
             flagsHtml + segsHtml + promHtml;
 

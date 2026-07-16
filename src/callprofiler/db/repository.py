@@ -115,14 +115,19 @@ class Repository:
         except Exception:
             pass  # entities table may not exist yet
 
-        # calls migration: pipeline_stage для crash-resume (Фаза 1 надёжности)
+        # calls migration: pipeline_stage для crash-resume (Фаза 1 надёжности) +
+        # role_fragile — роль-шум-доктрина (OzaluplivanieFable.md §4.2): UNKNOWN-доля
+        # сегментов > порога -> who-критичные извлечения (M8/B3/B5/B7) на этот звонок не опираются
+        calls_cols = [
+            ("pipeline_stage", "INTEGER NOT NULL DEFAULT 0"),
+            ("role_fragile", "INTEGER NOT NULL DEFAULT 0"),
+        ]
         existing_calls = {
             row[1] for row in conn.execute("PRAGMA table_info(calls)").fetchall()
         }
-        if "pipeline_stage" not in existing_calls:
-            conn.execute(
-                "ALTER TABLE calls ADD COLUMN pipeline_stage INTEGER NOT NULL DEFAULT 0"
-            )
+        for col_name, col_def in calls_cols:
+            if col_name not in existing_calls:
+                conn.execute(f"ALTER TABLE calls ADD COLUMN {col_name} {col_def}")
 
         # indexes для dashboard/poller (Фаза 2)
         for _idx_sql in [
@@ -446,6 +451,15 @@ class Repository:
         conn.execute(
             "UPDATE calls SET pipeline_stage=?, updated_at=datetime('now') WHERE call_id=?",
             (stage, call_id),
+        )
+        conn.commit()
+
+    def set_role_fragile(self, call_id: int, fragile: bool) -> None:
+        """Пометить звонок role_fragile (роль-шум-доктрина, OzaluplivanieFable.md §4.2)."""
+        conn = self._get_conn()
+        conn.execute(
+            "UPDATE calls SET role_fragile=? WHERE call_id=?",
+            (1 if fragile else 0, call_id),
         )
         conn.commit()
 

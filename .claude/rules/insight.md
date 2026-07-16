@@ -13,6 +13,24 @@
 **эмпирические архетипы** (обнаруженные, не заданные руками). НЕ оценка человека —
 паттерны для внимания (как `graph.md` про BS-index).
 
+## Role-fragile звонки (шум-доктрина, инлайн-задача №7 — OzaluplivanieFable.md §4.2)
+
+`calls.role_fragile` (INTEGER, миграция аддитивна — `db/repository.py::_migrate`, схема
+`schema.sql`): `1` если доля `speaker='UNKNOWN'` сегментов звонка > `UNKNOWN_SHARE_THRESHOLD=0.3`
+(`diarize/role_assigner.py::is_role_fragile`). `role_assigner.assign_speakers` не отдаёт
+скалярную уверенность overlap-назначения — margin-критерий НЕДОСТУПЕН, работает только
+UNKNOWN-доля. Пишется пайплайном (`orchestrator.py`, оба пути `process_call`/`process_batch`)
+сразу после `save_transcripts`, ДО `update_pipeline_stage(...,2)`.
+
+**Контракт для потребителей (обязателен при реализации соответствующих задач):**
+- **M8 deep-extract, B3 promise_outcomes, B5 request_balance, B7 finance** (who-критичные
+  извлечения): item с `who IN ('OWNER','OTHER')` из role_fragile-звонка → ДРОП. Items без
+  зависимости от `who` (type='fact' без атрибуции) — оставлять.
+- **Дашборд:** бейдж «⚠ роли могли спутаться» в детали звонка (`get_call_detail` отдаёт
+  `role_fragile`, `app.js::renderCallDetail` рендерит — реализовано 2026-07-16).
+- **A1 digest / F5 daily report:** строки, построенные из role_fragile-звонков, помечать
+  суффиксом `(?)` (задача ещё не реализована — применить при исполнении A1/F5).
+
 **Единица анализа = `contact`** (телефонная диада, где живут метаданные). НЕ `entity`.
 
 ---
