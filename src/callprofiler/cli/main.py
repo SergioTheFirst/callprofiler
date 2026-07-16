@@ -68,7 +68,7 @@ from callprofiler.cli.commands.graph import (  # noqa: E402
 # ---- insight commands ----
 from callprofiler.cli.commands.insight import (  # noqa: E402
     cmd_features_build, cmd_archetypes_fit, cmd_person_archetype, cmd_person_link,
-    cmd_age_estimate, cmd_age_style,
+    cmd_age_estimate, cmd_age_style, cmd_spotcheck_sample,
 )
 
 # ---- doctor command (M1) ----
@@ -630,6 +630,28 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Путь к выходному .md файлу",
     )
 
+    # ── spotcheck-sample ─────────────────────────────────────────
+    p_spotcheck = sub.add_parser(
+        "spotcheck-sample",
+        help="Стратифицированная выборка звонков для ручной проверки WER/ролей/обещаний",
+    )
+    p_spotcheck.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_spotcheck.add_argument(
+        "--n", type=int, default=25, metavar="N",
+        help="Размер выборки (по умолчанию 25)",
+    )
+    p_spotcheck.add_argument(
+        "--seed", type=int, default=0, metavar="SEED",
+        help="Seed случайной выборки (для воспроизводимости)",
+    )
+    p_spotcheck.add_argument(
+        "--out", default=None, metavar="FILE",
+        help="Путь к выходному .md файлу (по умолчанию C:\\calls\\spotcheck.md)",
+    )
+
     # ── doctor ───────────────────────────────────────────────────
     p_doctor = sub.add_parser(
         "doctor",
@@ -682,6 +704,7 @@ def main() -> None:
         "person-archetype": cmd_person_archetype,
         "age-estimate": cmd_age_estimate,
         "age-style": cmd_age_style,
+        "spotcheck-sample": cmd_spotcheck_sample,
         "entity-merge": cmd_entity_merge,
         "entity-unmerge": cmd_entity_unmerge,
         "graph-audit": cmd_graph_audit,

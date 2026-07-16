@@ -8,6 +8,17 @@
 
 ## [Unreleased]
 
+### Added — 0.3: спот-чек-сэмплер (2026-07-16)
+- `src/callprofiler/insight/spotcheck.py::build_spotcheck(conn, user_id, n=25, seed=0)` —
+  markdown: n done/transcribed-звонков, стратифицированных по длительности (короткие <60s /
+  средние / длинные >600s — поровну, детерминированная выборка `random.Random(seed)` по
+  `ORDER BY call_id`). На звонок: call_id/дата/контакт/`audio:` (M2 — «дашборд → звонок → ▶»),
+  summary+risk из analyses, promises этого звонка, транскрипт `[me]/[s2]/[?]`, чек-лист
+  `- [ ] текст верен / роли верны / обещания верны`.
+- CLI `spotcheck-sample --user X [--n 25] [--seed 0] [--out C:\calls\spotcheck.md]`.
+- Tests: `tests/insight/test_spotcheck.py` (4: страты, детерминизм seed, изоляция user_id,
+  promises). 834 passed/2 skipped.
+
 ### Added — M1: `doctor` — преполётная проверка окружения/схемы (2026-07-16)
 - `src/callprofiler/doctor.py`: `Check(name,status,detail)` + `run_checks(config,conn=None)` +
   `format_report(checks)`. 12 чеков, каждый в try/except (сбой чека = FAIL с текстом, не краш):

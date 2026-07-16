@@ -72,6 +72,21 @@ def cmd_age_estimate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_spotcheck_sample(args: argparse.Namespace) -> int:
+    setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = load_config_and_repo(args.config)
+    conn = repo._get_conn()
+    from callprofiler.insight.spotcheck import build_spotcheck
+    n = getattr(args, "n", 25)
+    seed = getattr(args, "seed", 0)
+    out = getattr(args, "out", None) or "C:\\calls\\spotcheck.md"
+    report = build_spotcheck(conn, args.user_id, n=n, seed=seed)
+    with open(out, "w", encoding="utf-8") as f:
+        f.write(report)
+    print(f"spotcheck-sample: записано в {out} (user={args.user_id}, n={n}, seed={seed})")
+    return 0
+
+
 def cmd_age_style(args: argparse.Namespace) -> int:
     setup_logging(verbose=getattr(args, "verbose", False))
     cfg, repo = load_config_and_repo(args.config)
