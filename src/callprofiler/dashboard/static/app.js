@@ -1459,6 +1459,15 @@
                 $('#sys-db').innerHTML =
                     '<div class="sys-row"><span class="sys-label">DB Path</span><span class="sys-value">' + data.db_path + '</span></div>';
 
+                if (data.role_unknown_share) {
+                    var ru = data.role_unknown_share;
+                    var pct = Math.round((ru.share || 0) * 100);
+                    var ruCls = pct > 40 ? 'risk-high' : '';
+                    $('#sys-db').innerHTML +=
+                        '<div class="sys-row"><span class="sys-label">Роли</span><span class="sys-value ' + ruCls + '">' +
+                        pct + '% UNKNOWN за 30 дней (n=' + ru.n + ') — мастер-гейт FRAGILE-сигналов</span></div>';
+                }
+
                 if (data.db_stats && Object.keys(data.db_stats).length) {
                     var stats = data.db_stats;
                     var statsHtml = '<div class="db-stats">';

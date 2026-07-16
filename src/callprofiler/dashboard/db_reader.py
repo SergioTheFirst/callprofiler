@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import time
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -1496,6 +1497,36 @@ class DashboardDBReader:
         if not parts:
             return "# Биография\n\n_Книга ещё не сгенерирована._\n"
         return "\n\n".join(parts).strip() + "\n"
+
+    # Кэш role-unknown% (класс-уровня, не instance): server.py конструирует НОВЫЙ
+    # DashboardDBReader на каждый HTTP-запрос (см. _system() в server.py) — instance-
+    # атрибут кэшировал бы 0 раз. SSE-тик каждые 2с, полный скан transcripts (660k+
+    # строк) на каждый тик недопустим (0.4, аналог гейта get_role_unknown_share в bugs.md).
+    _role_unknown_cache: dict[tuple[str, str, int], tuple[float, dict[str, Any]]] = {}
+
+    def get_role_unknown_share(self, user_id: str, days: int = 30) -> dict[str, Any]:
+        """Доля сегментов speaker='UNKNOWN' за последние `days` дней — master-gate FRAGILE."""
+        self.connect()
+        cache_key = (self.db_path, user_id, days)
+        now = time.monotonic()
+        cached = self._role_unknown_cache.get(cache_key)
+        if cached is not None and now - cached[0] < 60:
+            return cached[1]
+
+        row = self._conn.execute(
+            """SELECT AVG(CASE WHEN t.speaker = 'UNKNOWN' THEN 1.0 ELSE 0.0 END) AS share,
+                      COUNT(*) AS n
+                 FROM transcripts t
+                 JOIN calls c ON c.call_id = t.call_id
+                WHERE c.user_id = ? AND c.created_at >= datetime('now', ?)""",
+            (user_id, f"-{days} days"),
+        ).fetchone()
+        result = {
+            "share": row["share"] if row and row["share"] is not None else 0.0,
+            "n": row["n"] if row else 0,
+        }
+        DashboardDBReader._role_unknown_cache[cache_key] = (now, result)
+        return result
 
     def get_db_stats(self, user_id: str) -> dict[str, Any]:
         """Database-level statistics for the system tab."""

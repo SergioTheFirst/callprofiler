@@ -8,6 +8,17 @@
 
 ## [Unreleased]
 
+### Added — 0.4: role-UNKNOWN% master-gate на System tab (2026-07-16)
+- `db_reader.get_role_unknown_share(user_id, days=30)` — доля `transcripts.speaker='UNKNOWN'`
+  за окно дней. **Кэш класс-уровня** (не instance — `server.py::_system()` конструирует НОВЫЙ
+  `DashboardDBReader` на каждый HTTP-запрос, instance-атрибут кэшировал бы 0 раз), TTL 60s,
+  ключ `(db_path, user_id, days)`: SSE-тик каждые 2с не гонит полный скан transcripts (660k+ строк).
+- `/api/system` — новое поле `role_unknown_share: {share, n}`.
+- `app.js::loadSystem` — строка «Роли: X% UNKNOWN за 30 дней (n=…) — мастер-гейт FRAGILE-сигналов»,
+  красным при >40%.
+- Tests: `tests/test_dashboard_role_unknown.py` (4: доля 0.75 на 3 UNKNOWN+1 OWNER, TTL-кэш
+  переживает новую вставку, изоляция user_id, `/api/system` содержит поле). 844 passed/2 skipped.
+
 ### Added — M2: аудио-плеер в дашборде + seek по сегменту (2026-07-16)
 - `db_reader.get_call_audio_path(call_id, user_id)` — `calls.audio_path`, guarded на
   существование файла на диске (NULL/удалён → None).

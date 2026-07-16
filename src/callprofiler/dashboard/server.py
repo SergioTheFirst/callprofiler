@@ -208,15 +208,18 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
         disk_path = str(_CONFIG.data_dir) if _CONFIG else "."
         disk = psutil.disk_usage(disk_path)
         db_stats = {}
+        role_unknown = {"share": 0.0, "n": 0}
         if _CONFIG is not None:
             reader = DashboardDBReader(_CONFIG.data_dir)
             db_stats = reader.get_db_stats(_USER_ID)
+            role_unknown = reader.get_role_unknown_share(_USER_ID, days=30)
         return JSONResponse({
             "cpu_percent": psutil.cpu_percent(interval=0.1),
             "ram": {"used_gb": round(mem.used / (1024**3), 2), "total_gb": round(mem.total / (1024**3), 2)},
             "disk": {"used_gb": round(disk.used / (1024**3), 2), "total_gb": round(disk.total / (1024**3), 2)},
             "db_stats": db_stats,
             "db_path": str(_CONFIG.data_dir) if _CONFIG else "",
+            "role_unknown_share": role_unknown,
             "version": VERSION,
         })
 
