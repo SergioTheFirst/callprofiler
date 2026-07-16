@@ -858,6 +858,12 @@
             escapeHtml(d.entity.canonical_name || '') + ' (' + escapeHtml(d.entity.link_method || '') + ')</span>');
         if (head.length) html += '<div class="detail-section">' + head.join(' &nbsp; ') + '</div>';
 
+        if (d.feedback && d.feedback.wrong_n > 0) {
+            html += '<div class="detail-section" style="color:#e0922a">Сводки этого контакта помечались как неверные' +
+                (d.feedback.last_wrong ? ' (последний раз: ' + escapeHtml(d.feedback.last_wrong) + ')' : '') +
+                ' — доверие к автоматике снижено</div>';
+        }
+
         // Индексы
         var bs = idx.bs_index != null ? idx.bs_index : idx.avg_bs_score;
         var riskCls = idx.global_risk != null

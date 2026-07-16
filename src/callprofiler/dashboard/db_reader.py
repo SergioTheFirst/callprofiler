@@ -899,6 +899,22 @@ class DashboardDBReader:
             if row:
                 dossier["bs_thresholds"] = dict(row)
 
+        if self._has_column("analyses", "feedback"):
+            row = self._conn.execute(
+                """SELECT SUM(CASE WHEN a.feedback='inaccurate' THEN 1 ELSE 0 END) AS wrong_n,
+                          SUM(CASE WHEN a.feedback='ok' THEN 1 ELSE 0 END) AS ok_n,
+                          MAX(CASE WHEN a.feedback='inaccurate' THEN c.call_datetime END) AS last_wrong
+                     FROM analyses a JOIN calls c ON c.call_id = a.call_id
+                    WHERE c.user_id = ? AND c.contact_id = ?""",
+                (user_id, contact_id),
+            ).fetchone()
+            if row:
+                dossier["feedback"] = {
+                    "wrong_n": row["wrong_n"] or 0,
+                    "ok_n": row["ok_n"] or 0,
+                    "last_wrong": row["last_wrong"],
+                }
+
         # Психотип/паттерны/факты/тренд/противоречия — целиком по-русски.
         return labels_ru.localize_dossier(dossier)
 

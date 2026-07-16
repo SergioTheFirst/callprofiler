@@ -8,6 +8,21 @@
 
 ## [Unreleased]
 
+### Fixed — задача 0.2 (A5): feedback-петля замкнута (2026-07-16)
+- **NameError:** `handle_feedback` (`telegram_bot.py`) ссылался на неопределённую `user_id`
+  при вызове `self.repo.get_analysis(user_id, call_id)` — каждое нажатие [OK]/[Неточно]
+  падало в except и отвечало «❌ Ошибка сохранения», ничего не записывая.
+  Fix: `user_id = self._get_user_id(update)` в начале функции; `None` → явный ответ
+  «❌ Не найден ваш user_id», return без записи.
+- **Досье:** `get_person_dossier` — ключ `feedback` (guarded `_has_column("analyses","feedback")`):
+  `{wrong_n, ok_n, last_wrong}` по `analyses.feedback` этого контакта.
+- **UI:** `app.js::renderDossier` — оранжевая строка под шапкой при `wrong_n > 0`:
+  «Сводки этого контакта помечались как неверные (последний раз: …) — доверие к автоматике снижено».
+- Tests: `test_feedback_loop.py` (4, включая regression на NameError) +
+  `test_dashboard_dossier.py::test_dossier_feedback_badge_data`. 815 passed/2 skipped.
+- Начало исполнения `OzaluplivanieFable2.md` (порядок §2: задача 0.1 гейт — подтверждён
+  пройденным, задача 0.2 — эта запись).
+
 ### Added — fixager.md: план фиксов возраста (2026-07-02)
 - Аудит marker+age_style нашёл 9 препятствий (P1-P9): лексиконы-омонимы («аккуратно»/«диалог»/
   «база»/«сериал» через startswith), support_n=весь корпус вместо хитов, z по stale-подвыборке в

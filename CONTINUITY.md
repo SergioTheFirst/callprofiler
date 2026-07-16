@@ -64,6 +64,10 @@ column — bugs.md 2026-07-02) · досье Ф0-Ф4 · русификация.
 1. **Исполнение `OzaluplivanieFable2.md`** (Sonnet, порядок = Fable §2 + вставки Fable2 §2:
    0.1 → 0.2 → M1 → … → 19a(F28) → … → 56a-56d → …). Каждая задача: pytest зелёный →
    CHANGELOG → commit+push. 59a (canary смены LLM) — НЕ исполнять автономно.
+   **В процессе (автономный прогон начат 2026-07-16):** 0.1 гейт подтверждён пройденным
+   (RULES_VERSION=age-rules-v2 + test_age_lexicons_fp.py существуют) · 0.2 сделана
+   (feedback-петля). Следующая по порядку — **3. M1 doctor**. Детали каждой готовой
+   задачи — CHANGELOG.md (запись по задаче, не здесь).
 2. **Бокс (не блокирует исполнение):** pull → `owner_birth_year` в base.yaml → пересчёт возраста
    (`age-estimate --user me` + `age-style --user me`, TABLE/RULES v2) → спот-чек 10 контактов →
    LLM-окно: `age-estimate --user me --llm`.

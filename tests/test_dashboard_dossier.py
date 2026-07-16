@@ -214,6 +214,29 @@ def test_people_age_column(tmp_path):
     assert p["age_confidence"] == 80
 
 
+def test_dossier_feedback_badge_data(tmp_path):
+    """A5/F0.2: feedback='inaccurate' на analyses контакта -> счётчик в досье."""
+    db, cid, _eid = _seed_db(tmp_path, with_entity=False, with_archetype=False)
+    repo = Repository(db)
+    conn = repo._get_conn()
+    call_id = conn.execute(
+        "SELECT call_id FROM calls WHERE contact_id = ? LIMIT 1", (cid,)
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO analyses(call_id, prompt_version, feedback) VALUES (?, 'v1', 'inaccurate')",
+        (call_id,),
+    )
+    conn.commit()
+    repo.close()
+
+    r = _reader(db)
+    d = r.get_person_dossier(cid, "me")
+    r.close()
+    assert d["feedback"]["wrong_n"] == 1
+    assert d["feedback"]["ok_n"] == 0
+    assert d["feedback"]["last_wrong"]
+
+
 def test_dossier_wrong_user(tmp_path):
     db, cid, _ = _seed_db(tmp_path)
     r = _reader(db)

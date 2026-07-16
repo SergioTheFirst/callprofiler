@@ -186,6 +186,11 @@ class TelegramNotifier:
         feedback_text = "ok" if feedback_type == "ok" else "inaccurate"
         feedback_display = "✅ OK" if feedback_type == "ok" else "❌ Неточно"
 
+        user_id = self._get_user_id(update)
+        if user_id is None:
+            await query.edit_message_text(text="❌ Не найден ваш user_id")
+            return
+
         try:
             # Получить analysis_id для call_id
             analysis = self.repo.get_analysis(user_id, call_id)
