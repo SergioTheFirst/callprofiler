@@ -34,3 +34,8 @@ enable_event_extraction: true
 # Отправка саммари в Telegram-бот после обработки. По умолчанию OFF —
 # включать только когда бот настроен и токен в окружении.
 enable_telegram_notification: false
+
+# response_format: json_object на llama-server (M4). OFF по умолчанию —
+# поведение прежнее байт-в-байт. Включать после canary-analyze (см. llm.md):
+# старые сборки llama-server игнорируют поле молча, repair-парсер остаётся всегда.
+llm_json_mode: false

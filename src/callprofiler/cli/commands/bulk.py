@@ -125,6 +125,40 @@ def cmd_bulk_enrich(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_canary_analyze(args: argparse.Namespace) -> int:
+    """canary-analyze --user ID [--n 50] [--seed 0] [--out FILE] — M4 json_mode=False vs True."""
+    cfg, repo = load_config_and_repo(args.config)
+    setup_logging(cfg.log_file, args.verbose)
+    log = logging.getLogger(__name__)
+
+    user = repo.get_user(args.user_id)
+    if not user:
+        log.error("Пользователь '%s' не найден", args.user_id)
+        return 1
+
+    from callprofiler.analyze.canary import run_canary
+    from callprofiler.analyze.llm_client import LLMClient
+
+    conn = repo._get_conn()
+    out = args.out or "C:\\calls\\canary-json.md"
+
+    try:
+        report = run_canary(
+            conn, args.user_id,
+            llm_client_factory=lambda: LLMClient(base_url=cfg.models.llm_url),
+            config=cfg,
+            n=args.n, seed=args.seed,
+        )
+    except ConnectionError as exc:
+        log.error("llama-server недоступен: %s", exc)
+        return 2
+
+    with open(out, "w", encoding="utf-8") as f:
+        f.write(report)
+    print(f"canary-analyze: записано в {out} (user={args.user_id}, n={args.n})")
+    return 0
+
+
 def cmd_audio_migrate(args: argparse.Namespace) -> int:
     """audio-migrate --user ID [--dry-run] [--limit N] — переместить оригиналы в originals/YYYY/MM/."""
     import shutil

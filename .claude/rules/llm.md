@@ -22,3 +22,14 @@
   llama-server залип бы навсегда; truncated (`finish_reason='length'`) кэшируется как есть.
 - `bio_llm_calls` (biography) и per-row кэши insight (age/ask/promise) НЕ унифицированы с
   `llm_calls` — отдельная мемоизация, сознательно (blast radius).
+
+## JSON-режим + canary (M4)
+
+- `features.yaml: llm_json_mode` (default `false`) → `LLMClient.complete(..., json_mode=True)`
+  добавляет `response_format: {"type":"json_object"}` в тело запроса. `json_mode` входит в
+  ключ кэша (`make_key`) — иначе True/False делили бы чужой кэш на одних messages.
+- `canary-analyze --user X [--n 50] [--out FILE]` (`analyze/canary.py::run_canary`) гоняет
+  выборку ДВАЖДЫ (False/True) существующим `PromptBuilder`+`parse_llm_response`, отчёт —
+  parse_status/truncated%/пустые promises-entities. Пишет НИЧЕГО в БД (client без cache_conn).
+  Включать `llm_json_mode` — решение юзера ПОСЛЕ чтения отчёта; старые сборки llama-server
+  игнорируют поле молча, repair-парсер остаётся навсегда.

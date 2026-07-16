@@ -38,6 +38,7 @@ from callprofiler.cli.commands.admin import (  # noqa: E402
 # ---- bulk commands ----
 from callprofiler.cli.commands.bulk import (  # noqa: E402
     cmd_extract_names, cmd_bulk_load, cmd_bulk_enrich, cmd_audio_migrate,
+    cmd_canary_analyze,
 )
 
 # ---- query commands ----
@@ -662,6 +663,28 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Не используется напрямую — чеки покрывают всех users в БД",
     )
 
+    # ── canary-analyze ─────────────────────────────────────────────
+    p_canary = sub.add_parser(
+        "canary-analyze",
+        help="M4: сравнить json_mode=False vs True на выборке звонков (ничего не пишет в БД)",
+    )
+    p_canary.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_canary.add_argument(
+        "--n", type=int, default=50, metavar="N",
+        help="Размер выборки (по умолчанию 50)",
+    )
+    p_canary.add_argument(
+        "--seed", type=int, default=0, metavar="SEED",
+        help="Seed случайной выборки (для воспроизводимости)",
+    )
+    p_canary.add_argument(
+        "--out", default=None, metavar="FILE",
+        help="Путь к выходному .md файлу (по умолчанию C:\\calls\\canary-json.md)",
+    )
+
     return parser
 
 
@@ -714,6 +737,7 @@ def main() -> None:
         "person-profile": cmd_person_profile,
         "profile-all": cmd_profile_all,
         "doctor": cmd_doctor,
+        "canary-analyze": cmd_canary_analyze,
     }
 
     handler = dispatch.get(args.command)

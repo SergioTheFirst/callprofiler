@@ -119,6 +119,7 @@ class LLMClient:
         messages: list[dict],
         temperature: float = 0.3,
         max_tokens: int = 1500,
+        json_mode: bool = False,
     ) -> LLMResult:
         """Отправить сообщения в LLM и вернуть текст + finish_reason.
 
@@ -127,14 +128,17 @@ class LLMClient:
                           [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}]
             temperature  — параметр температуры (0.0-2.0), по умолчанию 0.3 для консистентного JSON
             max_tokens   — максимальное число токенов в ответе (потолок, не цель)
+            json_mode    — True добавляет ``response_format: {"type":"json_object"}`` (M4).
+                          Старые сборки llama-server игнорируют поле молча — repair-парсер
+                          (llm.md) остаётся ВСЕГДА, это не замена ему.
 
         Возвращает:
             LLMResult(text, finish_reason). ``text=None`` при ошибке подключения
             или невалидном ответе. ``finish_reason="length"`` → вывод обрезан.
         """
         logger.debug(
-            "Отправка промпта в LLM сервер (сообщений: %d, max_tokens: %d)",
-            len(messages), max_tokens,
+            "Отправка промпта в LLM сервер (сообщений: %d, max_tokens: %d, json_mode=%s)",
+            len(messages), max_tokens, json_mode,
         )
 
         cache_key = None
@@ -143,22 +147,26 @@ class LLMClient:
             from callprofiler.llm_cache import make_key
             from callprofiler.llm_cache import put as cache_put
 
-            cache_key = make_key(messages, temperature, max_tokens, self.prompt_version)
+            cache_key = make_key(messages, temperature, max_tokens, self.prompt_version, json_mode)
             cached = cache_get(self.cache_conn, cache_key)
             if cached is not None:
                 logger.debug("LLM cache HIT (key=%s...)", cache_key[:8])
                 return cached
+
+        request_body: dict = {
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if json_mode:
+            request_body["response_format"] = {"type": "json_object"}
 
         last_exc: Exception | None = None
         for attempt in range(3):
             try:
                 response = requests.post(
                     self.base_url,
-                    json={
-                        "messages": messages,
-                        "temperature": temperature,
-                        "max_tokens": max_tokens,
-                    },
+                    json=request_body,
                     timeout=self.timeout,
                 )
                 response.raise_for_status()

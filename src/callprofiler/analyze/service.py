@@ -112,7 +112,8 @@ class AnalysisService:
         truncated = False
         try:
             result = self.llm.complete(
-                messages=messages, temperature=temperature, max_tokens=budget
+                messages=messages, temperature=temperature, max_tokens=budget,
+                json_mode=self.config.features.llm_json_mode,
             )
             raw_response = result.text or ""
             truncated = result.truncated

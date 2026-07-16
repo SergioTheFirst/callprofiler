@@ -8,6 +8,34 @@
 
 ## [Unreleased]
 
+### Added — M4: json_mode flag + canary-analyze harness (2026-07-16)
+- `configs/features.yaml`/`FeaturesConfig.llm_json_mode` (default `false`). `LLMClient.complete(...,
+  json_mode=True)` добавляет `response_format: {"type":"json_object"}` в тело запроса; старые сборки
+  llama-server игнорируют поле молча — repair-парсер (`response_parser.py`) остаётся всегда, не замена.
+  `AnalysisService` передаёт `json_mode=config.features.llm_json_mode`.
+- **Отклонение от буквы M3-спеки (найдено самостоятельно):** `llm_cache.make_key()` расширен
+  параметром `json_mode` (влияет в хэш) — без этого запросы json_mode=True/False с одинаковыми
+  остальными параметрами читали бы чужой кэш друг у друга (`response_format` меняет форму ответа
+  модели). M3 писался до появления json_mode, поэтому не мог этого предвидеть.
+- `src/callprofiler/analyze/canary.py::run_canary(conn, user_id, llm_client_factory, config, n=50,
+  seed=0)`: стратифицированная выборка done/transcribed звонков (реюз подхода `spotcheck.py`),
+  messages строятся ТЕМ ЖЕ `PromptBuilder` что и `AnalysisService` (`analyze_v001.txt` не тронут —
+  T3-зона), каждый звонок прогоняется ДВАЖДЫ (`json_mode=False` и `True`) через существующий
+  `parse_llm_response`. Отчёт (markdown): parsed_ok/parsed_partial/parse_failed/output_truncated
+  по веткам + доля пустых promises/entities + truncated% + средняя длина ответа. **Ничего не пишет
+  в БД** (client без `cache_conn` — ни `analyses`, ни `llm_calls`).
+  Деталь сигнатуры сверх дословной спеки: добавлен параметр `config: Config` (несёт `prompts_dir`
+  + `llm_n_ctx` + `llm_model` — без них нельзя ни построить промпт, ни воспроизвести реальный
+  бюджет вывода, от которого зависит сравниваемый truncated%).
+- CLI `canary-analyze --user X [--n 50] [--seed 0] [--out C:\calls\canary-json.md]`
+  (`cli/commands/bulk.py::cmd_canary_analyze`, зарегистрирован в `cli/main.py`). `llama-server`
+  недоступен → `ConnectionError` из `LLMClient.__init__` ловится в CLI-обёртке → чистое сообщение
+  + `exit 2` (без ретрай-лупа).
+- Tests: `tests/test_llm_json_mode.py` (3: response_format добавлен при True, отсутствует при
+  False и по дефолту), `tests/test_canary.py` (3: отчёт содержит обе ветки, `analyses` не меняется
+  до/после прогона, оба json_mode реально вызваны по разу на звонок). 871 passed/2 skipped.
+- `.claude/rules/llm.md` — секция «JSON-режим + canary (M4)».
+
 ### Added — M3: мемоизация analyze-пути (`llm_cache`) (2026-07-16)
 - `src/callprofiler/llm_cache.py`: `apply_llm_cache_schema` (idempotent) +
   `make_key(messages,temperature,max_tokens,prompt_version)` (sha1, sort_keys=True — порядок

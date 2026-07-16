@@ -36,12 +36,20 @@ def apply_llm_cache_schema(conn: sqlite3.Connection) -> None:
 
 
 def make_key(
-    messages: list[dict], temperature: float, max_tokens: int, prompt_version: str
+    messages: list[dict],
+    temperature: float,
+    max_tokens: int,
+    prompt_version: str,
+    json_mode: bool = False,
 ) -> str:
     """Fingerprint запроса — детерминированный, порядок ключей сообщений не важен
-    (``sort_keys=True``): один и тот же запрос всегда даёт один и тот же ключ."""
+    (``sort_keys=True``): один и тот же запрос всегда даёт один и тот же ключ.
+
+    ``json_mode`` входит в ключ (M4): ``response_format`` меняет форму ответа модели —
+    без этого json_mode=True/False на одних messages читали бы чужой кэш друг у друга.
+    """
     canonical = json.dumps(messages, ensure_ascii=False, sort_keys=True)
-    payload = f"{canonical}|{temperature}|{max_tokens}|{prompt_version}"
+    payload = f"{canonical}|{temperature}|{max_tokens}|{prompt_version}|{json_mode}"
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
 

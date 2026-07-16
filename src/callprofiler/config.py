@@ -86,6 +86,9 @@ class FeaturesConfig:
     enable_event_extraction: bool = True
     enable_telegram_notification: bool = False
     enable_graph_update: bool = True
+    # M4: response_format json_object на llama-server. Default False = поведение
+    # прежнее байт-в-байт; включение — решение юзера ПОСЛЕ canary-analyze (см. llm.md).
+    llm_json_mode: bool = False
 
 
 @dataclass
@@ -232,6 +235,7 @@ def _load_features(config_dir: Path, inline: dict | None) -> FeaturesConfig:
         enable_graph_update=bool(
             raw.get("enable_graph_update", feats.enable_graph_update)
         ),
+        llm_json_mode=bool(raw.get("llm_json_mode", feats.llm_json_mode)),
     )
 
 
