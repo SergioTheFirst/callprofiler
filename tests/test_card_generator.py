@@ -194,7 +194,7 @@ def test_generate_card_unknown_contact():
 
 
 def test_generate_card_max_bytes():
-    """Карточка не превышает MAX_CARD_BYTES байт."""
+    """Карточка не превышает MAX_CARD_BYTES байт; штамп свежести — последняя строка."""
     repo = _make_repo()
     _add_user(repo)
     contact_id = repo.get_or_create_contact("serhio", "+79161234567", "Иванов")
@@ -214,7 +214,71 @@ def test_generate_card_max_bytes():
     card = gen.generate_card("serhio", contact_id)
 
     assert len(card.encode("utf-8")) <= MAX_CARD_BYTES
-    assert card.endswith("...")
+    assert "..." in card
+    assert card.split("\n")[-1].startswith("обновлено ")
+
+
+def test_generate_card_freshness_stamp_last_line():
+    """A6/§4.3 п.1: последняя строка карточки — штамп свежести DD.MM HH:MM."""
+    from datetime import datetime
+
+    repo = _make_repo()
+    _add_user(repo)
+    contact_id = _add_contact_with_summary(repo)
+
+    gen = CardGenerator(repo)
+    fixed_now = datetime(2026, 7, 17, 14, 32)
+    card = gen.generate_card("serhio", contact_id, now=fixed_now)
+
+    assert card.split("\n")[-1] == "обновлено 17.07 14:32"
+
+
+def test_generate_card_no_advice_line():
+    """A6/§4.3 п.4: advice убран из карточки v2."""
+    repo = _make_repo()
+    _add_user(repo)
+    contact_id = _add_contact_with_summary(repo, advice="Держи дистанцию")
+
+    gen = CardGenerator(repo)
+    card = gen.generate_card("serhio", contact_id)
+
+    assert "advice:" not in card
+    assert "Держи дистанцию" not in card
+
+
+def test_generate_card_grade_line_always_present():
+    """A6 п.2: grade-строка рендерится всегда, даже без graph/entity-слоя (F6 худший случай)."""
+    repo = _make_repo()
+    _add_user(repo)
+    contact_id = _add_contact_with_summary(repo)
+
+    gen = CardGenerator(repo)
+    card = gen.generate_card("serhio", contact_id)
+
+    assert "grade: F6" in card
+
+
+def test_generate_card_hook_after_bullets():
+    """Fable §4.3 п.4: приоритет строк — обещания/долги выше hook."""
+    repo = _make_repo()
+    _add_user(repo)
+    contact_id = repo.get_or_create_contact("serhio", "+79161234567", "Иванов")
+    repo.save_contact_summary(
+        contact_id=contact_id,
+        user_id="serhio",
+        global_risk=40,
+        contact_role="Клиент",
+        top_hook="Спроси про сделку",
+        open_promises=json.dumps([{"payload": "Оплатить до пятницы"}]),
+        open_debts=json.dumps([]),
+        personal_facts=json.dumps([]),
+        advice="",
+    )
+
+    gen = CardGenerator(repo)
+    card = gen.generate_card("serhio", contact_id)
+
+    assert card.index("bullet1:") < card.index("hook:")
 
 
 def test_write_card_creates_file():
@@ -227,7 +291,7 @@ def test_write_card_creates_file():
     with tempfile.TemporaryDirectory() as tmpdir:
         gen.write_card("serhio", contact_id, tmpdir)
 
-        card_file = Path(tmpdir) / "+79161234567.txt"
+        card_file = Path(tmpdir) / "79161234567.txt"
         assert card_file.exists()
         content = card_file.read_text(encoding="utf-8")
         assert "Иванов" in content
@@ -259,7 +323,7 @@ def test_write_card_creates_sync_dir():
         nested = str(Path(tmpdir) / "sub" / "cards")
         gen.write_card("serhio", contact_id, nested)
 
-        card_file = Path(nested) / "+79161234567.txt"
+        card_file = Path(nested) / "79161234567.txt"
         assert card_file.exists()
 
 
@@ -277,8 +341,25 @@ def test_update_all_cards():
         files = sorted(Path(tmpdir).glob("*.txt"))
         assert len(files) == 2
         names = [f.stem for f in files]
-        assert "+79161111111" in names
-        assert "+79162222222" in names
+        assert "79161111111" in names
+        assert "79162222222" in names
+
+
+def test_update_all_cards_removes_legacy_plus_prefixed_files():
+    """A6/§4.3 п.6: старые карточки с '+' в имени удаляются при rebuild-cards."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = _make_repo()
+        _add_user(repo, sync_dir=tmpdir)
+        _add_contact_with_summary(repo, phone="+79161111111", display_name="Первый")
+
+        stale = Path(tmpdir) / "+79169999999.txt"
+        stale.write_text("header: Устаревший", encoding="utf-8")
+
+        gen = CardGenerator(repo)
+        gen.update_all_cards("serhio")
+
+        assert not stale.exists()
+        assert (Path(tmpdir) / "79161111111.txt").exists()
 
 
 def test_update_all_cards_unknown_user():

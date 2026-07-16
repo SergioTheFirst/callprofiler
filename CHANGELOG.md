@@ -8,6 +8,31 @@
 
 ## [Unreleased]
 
+### Added — A6: карточка v2 — freshness, Admiralty-грейд, due, best call time (2026-07-17)
+- `insight/admiralty.py` (`source_grade`/`info_grade`/`grade_line`) + `insight/call_time.py`
+  (`best_call_time`, IMMUNE-сигнал: будни-день/будни-вечер/выходные/ночь, вес ×2 за 180 дней,
+  топ-бакет отдаётся при доле≥0.45 И support≥8, иначе None).
+- `deliver/card_generator.py`: `due:` (первый overdue-item контакта из `digest.overdue_items`,
+  A1) · `grade:` (Admiralty-строка, ВСЕГДА рендерится — F6 худший случай, guarded try/except
+  на `entity_contact_map`/`entity_metrics`/BSCalibrator/events.confidence) · `call:` (best_call_time,
+  опционален) — все после `risk:`. `advice` убран (мнение некалиброванной модели). Приоритет
+  строк: обещания/долги теперь ВЫШЕ hook (confirmed-факты из F1 подключатся позже — задача 20).
+  Штамп свежести `обновлено DD.MM HH:MM` — последняя строка, бюджет 512 байт резервируется под
+  неё первой (`_finalize_card`); при переполнении обрезается контент, не штамп.
+- Канон имени файла карточки (§4.3 п.6/§8.1): только цифры, `79XXXXXXXXXX.txt`, без `+`; ведущая
+  `8`→`7` (`_canonical_phone`). `update_all_cards` сносит старые `+`-файлы перед перегенерацией
+  (`_remove_legacy_cards`) — `rebuild-cards` теперь чистит легаси-имена автоматически.
+- **Интерпретации без явной спеки (задокументированы в decisions.md):** `bs_label='critical'`
+  бакетируется в грейд `E` (спека перечисляла только reliable/noisy/risky/unreliable→B/C/D/E,
+  `critical` не названа явно); `_due_line`/`_call_time_line`/`grade` читаются через
+  `self.repo._get_conn()` с try/except — на БД без insight-схемы (`entity_contact_map`
+  отсутствует) грейд всегда `F6`, карточка не падает.
+- Tests: `tests/insight/test_admiralty.py` (16: source_grade/info_grade таблично, grade_line,
+  best_call_time будни/ночь/support-гейт/share-гейт) + `tests/test_card_v2.py` (4: due-строка,
+  отсутствие due без просрочки, graceful degradation без insight-схемы, канон имени файла) +
+  6 новых/обновлённых тестов в `tests/test_card_generator.py` (freshness-штамп, без advice,
+  grade всегда, hook после bullets, канон в 3 существующих тестах). 924 passed/2 skipped.
+
 ### Fixed — A4: risk emoji использовал BS-index пороги вместо своих (2026-07-17)
 - **Bug:** `deliver/card_generator.py::_risk_emoji_with_calibration` звал
   `graph.calibration.BSCalibrator.get_label(risk_score, user_id)` — калибратор обучен на
