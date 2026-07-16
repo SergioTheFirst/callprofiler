@@ -70,6 +70,7 @@ from callprofiler.cli.commands.graph import (  # noqa: E402
 from callprofiler.cli.commands.insight import (  # noqa: E402
     cmd_features_build, cmd_archetypes_fit, cmd_person_archetype, cmd_person_link,
     cmd_age_estimate, cmd_age_style, cmd_spotcheck_sample, cmd_calibrate_risk,
+    cmd_mirror_build,
 )
 
 # ---- doctor command (M1) ----
@@ -730,6 +731,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Идентификатор пользователя",
     )
 
+    # ── mirror-build ───────────────────────────────────────────────
+    p_mirror = sub.add_parser(
+        "mirror-build",
+        help="A3: досье владельца — обещания/риск-тренд/зависимость/регистр речи",
+    )
+    p_mirror.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+
     return parser
 
 
@@ -786,6 +797,7 @@ def main() -> None:
         "obligations-digest": cmd_obligations_digest,
         "ask": cmd_ask,
         "calibrate-risk": cmd_calibrate_risk,
+        "mirror-build": cmd_mirror_build,
     }
 
     handler = dispatch.get(args.command)

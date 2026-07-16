@@ -115,6 +115,24 @@ def cmd_calibrate_risk(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_mirror_build(args: argparse.Namespace) -> int:
+    """mirror-build --user X — досье владельца: обещания/риск-тренд/зависимость/регистр (A3)."""
+    setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = load_config_and_repo(args.config)
+    conn = repo._get_conn()
+    from callprofiler.insight.repository import apply_insight_schema
+    from callprofiler.insight.mirror import build_mirror, save_mirror
+    apply_insight_schema(conn)
+    payload = build_mirror(conn, args.user_id)
+    save_mirror(conn, args.user_id, payload)
+    print(f"mirror-build (user={args.user_id}):")
+    print(f"  обещания: {payload['promises']['phrase']}")
+    print(f"  риск-тренд: {payload['risk_trend']['phrase']}")
+    print(f"  зависимость: {payload['dependency']['phrase']}")
+    print(f"  регистр: {payload['register']['phrase']}")
+    return 0
+
+
 def cmd_person_archetype(args: argparse.Namespace) -> int:
     setup_logging(verbose=getattr(args, "verbose", False))
     cfg, repo = load_config_and_repo(args.config)

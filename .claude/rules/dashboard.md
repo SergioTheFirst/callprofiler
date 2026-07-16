@@ -17,8 +17,9 @@ biography, менять нельзя). `get_entity_profile`/`get_character_profi
 `renderEntityTab`; `entity_type` фронт показывает как `entity_type_label`.
 
 ## Вкладки (templates/index.html)
-`overview` · `calls` · `search` · `entities` (**«Личности»**: таблица людей `#people-table` с поиском
-+ «Упомянутые персоны (граф)» + модалки) · `insight` («Архетипы», 4 вида, Ф7) · `system`.
+`overview` · `calls` · `search` · `entities` (**«Личности»**: «Зеркало» владельца (A3,
+collapsible, СВЕРХУ вкладки) → таблица людей `#people-table` с поиском + «Упомянутые персоны
+(граф)» + модалки) · `insight` («Архетипы», 4 вида, Ф7) · `system`.
 SSE-тик обновляет активную вкладку (bugs.md 2026-06-05).
 
 **Досье-UI (Ф3):** клик по строке людей / точке PCA (`_cid` в data) / узлу эго-сети (`id='c{cid}'`)
@@ -64,6 +65,8 @@ contact-note` {contact_id,note} — пустая строка удаляет, ca
   guarded `_has_table`/`_has_column` (слоёв может не быть; `trust_score` в entity_metrics добавляет
   ТОЛЬКО biography-схема). LLM из дашборда НЕ вызывается никогда (bugs.md 2026-06-11).
 - Insight: `/api/insight/{pca,network,circadian,ecg,contacts}`.
+- `/api/mirror` (A3, 2026-07-17): `get_mirror` читает `owner_mirror` (payload считает и пишет
+  `mirror-build --user X` CLI, НЕ дашборд) — guarded `_has_table`/пустая строка → `{}`, не 500.
 
 ## Ключевые ридеры (db_reader.py)
 - `get_all_characters` — entities ⋈ entity_metrics ⋈ entity_profiles(profile_type='psychology',

@@ -8,6 +8,25 @@
 
 ## [Unreleased]
 
+### Added — A3: «Зеркало» владельца — self-dossier агрегаты (2026-07-17)
+- `insight/mirror.py` (`build_mirror`/`save_mirror`): 4 read-only блока поверх уже имеющихся
+  данных — `promises` (A1 overdue/open, side='owner'), `risk_trend` (AVG(risk_score) по
+  месяцам, наклон через `numpy.polyfit`, порог 1.0/мес), `dependency` (доля топ-3 контактов
+  в duration_sec за 180 дней, порог 0.6), `register` (формальность речи ВЛАДЕЛЬЦА по контактам,
+  топ-3 «на вы» / топ-3 «на ты», гейт ≥40 pronoun-токенов). `owner_mirror` table (PK=user_id,
+  один JSON-payload на юзера).
+- `insight/features/formality.py::compute_formality` — новый опциональный `side: str = "OTHER"`
+  (обратная совместимость: default не меняет поведение существующего единственного вызывающего
+  — age_style). `side="OWNER"` фильтрует на речь владельца вместо контакта.
+- CLI `mirror-build --user X` (`cli/commands/insight.py`).
+- `dashboard/db_reader.get_mirror` (guarded `_has_table`) + `GET /api/mirror` + collapsible
+  блок «Зеркало (о вас)» СВЕРХУ вкладки «Личности» (`templates/index.html`/`static/app.js`) —
+  подсказка `mirror-build --user me`, если ещё не считано.
+- Tests: `tests/insight/test_mirror.py` (8: promises overdue/no-debts, risk-trend растущий,
+  dependency-концентрация, register formal/informal + гейт, save-идемпотентность,
+  user-isolation) + `tests/test_dashboard_mirror.py` (4: guarded-None без таблицы, payload при
+  наличии, эндпоинт пусто/payload). `.claude/rules/dashboard.md` +3 строки. 969 passed/2 skipped.
+
 ### Changed — F24: свежий звонок впереди backlog'а (2026-07-17)
 - `pipeline/watcher.py::_scan_user_dir` — обход incoming собирается в список, сортируется по
   mtime DESC (нечитаемый файл → 0.0, в конец), затем обрабатывается тем же кодом что раньше

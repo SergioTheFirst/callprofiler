@@ -5,20 +5,24 @@ VY = {"вы", "вас", "вам", "вами", "ваш", "ваша", "ваше", 
 TY = {"ты", "тебя", "тебе", "тобой", "твой", "твоя", "твоё", "твое", "твои"}
 
 
-def compute_formality(segments: list[dict], reference_now=None) -> dict[str, Feature]:
+def compute_formality(segments: list[dict], reference_now=None, side: str = "OTHER") -> dict[str, Feature]:
     """Считает vy_ratio (formal/informal pronoun balance).
 
     Args:
         segments: list[{"speaker": str, "text": str}]
         reference_now: не используется
+        side: "OTHER" (default, речь контакта) | "OWNER" (A3 mirror — речь владельца)
 
     Returns:
         {vy_ratio: Feature} если есть vy или ty, иначе {}.
     """
-    # Фильтруем речь контакта: speaker != "OWNER"; если нет — fallback на все
-    contact_segments = [s for s in segments if s.get("speaker") != "OWNER"]
-    if not contact_segments:
-        contact_segments = segments
+    if side == "OWNER":
+        contact_segments = [s for s in segments if s.get("speaker") == "OWNER"]
+    else:
+        # Фильтруем речь контакта: speaker != "OWNER"; если нет — fallback на все
+        contact_segments = [s for s in segments if s.get("speaker") != "OWNER"]
+        if not contact_segments:
+            contact_segments = segments
 
     if not contact_segments:
         return {}

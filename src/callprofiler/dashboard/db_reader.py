@@ -524,6 +524,24 @@ class DashboardDBReader:
             f"PRAGMA table_info({table})").fetchall()}  # table — литерал кода
         return column in cols
 
+    def get_mirror(self, user_id: str) -> dict[str, Any] | None:
+        """A3: досье владельца (payload из owner_mirror). None если ещё не считалось
+        (`mirror-build --user X`) или таблицы нет — вкладка не 500, а подсказка."""
+        self.connect()
+        if not self._has_table("owner_mirror"):
+            return None
+        row = self._conn.execute(
+            "SELECT payload, computed_at FROM owner_mirror WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            payload = json.loads(row["payload"])
+        except (json.JSONDecodeError, TypeError):
+            return None
+        payload["computed_at"] = row["computed_at"]
+        return payload
+
     def get_people(self, user_id: str, limit: int = 500) -> list[dict[str, Any]]:
         """Список личностей-контактов для вкладки «Личности».
 

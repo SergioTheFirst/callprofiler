@@ -809,6 +809,7 @@
 
     function loadEntities() {
         loadPeople();
+        loadMirror();
         fetch('/api/entities?limit=100')
             .then(function(r) { return r.json(); })
             .then(function(data) {
@@ -816,6 +817,50 @@
             })
             .catch(function(e) { console.error('Entities load failed:', e); });
     }
+
+    // ── A3: «Зеркало» владельца ──────────────────────────────────────────
+    function loadMirror() {
+        fetch('/api/mirror')
+            .then(function(r) { return r.json(); })
+            .then(renderMirror)
+            .catch(function(e) { console.error('Mirror load failed:', e); });
+    }
+
+    function renderMirror(m) {
+        var body = $('#mirror-body');
+        if (!body) return;
+        if (!m || !m.promises) {
+            body.innerHTML = '<p style="font-size:12px;color:var(--text-muted)">' +
+                'запустите <code>mirror-build --user me</code></p>';
+            return;
+        }
+        var rows = [
+            ['Обещания', m.promises.phrase],
+            ['Риск-тренд', m.risk_trend.phrase],
+            ['Зависимость', m.dependency.phrase],
+            ['Регистр речи', m.register.phrase],
+        ];
+        body.innerHTML = rows.map(function(r) {
+            return '<div style="font-size:13px;margin-bottom:6px">' +
+                '<span style="color:var(--text-muted)">' + r[0] + ':</span> ' +
+                escapeHtml(r[1]) + '</div>';
+        }).join('') + (m.computed_at
+            ? '<div style="font-size:11px;color:var(--text-muted);margin-top:6px">обновлено ' +
+              escapeHtml(String(m.computed_at)) + '</div>'
+            : '');
+    }
+
+    (function initMirrorToggle() {
+        var toggle = $('#mirror-toggle');
+        var body = $('#mirror-body');
+        var caret = $('#mirror-caret');
+        if (!toggle || !body) return;
+        toggle.addEventListener('click', function() {
+            var collapsed = body.style.display === 'none';
+            body.style.display = collapsed ? '' : 'none';
+            if (caret) caret.textContent = collapsed ? '▾' : '▸';
+        });
+    })();
 
     // ── Личности: список людей + досье (Ф3 плана досье) ────────────────────
     state.peopleCache = [];

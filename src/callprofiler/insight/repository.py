@@ -113,6 +113,13 @@ CREATE TABLE IF NOT EXISTS contact_notes (
     note       TEXT NOT NULL,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+-- «Зеркало» владельца (A3): один агрегат-JSON на юзера, PK=user_id.
+CREATE TABLE IF NOT EXISTS owner_mirror (
+    user_id     TEXT PRIMARY KEY,
+    payload     TEXT NOT NULL,
+    computed_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 # Колонки, добавленные после первого релиза схемы. ALTER, не recreate (db.md).

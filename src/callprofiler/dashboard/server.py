@@ -418,6 +418,15 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
             return JSONResponse(result, status_code=400)
         return JSONResponse(result)
 
+    @fa.get("/api/mirror")
+    async def _mirror() -> JSONResponse:
+        dbr = _get_reader()
+        if dbr is not None and hasattr(dbr, "get_mirror"):
+            mirror = dbr.get_mirror(_USER_ID)
+            if mirror is not None:
+                return JSONResponse(mirror)
+        return JSONResponse({})
+
     @fa.get("/api/characters")
     async def _characters() -> JSONResponse:
         dbr = _get_reader()
