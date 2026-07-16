@@ -20,9 +20,24 @@
 - `data_dir = C:\calls\data`. Лог: `C:\calls\callprofiler.log`.
 - **GPU sequential (Hard Constraint):** ASR+pyannote и LLM НИКОГДА одновременно (12GB RTX 3060).
 
-**State (2026-07-05):**
+**State (2026-07-16):**
 
-✅ **`ozalup2.md` — единый мастер-план развития** (T3-сессия по запросу юзера): слияние
+✅ **`OzaluplivanieFable2.md` — мастер-план (Fable-ревизия 3), входная точка исполнения**
+(scheduled replan, Fable/max). Supersedes `OzaluplivanieFable.md` (ревизия 2, F1-F27 + инварианты
+16-25 + §8 транспорт — действуют по ссылке), который supersedes `ozalup2.md`. Новое в ревизии 3:
+- **Qwythos-9B-Claude-Mythos-5-1M ОТКЛОНЁН** (§9.2): self-reported бенчи с базой 0.232 MMLU
+  (ниже случайного = сломанный харнесс), greedy-decoding деградация vs наш temp 0.0-0.3 JSON-режим,
+  ноль RU-заявлений, 1M ctx бесполезен, blast radius смены HIGH. Инвариант 27: модель зафиксирована;
+  пересмотр только через canary-протокол §9.3 (задача 59a, ТОЛЬКО по команде юзера).
+- **F28 единый возраст** (инвариант 26): fuse_age = единственное видимое число на всех поверхностях;
+  маркер/стиль → свёрнутые «детали расчёта»; AGE_DISPLAY_MIN_CONF=30.
+- **F29-F32 психоглубина**: стресс-контраст (high-risk vs baseline дельты), зеркальная динамика
+  (OWNER-дельты — единственный легальный OWNER-слой), лонгитюд по годам, портрет v2 (5 секций,
+  критик-пасс, петля ✓/✗ строк, portrait_quality в F13). «Уровень психоаналитика»
+  операционализирован в §10 (5 доменов, фальсифицируемость, ✓-rate ≥0.8).
+- Вставки в порядок Fable §2 суффиксами: 19a, 56a-56d, 59a — старые номера/кросс-ссылки не ломаются.
+
+**Прежняя State-запись (2026-07-05, сжато):** `ozalup2.md` — слияние
 `ozalupennieStrategic5.md` (портфель Ф0→A→B→C→D, тела задач остаются там) с аудитом
 https://github.com/Zackriya-Solutions/meetily (клонирован, изучены backend/Rust-ядро/фронт).
 ozalup2.md = входная точка исполнения для Sonnet, supersedes oz5. Состав:
@@ -46,8 +61,9 @@ ozalupennieStrategic5.md (2026-07-02) · бокс-прогон стартова�
 column — bugs.md 2026-07-02) · досье Ф0-Ф4 · русификация.
 
 **Next:**
-1. **Исполнение `ozalup2.md`** (Sonnet, задачи строго по §2: 0.1 → 0.2 → M1 → …). Каждая задача:
-   pytest зелёный → CHANGELOG → commit+push.
+1. **Исполнение `OzaluplivanieFable2.md`** (Sonnet, порядок = Fable §2 + вставки Fable2 §2:
+   0.1 → 0.2 → M1 → … → 19a(F28) → … → 56a-56d → …). Каждая задача: pytest зелёный →
+   CHANGELOG → commit+push. 59a (canary смены LLM) — НЕ исполнять автономно.
 2. **Бокс (не блокирует исполнение):** pull → `owner_birth_year` в base.yaml → пересчёт возраста
    (`age-estimate --user me` + `age-style --user me`, TABLE/RULES v2) → спот-чек 10 контактов →
    LLM-окно: `age-estimate --user me --llm`.
