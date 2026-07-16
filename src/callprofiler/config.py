@@ -109,11 +109,15 @@ class Config:
     features: FeaturesConfig = field(default_factory=FeaturesConfig)
 
 
-def load_config(path: str) -> Config:
+def load_config(path: str, validate: bool = True) -> Config:
     """Загрузить конфиг из YAML-файла, вернуть Config.
 
     Дополнительно ищет features.yaml рядом с основным конфигом и
     объединяет (отсутствие файла → дефолты FeaturesConfig).
+
+    ``validate=False`` пропускает ``_validate()`` (data_dir/ffmpeg) — используется
+    `doctor.py` (M1), которому нужно ЗАГРУЗИТЬ конфиг на окружении, где ffmpeg/data_dir
+    могут отсутствовать, чтобы отчитаться об этом как об обычном чеке, а не крашем.
     """
     with open(path, encoding="utf-8") as f:
         raw = yaml.safe_load(f)
@@ -188,7 +192,8 @@ def load_config(path: str) -> Config:
 
     cfg.features = _load_features(Path(path).parent, raw.get("features"))
 
-    _validate(cfg)
+    if validate:
+        _validate(cfg)
     return cfg
 
 

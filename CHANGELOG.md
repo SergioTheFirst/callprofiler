@@ -8,6 +8,25 @@
 
 ## [Unreleased]
 
+### Added — M1: `doctor` — преполётная проверка окружения/схемы (2026-07-16)
+- `src/callprofiler/doctor.py`: `Check(name,status,detail)` + `run_checks(config,conn=None)` +
+  `format_report(checks)`. 12 чеков, каждый в try/except (сбой чека = FAIL с текстом, не краш):
+  `python` (3.10-3.12 OK, 3.13+/<3.10 FAIL — bugs.md B1), `deps-core` (numpy/requests/fastapi/
+  uvicorn/psutil), `deps-gpu` (torch+CUDA; нет torch=WARN дев-ПК норма; есть но без CUDA=FAIL),
+  `deps-roles` (pyannote/librosa/soundfile → WARN), `ffmpeg`/`ffprobe`, `env-hf` (незаэкспанженная
+  `${HF_TOKEN}` → FAIL, bugs.md 2026-06-04), `env-tg`, `paths` (data_dir писабелен+БД на месте+
+  incoming_dir всех users), `models` (gigaam_model_dir/config.json; ref_audio по users → WARN),
+  `db-schema` (PRAGMA table_info по 6 критичным таблицам + INFO по опциональным слоям), `db-wal`,
+  `llm` (`GET /health` — недоступен → WARN, НИКОГДА FAIL: GPU sequential, сервер может спать).
+- `config.load_config(path, validate=True)` — новый параметр `validate=False` пропускает
+  `_validate()` (data_dir/ffmpeg-краш): doctor должен ЗАГРУЖАТЬ конфиг даже там, где ffmpeg/data_dir
+  отсутствуют, чтобы отчитаться об этом как об обычном чеке, а не унаследованным исключением.
+- CLI: `python -m callprofiler doctor` (после `--config`, до подкоманды — argparse-порядок глобальных
+  флагов) — `cli/commands/doctor.py::cmd_doctor`. Exit 0 без FAIL, иначе 1.
+- Tests: `tests/test_doctor.py` (15, всё офлайн — subprocess/requests мокнуты). Smoke-прогон на
+  деве подтвердил корректную деградацию (ffmpeg/GPU/models отсутствуют здесь по дизайну).
+  830 passed/2 skipped.
+
 ### Fixed — задача 0.2 (A5): feedback-петля замкнута (2026-07-16)
 - **NameError:** `handle_feedback` (`telegram_bot.py`) ссылался на неопределённую `user_id`
   при вызове `self.repo.get_analysis(user_id, call_id)` — каждое нажатие [OK]/[Неточно]

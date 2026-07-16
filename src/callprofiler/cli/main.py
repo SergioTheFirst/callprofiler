@@ -71,6 +71,9 @@ from callprofiler.cli.commands.insight import (  # noqa: E402
     cmd_age_estimate, cmd_age_style,
 )
 
+# ---- doctor command (M1) ----
+from callprofiler.cli.commands.doctor import cmd_doctor  # noqa: E402
+
 # cmd_graph_audit -> cli/commands/graph.py
 
 
@@ -627,6 +630,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Путь к выходному .md файлу",
     )
 
+    # ── doctor ───────────────────────────────────────────────────
+    p_doctor = sub.add_parser(
+        "doctor",
+        help="Преполётная проверка окружения/схемы/моделей (M1)",
+    )
+    p_doctor.add_argument(
+        "--user", dest="user_id", required=False, default=None, metavar="USER_ID",
+        help="Не используется напрямую — чеки покрывают всех users в БД",
+    )
+
     return parser
 
 
@@ -677,6 +690,7 @@ def main() -> None:
         "book-chapter": cmd_book_chapter,
         "person-profile": cmd_person_profile,
         "profile-all": cmd_profile_all,
+        "doctor": cmd_doctor,
     }
 
     handler = dispatch.get(args.command)
