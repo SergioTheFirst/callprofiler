@@ -417,12 +417,16 @@
             var summary = c.summary ? c.summary.substring(0, 80) : '--';
             var badge = status === 'done' ? 'badge-done' : (status === 'error' ? 'badge-error' : 'badge-pending');
             if (status === 'processing' || status === 'analyzing' || status === 'transcribing' || status === 'diarizing') badge = 'badge-processing';
+            // M7: почему звонок в error — виден без открытия деталей
+            var errorIcon = (status === 'error' && c.error_message)
+                ? ' <span title="' + escapeHtml(c.error_message.substring(0, 200)) + '" style="cursor:help">⚠</span>'
+                : '';
             return '<tr class="call-row" data-call-id="' + c.call_id + '" title="Click for details">' +
                 '<td>' + (c.call_id || '--') + '</td>' +
                 '<td>' + created + '</td>' +
                 '<td>' + escapeHtml(contact) + '</td>' +
                 '<td>' + duration + '</td>' +
-                '<td><span class="badge ' + badge + '">' + status + '</span></td>' +
+                '<td><span class="badge ' + badge + '">' + status + '</span>' + errorIcon + '</td>' +
                 '<td><span class="risk ' + cls + '">' + risk + '</span></td>' +
                 '<td>' + type + '</td>' +
                 '<td>' + escapeHtml(summary) + '</td>' +
@@ -512,6 +516,11 @@
             ? '<div class="detail-section" style="color:#e0922a">⚠ роли могли спутаться (много UNKNOWN) — не полагайтесь на [me]/[s2] в этом звонке</div>'
             : '';
 
+        // M7: почему звонок в error, полный текст
+        var errorHtml = (d.status === 'error' && d.error_message)
+            ? '<div class="detail-section" style="color:#FF6B6B"><h4>Ошибка</h4>' + escapeHtml(d.error_message) + '</div>'
+            : '';
+
         $('#detail-content').innerHTML =
             '<div class="detail-section"><h4>Metadata</h4><dl class="detail-meta">' +
             '<dt>Call #</dt><dd>' + d.call_id + '</dd>' +
@@ -526,7 +535,7 @@
             '<dt>Call Type</dt><dd>' + escapeHtml(d.call_type || '--') + '</dd>' +
             '<dt>Model</dt><dd>' + escapeHtml(d.model || '--') + '</dd>' +
             '</dl></div>' +
-            audioHtml + fragileHtml +
+            audioHtml + fragileHtml + errorHtml +
             '<div class="detail-section"><h4>Summary</h4><p style="font-size:13px;color:var(--text-secondary);line-height:1.6">' + escapeHtml(summary) + '</p></div>' +
             flagsHtml + segsHtml + promHtml;
 

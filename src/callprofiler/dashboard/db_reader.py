@@ -1106,9 +1106,11 @@ class DashboardDBReader:
     def get_calls(self, user_id: str, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
         """Get paginated calls for the calls table."""
         self.connect()
+        error_col = "c.error_message," if self._has_column("calls", "error_message") else ""
         rows = self._conn.execute(
-            """SELECT c.call_id, c.call_datetime, c.direction, c.duration_sec,
+            f"""SELECT c.call_id, c.call_datetime, c.direction, c.duration_sec,
                       c.status, c.created_at, c.updated_at, c.source_filename,
+                      {error_col}
                       COALESCE(ct.display_name, ct.phone_e164) AS contact_label,
                       ct.display_name, ct.phone_e164,
                       a.risk_score, a.summary, a.call_type
@@ -1345,10 +1347,12 @@ class DashboardDBReader:
     def get_call_detail(self, call_id: int, user_id: str) -> dict[str, Any] | None:
         """Full call detail: metadata + analysis + transcript segments + contact + promises."""
         self.connect()
+        error_col = "c.error_message," if self._has_column("calls", "error_message") else ""
         row = self._conn.execute(
-            """SELECT c.call_id, c.call_datetime, c.direction, c.duration_sec,
+            f"""SELECT c.call_id, c.call_datetime, c.direction, c.duration_sec,
                       c.status, c.created_at, c.updated_at, c.source_filename,
                       c.source_md5, c.role_fragile,
+                      {error_col}
                       COALESCE(ct.display_name, ct.phone_e164) AS contact_label,
                       ct.contact_id, ct.display_name, ct.phone_e164, ct.guessed_name,
                       a.analysis_id, a.call_type, a.risk_score, a.summary,

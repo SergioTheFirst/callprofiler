@@ -8,6 +8,14 @@
 
 ## [Unreleased]
 
+### Added — M7: ошибки звонков на виду (2026-07-17)
+- `db_reader.get_calls`/`get_call_detail` — `error_message` (guarded `_has_column`, колонка
+  старая но паттерн держим).
+- `app.js`: строка Calls со `status=error` — ⚠ с `title=error_message` (усечено 200 симв.);
+  деталь звонка — красный блок с полным текстом. Кнопка «Повторить» НЕ добавлена — только bulk
+  `/api/tools/reprocess` существует, per-call эндпоинта нет (YAGNI, не городить тул).
+- Tests: `tests/test_dashboard_call_errors.py` (3). 955 passed/2 skipped.
+
 ### Added — M6: заметка владельца на контакте (2026-07-17)
 - `contact_notes(contact_id PK, user_id, note, updated_at)` в `apply_insight_schema`
   (`insight/repository.py`).
