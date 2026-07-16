@@ -8,6 +8,14 @@
 
 ## [Unreleased]
 
+### Changed — F24: свежий звонок впереди backlog'а (2026-07-17)
+- `pipeline/watcher.py::_scan_user_dir` — обход incoming собирается в список, сортируется по
+  mtime DESC (нечитаемый файл → 0.0, в конец), затем обрабатывается тем же кодом что раньше
+  (MD5-дедуп/восстановление архива/ingest не тронуты — меняется только порядок). Bulk-команды
+  (bulk-load/bulk-enrich) не тронуты — свой порядок по тирам (F8).
+- Tests: `tests/test_watcher_cleanup.py` +2 (mtime DESC порядок; полнота/без дублей при
+  сортировке). 957 passed/2 skipped.
+
 ### Added — M7: ошибки звонков на виду (2026-07-17)
 - `db_reader.get_calls`/`get_call_detail` — `error_message` (guarded `_has_column`, колонка
   старая но паттерн держим).

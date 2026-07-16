@@ -73,9 +73,10 @@ column — bugs.md 2026-07-02) · досье Ф0-Ф4 · русификация.
    due/grade/call/freshness-штамп, канон имени файла, интерпретации в decisions.md · M5
    drag&drop импорт аудио — security-reviewed, 1 HIGH исправлен (Windows reserved names) · M6
    заметка владельца — contact_notes, tools-канал, секция досье · M7 error_message на виду,
-   без retry-кнопки — YAGNI). Следующая по порядку — **17. F24 Приоритет свежего звонка в
-   очереди (§3.24, T1)**.
-   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 955 passed/2 skipped.
+   без retry-кнопки — YAGNI · F24 fresh-first очередь watcher). Следующая по порядку —
+   **18. A3 «Зеркало» владельца (oz5, T2)** — ⚠ имя файла `insight/mirror.py` ПОЗЖЕ
+   переиспользуется задачей F30 (56b, зеркальная динамика) — не путать при исполнении.
+   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 957 passed/2 skipped.
 2. **Бокс (не блокирует исполнение):** pull → `owner_birth_year` в base.yaml → пересчёт возраста
    (`age-estimate --user me` + `age-style --user me`, TABLE/RULES v2) → спот-чек 10 контактов →
    LLM-окно: `age-estimate --user me --llm`.

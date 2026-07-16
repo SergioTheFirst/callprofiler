@@ -172,3 +172,49 @@ def test_scan_heals_missing_archive(tmp_path):
     assert repo.reset_called == [55]         # звонок сброшен
     assert ing.calls == []                   # не реингестим — переиспользуем call_id
     assert 55 in w._last_sources
+
+
+# ── F24: свежий файл впереди backlog'а ───────────────────────────────────
+
+def test_scan_orders_by_mtime_newest_first(tmp_path):
+    import os
+    import time
+
+    root = tmp_path / "in"
+    root.mkdir()
+    old = root / "old.mp3"
+    mid = root / "mid.mp3"
+    new = root / "new.mp3"
+    for f in (old, mid, new):
+        f.write_bytes(b"audio")
+
+    now = time.time()
+    os.utime(old, (now - 300, now - 300))
+    os.utime(mid, (now - 150, now - 150))
+    os.utime(new, (now, now))
+
+    repo = _Repo(by_md5={})
+    ing = _Ingester(ret=100)
+    w = _watcher(_scan_cfg(), repo, ing)
+
+    w._scan_user_dir("me", root)
+
+    assert ing.calls == [str(new), str(mid), str(old)]
+
+
+def test_scan_mtime_order_does_not_lose_or_duplicate_files(tmp_path):
+    """F24 меняет только порядок — MD5-дедуп и полнота обхода не страдают."""
+    root = tmp_path / "in"
+    root.mkdir()
+    for i in range(3):
+        (root / f"f{i}.mp3").write_bytes(f"audio{i}".encode())
+
+    repo = _Repo(by_md5={})
+    ing = _Ingester(ret=100)
+    w = _watcher(_scan_cfg(), repo, ing)
+
+    ids = w._scan_user_dir("me", root)
+
+    assert len(ing.calls) == 3
+    assert len(set(ing.calls)) == 3
+    assert ids == [100, 100, 100]

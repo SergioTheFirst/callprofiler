@@ -349,79 +349,95 @@ class FileWatcher:
         )
 
         # Рекурсивный обход (с подпапками)
+        candidates: list[Path] = []
         for root, _dirs, files in os.walk(incoming_path):
             for filename in files:
                 filepath = Path(root) / filename
+                if filepath.suffix.lower() in AUDIO_EXTENSIONS:
+                    candidates.append(filepath)
 
-                if filepath.suffix.lower() not in AUDIO_EXTENSIONS:
-                    continue
+        # F24: свежие файлы — впереди backlog'а (карточка максимально свежа к
+        # следующему звонку). Меняется только порядок обхода; MD5-дедуп ниже
+        # не даёт потерять/задвоить файл независимо от порядка.
+        candidates.sort(key=self._file_mtime_desc_key, reverse=True)
 
-                # Файл ещё пишется → пропустить до следующего цикла
-                if not self._is_file_settled(filepath, settle_sec):
-                    logger.debug("Файл ещё записывается: %s", filepath)
-                    continue
+        for filepath in candidates:
+            filename = filepath.name
 
-                try:
-                    md5 = self._file_md5(filepath)
-                except OSError as exc:
-                    logger.error("Не удалось прочитать %s: %s", filepath, exc)
-                    continue
+            # Файл ещё пишется → пропустить до следующего цикла
+            if not self._is_file_settled(filepath, settle_sec):
+                logger.debug("Файл ещё записывается: %s", filepath)
+                continue
 
-                existing = self.repo.get_call_by_md5(user_id, md5)
-                if existing is not None:
-                    stage = int(existing.get("pipeline_stage", 0) or 0)
-                    if remove_on_success and stage >= _TRANSCRIBED_STAGE:
-                        # Транскрипт готов → убрать исходник из incoming
-                        logger.info(
-                            "Дубликат транскрибирован, убираю из incoming: %s", filename
-                        )
-                        self._remove_source(filepath, incoming_path)
-                        continue
+            try:
+                md5 = self._file_md5(filepath)
+            except OSError as exc:
+                logger.error("Не удалось прочитать %s: %s", filepath, exc)
+                continue
 
-                    # Не транскрибирован (new/error/normalizing). Если архивная копия
-                    # ПОТЕРЯНА (частая причина error после переноса данных) —
-                    # восстановить из incoming + сбросить звонок на переобработку.
-                    archive = existing.get("audio_path") or ""
-                    call_id = existing.get("call_id")
-                    if archive and not Path(archive).exists():
-                        try:
-                            Path(archive).parent.mkdir(parents=True, exist_ok=True)
-                            shutil.copy2(filepath, archive)
-                            self.repo.reset_call(call_id)
-                            new_ids.append(call_id)
-                            self._last_sources[call_id] = (user_id, incoming_path, filepath)
-                            logger.info(
-                                "Восстановлен потерянный архив + сброс call_id=%s на "
-                                "переобработку: %s", call_id, filename,
-                            )
-                        except Exception as exc:  # noqa: BLE001
-                            logger.error(
-                                "Не удалось восстановить архив для %s: %s", filename, exc
-                            )
-                    else:
-                        logger.info(
-                            "Уже в БД (call_id=%s, status=%s, stage=%d, архив на месте) "
-                            "— не реингестим: %s. Переобработать: "
-                            "process \"<файл>\" --user %s --force",
-                            call_id, existing.get("status"), stage, filename, user_id,
-                        )
-                    continue
-
-                try:
-                    call_id = self.ingester.ingest_file(user_id, str(filepath))
-                except Exception as exc:  # noqa: BLE001
-                    logger.error("Ошибка при инжесте %s: %s", filepath, exc)
-                    continue
-
-                if call_id is not None:
-                    new_ids.append(call_id)
-                    self._last_sources[call_id] = (user_id, incoming_path, filepath)
+            existing = self.repo.get_call_by_md5(user_id, md5)
+            if existing is not None:
+                stage = int(existing.get("pipeline_stage", 0) or 0)
+                if remove_on_success and stage >= _TRANSCRIBED_STAGE:
+                    # Транскрипт готов → убрать исходник из incoming
                     logger.info(
-                        "Зарегистрирован: %s → call_id=%d (user_id=%s)",
-                        filename, call_id, user_id,
+                        "Дубликат транскрибирован, убираю из incoming: %s", filename
                     )
+                    self._remove_source(filepath, incoming_path)
+                    continue
+
+                # Не транскрибирован (new/error/normalizing). Если архивная копия
+                # ПОТЕРЯНА (частая причина error после переноса данных) —
+                # восстановить из incoming + сбросить звонок на переобработку.
+                archive = existing.get("audio_path") or ""
+                call_id = existing.get("call_id")
+                if archive and not Path(archive).exists():
+                    try:
+                        Path(archive).parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(filepath, archive)
+                        self.repo.reset_call(call_id)
+                        new_ids.append(call_id)
+                        self._last_sources[call_id] = (user_id, incoming_path, filepath)
+                        logger.info(
+                            "Восстановлен потерянный архив + сброс call_id=%s на "
+                            "переобработку: %s", call_id, filename,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.error(
+                            "Не удалось восстановить архив для %s: %s", filename, exc
+                        )
+                else:
+                    logger.info(
+                        "Уже в БД (call_id=%s, status=%s, stage=%d, архив на месте) "
+                        "— не реингестим: %s. Переобработать: "
+                        "process \"<файл>\" --user %s --force",
+                        call_id, existing.get("status"), stage, filename, user_id,
+                    )
+                continue
+
+            try:
+                call_id = self.ingester.ingest_file(user_id, str(filepath))
+            except Exception as exc:  # noqa: BLE001
+                logger.error("Ошибка при инжесте %s: %s", filepath, exc)
+                continue
+
+            if call_id is not None:
+                new_ids.append(call_id)
+                self._last_sources[call_id] = (user_id, incoming_path, filepath)
+                logger.info(
+                    "Зарегистрирован: %s → call_id=%d (user_id=%s)",
+                    filename, call_id, user_id,
+                )
 
         return new_ids
+
+    @staticmethod
+    def _file_mtime_desc_key(filepath: Path) -> float:
+        """F24: сортировочный ключ mtime; нечитаемый файл → 0 (уходит в конец при DESC)."""
+        try:
+            return filepath.stat().st_mtime
+        except OSError:
+            return 0.0
 
     @staticmethod
     def _file_md5(filepath: Path) -> str:
