@@ -10,3 +10,15 @@
 - Roles in transcript: [me]=owner, [s2]=other. Roles may be swapped.
 - "Сергей/Серёжа/Серёж/Медведев/Сергей Станиславович" = ALWAYS owner (Сергей Станиславович Медведев) regardless of label.
 - Max input: if transcript > 3000 chars → first 1500 + "[...]" + last 1500
+
+## Мемоизация analyze-пути (M3, `llm_cache.py`, decisions.md 2026-06-04 #1)
+
+- Таблица `llm_calls(cache_key PK, user_id, prompt_version, response, finish_reason)`,
+  идемпотентно создаётся `apply_llm_cache_schema()` при первой передаче `cache_conn` в `LLMClient`.
+- Ключ = `sha1(json.dumps(messages,sort_keys=True) + "|"+temperature+"|"+max_tokens+"|"+prompt_version)`.
+- `LLMClient(cache_conn=None)` — поведение прежнее (без кэша, обратная совместимость: biography/graph
+  зовут как раньше). Только call-analysis путь (`AnalysisService.__init__`, `bulk_enrich()`) передаёт
+  `cache_conn=repo._get_conn()`. **Сбой (`text=None`) НЕ кэшируется** — иначе временный отказ
+  llama-server залип бы навсегда; truncated (`finish_reason='length'`) кэшируется как есть.
+- `bio_llm_calls` (biography) и per-row кэши insight (age/ask/promise) НЕ унифицированы с
+  `llm_calls` — отдельная мемоизация, сознательно (blast radius).

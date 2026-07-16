@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 import time
 from dataclasses import dataclass
 
@@ -54,15 +55,36 @@ class LLMClient:
         logger.debug(response)  # JSON строка или текст ответа
     """
 
-    def __init__(self, base_url: str, timeout: int = 300) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        timeout: int = 300,
+        *,
+        cache_conn: sqlite3.Connection | None = None,
+        cache_user_id: str = "",
+        prompt_version: str = "",
+    ) -> None:
         """Инициализировать LLM клиент.
 
         Параметры:
-            base_url  — URL endpoint (обычно http://127.0.0.1:8080/v1/chat/completions)
-            timeout   — timeout для запроса в секундах (по умолчанию 300 для длинных звонков)
+            base_url        — URL endpoint (обычно http://127.0.0.1:8080/v1/chat/completions)
+            timeout          — timeout для запроса в секундах (по умолчанию 300 для длинных звонков)
+            cache_conn       — sqlite-коннект для мемоизации (M3, decisions.md 2026-06-04 #1).
+                               ``None`` (по умолчанию) — поведение прежнее байт-в-байт, без кэша.
+                               Cache-hit путь HTTP НЕ зовёт (``_verify_connection`` при __init__
+                               по-прежнему шумит независимо от cache-hit — поведенческий контракт).
+            cache_user_id    — user_id для строки кэша (аудит, в ключ кэша НЕ входит).
+            prompt_version   — версия промпта для строки кэша и ключа (та же, что пишется
+                               в ``analyses.prompt_version`` вызывающим кодом).
         """
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.cache_conn = cache_conn
+        self.cache_user_id = cache_user_id
+        self.prompt_version = prompt_version
+        if cache_conn is not None:
+            from callprofiler.llm_cache import apply_llm_cache_schema
+            apply_llm_cache_schema(cache_conn)
         self._verify_connection()
 
     def _verify_connection(self) -> None:
@@ -115,6 +137,18 @@ class LLMClient:
             len(messages), max_tokens,
         )
 
+        cache_key = None
+        if self.cache_conn is not None:
+            from callprofiler.llm_cache import get as cache_get
+            from callprofiler.llm_cache import make_key
+            from callprofiler.llm_cache import put as cache_put
+
+            cache_key = make_key(messages, temperature, max_tokens, self.prompt_version)
+            cached = cache_get(self.cache_conn, cache_key)
+            if cached is not None:
+                logger.debug("LLM cache HIT (key=%s...)", cache_key[:8])
+                return cached
+
         last_exc: Exception | None = None
         for attempt in range(3):
             try:
@@ -135,10 +169,14 @@ class LLMClient:
                     choice = result["choices"][0]
                     content = choice["message"]["content"]
                     finish_reason = choice.get("finish_reason")
-                    return LLMResult(text=content, finish_reason=finish_reason)
+                    final = LLMResult(text=content, finish_reason=finish_reason)
+                    if cache_key is not None:
+                        cache_put(self.cache_conn, cache_key, self.cache_user_id,
+                                  self.prompt_version, final)
+                    return final
                 except (json.JSONDecodeError, KeyError, IndexError):
                     logger.error("Невалидный ответ от LLM сервера: %s", response.text[:200])
-                    return LLMResult(text=None)  # не ретраим: ответ пришёл, но невалидный JSON
+                    return LLMResult(text=None)  # не ретраим: ответ пришёл, но невалидный JSON — не кэшируется (put() no-op на text=None)
 
             except (requests.Timeout, requests.ConnectionError) as exc:
                 last_exc = exc

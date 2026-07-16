@@ -29,12 +29,22 @@ from callprofiler.models import Analysis
 
 log = logging.getLogger(__name__)
 
+# Единственный шаблон анализа звонка (analyze_v001.txt, T3-запретная зона —
+# см. CLAUDE.md). Используется и как default prompt_version анализа, и как тег
+# кэш-строки llm_calls (M3) — держать в одном месте, чтобы они не разошлись.
+PROMPT_VERSION_ANALYZE = "v001"
+
 
 class AnalysisService:
-    def __init__(self, config: Config, repo: Repository) -> None:
+    def __init__(self, config: Config, repo: Repository, user_id: str = "") -> None:
         self.config = config
         self.repo = repo
-        self.llm = LLMClient(base_url=config.models.llm_url)
+        self.llm = LLMClient(
+            base_url=config.models.llm_url,
+            cache_conn=repo._get_conn(),
+            cache_user_id=user_id,
+            prompt_version=PROMPT_VERSION_ANALYZE,
+        )
         self.prompt_builder = PromptBuilder(config.prompts_dir)
 
     def analyze_one_call(
@@ -44,7 +54,7 @@ class AnalysisService:
         *,
         max_tokens: int | None = None,
         temperature: float = 0.3,
-        prompt_version: str = "v001",
+        prompt_version: str = PROMPT_VERSION_ANALYZE,
     ) -> Analysis:
         call_id = call["call_id"]
         user_id = call["user_id"]

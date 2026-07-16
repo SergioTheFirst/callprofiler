@@ -8,6 +8,25 @@
 
 ## [Unreleased]
 
+### Added — M3: мемоизация analyze-пути (`llm_cache`) (2026-07-16)
+- `src/callprofiler/llm_cache.py`: `apply_llm_cache_schema` (idempotent) +
+  `make_key(messages,temperature,max_tokens,prompt_version)` (sha1, sort_keys=True — порядок
+  ключей сообщения не важен) + `get`/`put` (`put` НЕ пишет при `result.text is None` — сбой не
+  залипает в кэше навсегда).
+- `LLMClient.__init__(..., cache_conn=None, cache_user_id="", prompt_version="")` — все опциональны,
+  `cache_conn=None` = поведение прежнее байт-в-байт (biography/graph не тронуты). `complete()`:
+  cache_conn задан → hit возвращает БЕЗ HTTP; miss → HTTP → запись в кэш (только успешный/truncated
+  ответ). `_verify_connection` по-прежнему шумит при `__init__` независимо от cache-hit-путей
+  (поведенческий контракт не менялся).
+- Подключено на ОБА call-analysis пути: `AnalysisService.__init__` (новая константа
+  `PROMPT_VERSION_ANALYZE="v001"`, единая для default `analyze_one_call(prompt_version=...)` и
+  тега кэша — держит их в синхроне) и legacy `bulk_enrich()` (`enricher.py`). Retry (3 попытки,
+  backoff 2/4/8s) уже существовал — НЕ продублирован, кэш только избегает повторной HTTP-стоимости.
+- Tests: `tests/test_llm_cache.py` (13: make_key детерминизм/версия/температура/порядок ключей,
+  put/get, cache-hit не зовёт HTTP повторно, сбой не кэшируется и ретраит в следующий раз, разный
+  prompt_version → 2 строки, `cache_conn=None` → регресс старого поведения, user_id пишется,
+  truncated кэшируется как есть). 865 passed/2 skipped.
+
 ### Added — role-fragile флаг звонка (инлайн-задача №7, шум-доктрина) (2026-07-16)
 - `calls.role_fragile` (аддитивная миграция `db/repository.py::_migrate` + `schema.sql`,
   default 0). `diarize/role_assigner.py::is_role_fragile(segments)` — `True` если доля

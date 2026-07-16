@@ -294,7 +294,11 @@ def bulk_enrich(
         return {"processed": 0, "failed": 0, "skipped": 0, "total": 0}
 
     try:
-        llm = LLMClient(base_url=cfg.models.llm_url, timeout=300)
+        llm = LLMClient(
+            base_url=cfg.models.llm_url, timeout=300,
+            cache_conn=repo._get_conn(), cache_user_id=user_id,
+            prompt_version="v001",
+        )
     except ConnectionError as e:
         log.error("[enricher] Ошибка подключения к LLM: %s", e)
         return {"processed": 0, "failed": 0, "skipped": 0, "total": 0}

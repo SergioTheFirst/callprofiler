@@ -795,7 +795,7 @@ class Orchestrator:
             try:
                 from callprofiler.analyze.service import AnalysisService
 
-                svc = AnalysisService(self.config, self.repo)
+                svc = AnalysisService(self.config, self.repo, user_id=call.get("user_id", ""))
                 analysis = svc.analyze_one_call(call, segments)
             except (ConnectionError, RuntimeError) as exc:
                 logger.error("LLM недоступен для call_id=%d: %s", call_id, exc)
