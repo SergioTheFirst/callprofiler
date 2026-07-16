@@ -75,6 +75,9 @@ from callprofiler.cli.commands.insight import (  # noqa: E402
 # ---- doctor command (M1) ----
 from callprofiler.cli.commands.doctor import cmd_doctor  # noqa: E402
 
+# ---- deliver commands (A1) ----
+from callprofiler.cli.commands.deliver import cmd_obligations_digest  # noqa: E402
+
 # cmd_graph_audit -> cli/commands/graph.py
 
 
@@ -685,6 +688,20 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Путь к выходному .md файлу (по умолчанию C:\\calls\\canary-json.md)",
     )
 
+    # ── obligations-digest ───────────────────────────────────────────
+    p_oblig = sub.add_parser(
+        "obligations-digest",
+        help="A1: реестр обязательств — просроченные/открытые promise+debt в обе стороны",
+    )
+    p_oblig.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_oblig.add_argument(
+        "--out", default=None, metavar="FILE",
+        help="Путь к выходному .md файлу (по умолчанию — вывод в консоль)",
+    )
+
     return parser
 
 
@@ -738,6 +755,7 @@ def main() -> None:
         "profile-all": cmd_profile_all,
         "doctor": cmd_doctor,
         "canary-analyze": cmd_canary_analyze,
+        "obligations-digest": cmd_obligations_digest,
     }
 
     handler = dispatch.get(args.command)

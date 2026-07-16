@@ -64,11 +64,12 @@ column — bugs.md 2026-07-02) · досье Ф0-Ф4 · русификация.
 1. **Исполнение `OzaluplivanieFable2.md`** (Sonnet, порядок = Fable §2 + вставки Fable2 §2:
    0.1 → 0.2 → M1 → … → 19a(F28) → … → 56a-56d → …). Каждая задача: pytest зелёный →
    CHANGELOG → commit+push. 59a (canary смены LLM) — НЕ исполнять автономно.
-   **В процессе (автономный прогон начат 2026-07-16):** сделаны 1-9 (0.1 гейт · 0.2 feedback-петля
+   **В процессе (автономный прогон начат 2026-07-16):** сделаны 1-10 (0.1 гейт · 0.2 feedback-петля
    · M1 doctor · 0.3 spotcheck-sample · M2 аудио-плеер · 0.4 role-UNKNOWN% · role-fragile флаг
-   (инлайн №7) · M3 llm_cache · M4 json_mode+canary-analyze). Следующая по порядку —
-   **10. A1 реестр обязательств + Telegram-дайджест**.
-   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 871 passed/2 skipped.
+   (инлайн №7) · M3 llm_cache · M4 json_mode+canary-analyze · A1 obligations-digest — БЕЗ
+   Telegram-пуша, см. decisions.md). Следующая по порядку —
+   **11. A2 `ask` по архиву (CLI) + §4.1 injection-guard**.
+   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 878 passed/2 skipped.
 2. **Бокс (не блокирует исполнение):** pull → `owner_birth_year` в base.yaml → пересчёт возраста
    (`age-estimate --user me` + `age-style --user me`, TABLE/RULES v2) → спот-чек 10 контактов →
    LLM-окно: `age-estimate --user me --llm`.

@@ -8,6 +8,31 @@
 
 ## [Unreleased]
 
+### Added — A1: реестр обязательств (obligations-digest) (2026-07-17)
+- `src/callprofiler/deliver/digest.py`: `overdue_items`/`open_items` — UNION `events`
+  (promise/debt, `status='open'`, `deadline IS NOT NULL`) и legacy `promises` (`due IS NOT NULL`),
+  дедуп по `(call_id, what[:40])` (events приоритетнее — несёт verbatim source_quote). Сторона
+  (`side`) — точное сравнение `who` (`OWNER`→owner, `OTHER`→contact, `UNKNOWN`/NULL исключены —
+  оба источника пишут who из промпт-контракта `"OWNER"|"OTHER"`, а не свободный текст).
+  `build_digest()` — markdown: «Просрочено ВАМИ» / «Просрочено ИМИ» / «Открыто (14 дней)», top-10
+  на секцию, каждая строка truncate до 300 символов (CLAUDE.md: "Output ≤300 chars/item").
+- CLI `obligations-digest --user X [--out FILE]` (`cli/commands/deliver.py`, новый файл;
+  зарегистрирован в `cli/main.py`).
+- **Два отклонения от буквы oz5-спеки, оба намеренные:**
+  1. **Никакого Telegram-пуша/`--send`/`.bat`+Task Scheduler.** Спека предполагала собственный
+     еженедельный push — это ТРЕТИЙ плановый канал вне инварианта 25 («плановые пуши — РОВНО
+     два: F5 вечерний, F6 doctor», `OzaluplivanieFable.md` §1 п.25). `build_digest()` — чистая
+     функция без побочных эффектов; доставка Telegram появится КАК СЕКЦИЯ внутри F5, когда тот
+     будет реализован (задача F5 далее по плану), не как отдельный push сейчас.
+  2. **Команда названа `obligations-digest`, не `digest`** — `digest` уже занята существующей
+     командой (топ-N звонков по priority, `cli/commands/query.py::cmd_digest`, живой
+     `/digest` в Telegram-боте) — коллизия имён не была видна на уровне спеки, найдена при
+     grep-верификации анкоров перед реализацией.
+- Tests: `tests/test_digest.py` (7: overdue-бакетирование/дни просрочки, open-items в окне,
+  дедуп promises+events с приоритетом events, side owner/contact/unknown-исключение,
+  user-изоляция, digest содержит цитату+даты+обе секции, truncate ≤300 символов/строка).
+  878 passed/2 skipped.
+
 ### Added — M4: json_mode flag + canary-analyze harness (2026-07-16)
 - `configs/features.yaml`/`FeaturesConfig.llm_json_mode` (default `false`). `LLMClient.complete(...,
   json_mode=True)` добавляет `response_format: {"type":"json_object"}` в тело запроса; старые сборки

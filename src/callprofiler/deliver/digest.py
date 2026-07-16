@@ -1,0 +1,178 @@
+# -*- coding: utf-8 -*-
+"""
+digest.py — A1 (ozalupennieStrategic5.md §A1): реестр обязательств (promises+debts)
+в ОБЕИХ сторонах (владелец должен / контакту должны), с цитатой и датой.
+
+Источники — UNION events(promise/debt) и legacy promises, дедуп по (call_id, what).
+events приоритетнее (несёт verbatim-цитату из транскрипта).
+
+Инвариант 25 (плановые пуши — РОВНО два: F5 вечерний, F6 doctor; см. .claude/rules
+и OzaluplivanieFable.md §1 п.25): этот модуль НЕ шлёт Telegram и не планирует .bat/
+Task Scheduler — только строит markdown-текст. Отправка появится КАК СЕКЦИЯ внутри
+F5, когда тот будет реализован (задача F5, ozalup2.md/Fable §2).
+"""
+
+from __future__ import annotations
+
+from datetime import date, datetime
+
+_MAX_ITEM_CHARS = 300  # CLAUDE.md: "Output: ≤300 chars/item"
+_MAX_ITEMS_PER_SECTION = 10
+
+
+def _parse_date(raw: str | None) -> date | None:
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw[:10]).date()
+    except ValueError:
+        return None
+
+
+def _side(who: str | None) -> str | None:
+    if who == "OWNER":
+        return "owner"
+    if who == "OTHER":
+        return "contact"
+    return None  # UNKNOWN/None — исключено (шум-доктрина: не приписываем сторону наугад)
+
+
+def _dedup_key(call_id: int, what: str | None) -> tuple:
+    return (call_id, (what or "").strip().lower()[:40])
+
+
+def _rows_from_events(conn, user_id: str) -> list[dict]:
+    rows = conn.execute(
+        """SELECT e.call_id, e.who, e.payload AS what, e.deadline,
+                  e.source_quote AS quote, e.contact_id,
+                  date(c.call_datetime) AS call_date,
+                  COALESCE(ct.display_name, ct.guessed_name, ct.phone_e164, '?') AS contact_name
+             FROM events e
+             JOIN calls c ON c.call_id = e.call_id
+             LEFT JOIN contacts ct ON ct.contact_id = e.contact_id
+            WHERE e.user_id = ? AND e.event_type IN ('promise', 'debt')
+              AND e.status = 'open' AND e.deadline IS NOT NULL""",
+        (user_id,),
+    ).fetchall()
+    items = []
+    for r in rows:
+        side = _side(r["who"])
+        if side is None:
+            continue
+        items.append({
+            "side": side, "contact_id": r["contact_id"], "contact_name": r["contact_name"],
+            "what": r["what"], "deadline": r["deadline"], "call_date": r["call_date"],
+            "quote": r["quote"], "origin": "events", "call_id": r["call_id"],
+        })
+    return items
+
+
+def _rows_from_promises(conn, user_id: str) -> list[dict]:
+    rows = conn.execute(
+        """SELECT p.call_id, p.who, p.what, p.due AS deadline, p.contact_id,
+                  date(c.call_datetime) AS call_date,
+                  COALESCE(ct.display_name, ct.guessed_name, ct.phone_e164, '?') AS contact_name
+             FROM promises p
+             JOIN calls c ON c.call_id = p.call_id
+             LEFT JOIN contacts ct ON ct.contact_id = p.contact_id
+            WHERE p.user_id = ? AND p.status = 'open' AND p.due IS NOT NULL""",
+        (user_id,),
+    ).fetchall()
+    items = []
+    for r in rows:
+        side = _side(r["who"])
+        if side is None:
+            continue
+        items.append({
+            "side": side, "contact_id": r["contact_id"], "contact_name": r["contact_name"],
+            "what": r["what"], "deadline": r["deadline"], "call_date": r["call_date"],
+            "quote": None, "origin": "promises", "call_id": r["call_id"],
+        })
+    return items
+
+
+def _merged_open_items(conn, user_id: str) -> list[dict]:
+    """UNION events+promises, дедуп по (call_id, what[:40]) — events приоритетнее."""
+    merged: dict[tuple, dict] = {}
+    for item in _rows_from_promises(conn, user_id):
+        merged[_dedup_key(item["call_id"], item["what"])] = item
+    for item in _rows_from_events(conn, user_id):
+        merged[_dedup_key(item["call_id"], item["what"])] = item  # events перезаписывают
+    return list(merged.values())
+
+
+def overdue_items(conn, user_id: str, today: str | None = None) -> list[dict]:
+    """Открытые promise/debt с deadline < today, с days_overdue."""
+    ref = _parse_date(today) or date.today()
+    out = []
+    for item in _merged_open_items(conn, user_id):
+        deadline = _parse_date(item["deadline"])
+        if deadline is None or deadline >= ref:
+            continue
+        item = dict(item)
+        item["days_overdue"] = (ref - deadline).days
+        out.append(item)
+    out.sort(key=lambda i: i["days_overdue"], reverse=True)
+    return out
+
+
+def open_items(conn, user_id: str, today: str | None = None) -> list[dict]:
+    """Открытые promise/debt с deadline >= today (ещё не просрочены)."""
+    ref = _parse_date(today) or date.today()
+    out = []
+    for item in _merged_open_items(conn, user_id):
+        deadline = _parse_date(item["deadline"])
+        if deadline is None or deadline < ref:
+            continue
+        item = dict(item)
+        item["days_until"] = (deadline - ref).days
+        out.append(item)
+    out.sort(key=lambda i: i["days_until"])
+    return out
+
+
+def _truncate(text: str, n: int = _MAX_ITEM_CHARS) -> str:
+    text = (text or "").strip()
+    return text if len(text) <= n else text[: n - 1].rstrip() + "…"
+
+
+def _format_item(item: dict) -> list[str]:
+    what = _truncate(item["what"], 160)
+    line = f"- **{item['contact_name']}**: {what} — обещано {item['call_date'] or '?'}, срок {item['deadline']}"
+    lines = [_truncate(line)]
+    if item.get("quote"):
+        lines.append(_truncate(f"  > «{item['quote']}»"))
+    return lines
+
+
+def build_digest(conn, user_id: str, today: str | None = None) -> str:
+    """Markdown-отчёт: просрочено ИМИ / просрочено ВАМИ / открыто (14 дней)."""
+    overdue = overdue_items(conn, user_id, today)
+    owner_overdue = [i for i in overdue if i["side"] == "owner"]
+    contact_overdue = [i for i in overdue if i["side"] == "contact"]
+    upcoming = [i for i in open_items(conn, user_id, today) if i["days_until"] <= 14]
+
+    lines = ["# Обязательства\n"]
+
+    lines.append("## Просрочено ВАМИ")
+    if owner_overdue:
+        for item in owner_overdue[:_MAX_ITEMS_PER_SECTION]:
+            lines.extend(_format_item(item))
+    else:
+        lines.append("- нет")
+
+    lines.append("\n## Просрочено ИМИ")
+    if contact_overdue:
+        for item in contact_overdue[:_MAX_ITEMS_PER_SECTION]:
+            lines.extend(_format_item(item))
+    else:
+        lines.append("- нет")
+
+    lines.append("\n## Открыто — срок в ближайшие 14 дней")
+    if upcoming:
+        for item in upcoming[:_MAX_ITEMS_PER_SECTION]:
+            lines.extend(_format_item(item))
+    else:
+        lines.append("- нет")
+
+    return "\n".join(lines)

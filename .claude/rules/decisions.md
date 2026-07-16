@@ -1,5 +1,22 @@
 # Architecture Decisions
 
+## A1 obligations-digest: без Telegram-пуша (инвариант 25), команда переименована (2026-07-17)
+
+При реализации A1 (реестр обязательств, задача 10 автономного прогона `OzaluplivanieFable2.md`)
+oz5-спека предполагала собственный еженедельный Telegram-push (`send_telegram` + `--send` +
+`digest.bat` в Task Scheduler). Это прямо нарушает инвариант 25 («плановые пуши — РОВНО два:
+вечерний F5 и doctor F6», `OzaluplivanieFable.md` §1 п.25, решение юзера 2026-07-07) — третий
+независимо планируемый push-канал. **Решение:** `deliver/digest.py::build_digest()` — чистая
+функция без побочных эффектов (markdown-строка), НИКАКОГО Telegram/scheduling кода не написано.
+Когда будет реализован F5 (эволюционный вечерний отчёт), его секция обязательств переиспользует
+`overdue_items`/`open_items`/`build_digest` как библиотеку — доставка появится ВНУТРИ единственного
+вечернего push, не рядом с ним. До тех пор — только CLI `obligations-digest [--out FILE]`.
+Второе: команда названа `obligations-digest`, НЕ `digest` — это имя уже занято существующей
+командой (топ-N звонков по priority, `cli/commands/query.py::cmd_digest`, живой `/digest` в
+Telegram-боте); коллизия не была видна на уровне текста спеки, всплыла при grep-верификации
+анкоров перед кодом (урок decisions.md: «кодовая база живёт», спеки написаны заранее и не всегда
+синхронны с текущим деревом команд).
+
 ## Fable2-ревизия: Qwythos отклонён; возраст = одно число; портрет v2 с петлёй (2026-07-16)
 
 Scheduled replan (Fable/max) → `OzaluplivanieFable2.md` supersedes `OzaluplivanieFable.md` как
