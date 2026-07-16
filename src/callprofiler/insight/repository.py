@@ -104,6 +104,15 @@ CREATE TABLE IF NOT EXISTS contact_age_style (
     computed_at     TEXT    DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_cage_style_user ON contact_age_style(user_id);
+
+-- Заметка владельца на контакте (M6): свободное ручное поле, НЕ правка
+-- автогенерата (raw_response неприкосновенен). tools-канал, dashboard/tools.py.
+CREATE TABLE IF NOT EXISTS contact_notes (
+    contact_id INTEGER PRIMARY KEY,
+    user_id    TEXT NOT NULL,
+    note       TEXT NOT NULL,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 # Колонки, добавленные после первого релиза схемы. ALTER, не recreate (db.md).

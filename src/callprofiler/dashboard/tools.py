@@ -74,6 +74,47 @@ def save_incoming_audio(db_path: str, user_id: str, filename: str, data: bytes) 
     return {"saved": dst.name, "bytes": len(data)}
 
 
+_CONTACT_NOTE_MAX_CHARS = 2000
+
+
+def set_contact_note(db_path: str, user_id: str, contact_id: int, note: str) -> dict[str, Any]:
+    """UPSERT/удаление заметки владельца на контакте (M6, tools-канал, инвариант 13).
+
+    Свободное ручное поле — НЕ правка автогенерата (raw_response неприкосновенен).
+    Пустая строка удаляет заметку. Ensures contact_notes существует (apply_insight_schema)
+    — заметка не должна зависеть от того, запускались ли другие insight-команды.
+    """
+    import sqlite3
+
+    from callprofiler.insight.repository import apply_insight_schema
+
+    note = (note or "").strip()[:_CONTACT_NOTE_MAX_CHARS]
+
+    conn = sqlite3.connect(db_path)
+    try:
+        apply_insight_schema(conn)
+        if not note:
+            conn.execute(
+                "DELETE FROM contact_notes WHERE contact_id = ? AND user_id = ?",
+                (contact_id, user_id),
+            )
+            conn.commit()
+            return {"note": None}
+
+        conn.execute(
+            "INSERT INTO contact_notes(contact_id, user_id, note, updated_at) "
+            "VALUES (?,?,?,CURRENT_TIMESTAMP) "
+            "ON CONFLICT(contact_id) DO UPDATE SET note=excluded.note, "
+            "updated_at=CURRENT_TIMESTAMP "
+            "WHERE contact_notes.user_id = excluded.user_id",
+            (contact_id, user_id, note),
+        )
+        conn.commit()
+        return {"note": note}
+    finally:
+        conn.close()
+
+
 class DashboardTools:
     """Thin wrapper for admin actions triggered from the web UI."""
 
@@ -295,6 +336,19 @@ class DashboardTools:
             return result
         except Exception as e:
             log.error("import-audio failed: %s", e)
+            return {"error": str(e)}
+
+    async def run_contact_note(self, contact_id: int, note: str) -> dict[str, Any]:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._contact_note_sync, contact_id, note)
+
+    def _contact_note_sync(self, contact_id: int, note: str) -> dict[str, Any]:
+        try:
+            result = set_contact_note(str(self.db_path), self.user_id, contact_id, note)
+            self._log(f"contact-note: contact_id={contact_id}")
+            return result
+        except Exception as e:
+            log.error("contact-note failed: %s", e)
             return {"error": str(e)}
 
     def _log(self, msg: str):

@@ -364,3 +364,33 @@ def test_endpoints_people_and_person():
     finally:
         server_mod._DB_READER = saved_r
         server_mod._USER_ID = saved_u
+
+
+# ── M6: owner note ────────────────────────────────────────────────────────
+
+def test_dossier_owner_note_absent_by_default(tmp_path):
+    db, cid, eid = _seed_db(tmp_path)
+    r = _reader(db)
+    d = r.get_person_dossier(cid, "me")
+    r.close()
+
+    assert d["owner_note"] is None
+
+
+def test_dossier_owner_note_present_when_seeded(tmp_path):
+    db, cid, eid = _seed_db(tmp_path)
+    repo = Repository(db)
+    conn = repo._get_conn()
+    conn.execute(
+        "INSERT INTO contact_notes(contact_id, user_id, note) VALUES (?, 'me', ?)",
+        (cid, "любит звонить по вечерам"),
+    )
+    conn.commit()
+    repo.close()
+
+    r = _reader(db)
+    d = r.get_person_dossier(cid, "me")
+    r.close()
+
+    assert d["owner_note"]["note"] == "любит звонить по вечерам"
+    assert d["owner_note"]["updated_at"]

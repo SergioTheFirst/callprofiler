@@ -8,6 +8,27 @@
 
 ## [Unreleased]
 
+### Added — M6: заметка владельца на контакте (2026-07-17)
+- `contact_notes(contact_id PK, user_id, note, updated_at)` в `apply_insight_schema`
+  (`insight/repository.py`).
+- `dashboard/tools.py::set_contact_note(db_path, user_id, contact_id, note) -> dict` — strip+cap
+  2000 символов, пустая строка удаляет (DELETE), иначе UPSERT с user-scoped guard (образец
+  contact_archetypes/contact_age_estimates); сама вызывает `apply_insight_schema` — не зависит
+  от того, запускались ли другие insight-команды. `DashboardTools.run_contact_note`/
+  `_contact_note_sync` — threadpool-обёртка (паттерн age-recompute).
+- `POST /api/tools/contact-note` (json `{contact_id, note}`) в `dashboard/server.py`.
+- `db_reader.get_person_dossier` — ключ `owner_note` (`_has_table('contact_notes')`-guarded):
+  `{note, updated_at}` или `None`.
+- `app.js::renderDossier` — секция «Моя заметка» сразу после блока возраста: текст/«нет
+  заметки» + кнопка «изменить»/«добавить» → textarea + «Сохранить»/«Отмена» → POST → перечитать
+  досье.
+- Не эскалировано выше T1 (Model Routing): SQL write здесь — копия уже провалидированного
+  UPSERT-guard паттерна, blast radius минимален (личное текстовое поле, не who-критичный факт).
+- Tests: `tests/test_contact_note.py` (10: set/overwrite/empty-delete/whitespace-delete/
+  cap-2000/auto-schema-без-предварительного-insight-вызова/user-isolation + TestClient
+  эндпоинт valid/400-missing/400-error) + 2 новых в `tests/test_dashboard_dossier.py`
+  (owner_note отсутствует/присутствует). `.claude/rules/dashboard.md` +1 блок. 952 passed/2 skipped.
+
 ### Added — M5: drag&drop импорт аудио из дашборда (2026-07-17)
 - `dashboard/tools.py::save_incoming_audio(db_path, user_id, filename, data)` — пишет в
   `users.incoming_dir` (SQL lookup, отказ если юзер/директория неизвестны — не угадываем путь):

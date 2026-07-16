@@ -675,6 +675,7 @@ class DashboardDBReader:
                 "bs_index": None, "trust_score": None, "avg_risk": None,
                 "volatility": None, "conflict_count": None,
             },
+            "owner_note": None,
             "archetype": None,
             "entity": None,
             "age": None,
@@ -696,6 +697,15 @@ class DashboardDBReader:
             "recent_calls": base.get("recent_calls") or [],
             "bs_thresholds": None,
         }
+
+        if self._has_table("contact_notes"):
+            row = self._conn.execute(
+                """SELECT note, updated_at FROM contact_notes
+                    WHERE contact_id = ? AND user_id = ?""",
+                (contact_id, user_id),
+            ).fetchone()
+            if row:
+                dossier["owner_note"] = {"note": row["note"], "updated_at": row["updated_at"]}
 
         if self._has_table("contact_archetypes"):
             row = self._conn.execute(

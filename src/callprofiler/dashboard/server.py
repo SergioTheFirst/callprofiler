@@ -401,6 +401,23 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
             return JSONResponse(result, status_code=400)
         return JSONResponse(result)
 
+    @fa.post("/api/tools/contact-note")
+    async def _tools_contact_note(request: Request) -> JSONResponse:
+        tools = _get_tools()
+        if tools is None or not hasattr(tools, "run_contact_note"):
+            return JSONResponse({"status": "ok"})
+        body = await request.json()
+        contact_id = body.get("contact_id")
+        note = body.get("note", "")
+        if not isinstance(contact_id, int):
+            return JSONResponse({"error": "contact_id required"}, status_code=400)
+        result = tools.run_contact_note(contact_id, note)
+        if asyncio.iscoroutine(result):
+            result = await result
+        if "error" in result:
+            return JSONResponse(result, status_code=400)
+        return JSONResponse(result)
+
     @fa.get("/api/characters")
     async def _characters() -> JSONResponse:
         dbr = _get_reader()

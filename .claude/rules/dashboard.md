@@ -28,6 +28,11 @@ SSE-тик обновляет активную вкладку (bugs.md 2026-06-0
 **возраст (стиль)** (group-бары G1-G6/★-доверие/топ-вклады/явные маркеры/кнопка «Определить
 возраст ↻» → `POST /api/tools/age-recompute?contact_id=`; из `contact_age_style`, полностью
 отдельный 4-й сигнальный класс — `.claude/rules/insight.md` секция «Возраст-стиль») →
+**«Моя заметка»** (M6, 2026-07-17: свободное ручное поле владельца, `contact_notes` table,
+`_has_table`-guarded read в `get_person_dossier` → ключ `owner_note`; `POST /api/tools/
+contact-note` {contact_id,note} — пустая строка удаляет, cap 2000, UPSERT user-guarded
+как age/archetype-таблицы; `set_contact_note` сама вызывает `apply_insight_schema` — не
+зависит от того, запускались ли другие insight-команды) →
 черты-фразы → паттерны (severity-цвет) → психотип →
 ритм (тренд словами TREND_RU) → факты-цитаты → противоречия → обещания → личное → связи → динамика
 по годам → интерпретация (persisted или подсказка `profile-all`) → совет → звонки (клик → call detail)

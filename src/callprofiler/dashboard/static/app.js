@@ -1071,6 +1071,15 @@
             html += dossierSec('Возраст', ageHtml);
         }
 
+        // M6: заметка владельца — свободное ручное поле, не автогенерат
+        var ownerNoteText = (d.owner_note && d.owner_note.note) || '';
+        html += dossierSec('Моя заметка', '<div id="dossier-note-view">' +
+            (ownerNoteText
+                ? '<p style="font-size:13px;color:var(--text-secondary);white-space:pre-wrap">' + escapeHtml(ownerNoteText) + '</p>'
+                : '<p style="font-size:13px;color:var(--text-muted);font-style:italic">нет заметки</p>') +
+            '<button class="btn btn-outline btn-sm" id="dossier-note-edit-btn" data-cid="' + (c.contact_id || '') + '">' +
+            (ownerNoteText ? 'изменить' : 'добавить') + '</button></div>');
+
         // Черты-фразы архетипа
         if (d.archetype && d.archetype.traits && d.archetype.traits.length) {
             html += dossierSec('Отличительное', d.archetype.traits.map(function(t) {
@@ -1218,6 +1227,32 @@
         if (entBtn) entBtn.addEventListener('click', function() {
             closePersonDossier();
             openEntityModal(this.dataset.eid);
+        });
+        var noteEditBtn = $('#dossier-note-edit-btn');
+        if (noteEditBtn) noteEditBtn.addEventListener('click', function() {
+            var cid = this.dataset.cid;
+            var view = $('#dossier-note-view');
+            view.innerHTML =
+                '<textarea id="dossier-note-textarea" rows="3" maxlength="2000" ' +
+                'style="width:100%;background:var(--bg-panel);color:var(--text-primary);' +
+                'border:1px solid var(--border);border-radius:6px;padding:8px;font:inherit">' +
+                escapeHtml(ownerNoteText) + '</textarea>' +
+                '<div style="margin-top:6px">' +
+                '<button class="btn btn-outline btn-sm" id="dossier-note-save-btn">Сохранить</button> ' +
+                '<button class="btn btn-outline btn-sm" id="dossier-note-cancel-btn">Отмена</button></div>';
+            $('#dossier-note-cancel-btn').addEventListener('click', function() {
+                openPersonDossier(cid);
+            });
+            $('#dossier-note-save-btn').addEventListener('click', function() {
+                var note = $('#dossier-note-textarea').value;
+                fetch('/api/tools/contact-note', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({contact_id: Number(cid), note: note}),
+                })
+                    .then(function() { openPersonDossier(cid); })
+                    .catch(function() { openPersonDossier(cid); });
+            });
         });
         var ageBtn = $('#dossier-age-recompute-btn');
         if (ageBtn) ageBtn.addEventListener('click', function() {
