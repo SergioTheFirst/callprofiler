@@ -1,5 +1,29 @@
 # Architecture Decisions
 
+## A4 risk_thresholds: свой percentile-калибратор; dashboard-очистка ОТЛОЖЕНА (2026-07-17)
+
+`card_generator._risk_emoji_with_calibration` звал `graph.calibration.BSCalibrator.get_label
+(risk_score, user_id)` — калибратор, обученный на РАСПРЕДЕЛЕНИИ `entity_metrics.bs_index`
+(graph-слой), применённый к СОВЕРШЕННО ДРУГОЙ метрике (`contact_summaries.global_risk`).
+Семантическая подмена, не крэш — карточка молча красила по чужой шкале. Найдено при верификации
+задачи A4 (bugs.md идея «Risk emoji scale clarity», ozalupennieStrategic5.md §A4).
+**Fix:** новая независимая таблица `risk_thresholds` (`insight/risk_calibration.py`, свой
+`apply_risk_schema`) — p50/p85 по `analyses.risk_score` (исключая `feedback='inaccurate'` и
+`risk_score=0`-заглушки коротких звонков), `calibrate-risk --user X` CLI. `bs_thresholds` НЕ
+тронут (на нём `graph-health`). `card_generator` теперь читает `risk_thresholds`, fallback
+30/70 не изменился — 3 существующих теста (`test_generate_card_risk_emoji_*`) прошли без правки,
+т.к. они и раньше никогда не били калиброванный путь (`_make_repo()` — `:memory:`, отдельный
+`sqlite3.connect(":memory:")` даёт НЕЗАВИСИМУЮ пустую БД, не общий хэндл — калибратор всегда
+падал в fallback молча). Новый интеграционный тест намеренно использует файловый `Repository`,
+не `_make_repo()`, чтобы реально проверить калиброванный путь через отдельный коннект к тому
+же файлу (WAL, `repository.py:_get_conn` уже включает `journal_mode=WAL`).
+**Отложено, не сделано:** дашборд (`dashboard/db_reader.py` + 8 мест в `app.js`) хардкодит
+СВОИ пороги риска (30/60/70/40 — уже НЕСОГЛАСОВАННЫЕ между собой, разные числа в разных местах)
+для цвета строк — это отдельная, более крупная UI-чистка (не тот баг, что назван в A4: там не
+подмена метрики, а никогда не калиброванные литералы). `risk_emoji()`/`risk_thresholds` теперь
+доступны дашборду для будущего переиспользования, но rewiring 8+ мест JS — вне текущего
+минимального фикса; если понадобится — отдельная задача.
+
 ## A1 obligations-digest: без Telegram-пуша (инвариант 25), команда переименована (2026-07-17)
 
 При реализации A1 (реестр обязательств, задача 10 автономного прогона `OzaluplivanieFable2.md`)

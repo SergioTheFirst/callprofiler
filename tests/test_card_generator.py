@@ -124,6 +124,42 @@ def test_generate_card_risk_emoji_green():
     assert "🟢" in card
 
 
+def test_generate_card_uses_calibrated_risk_thresholds(tmp_path):
+    """A4: risk emoji читает risk_thresholds (НЕ BS-index).
+
+    Файловый repo (не in-memory _make_repo) — calibrate_risk пишет через
+    отдельный коннект к тому же файлу, CardGenerator._get_conn() должен его увидеть.
+    """
+    from callprofiler.insight.risk_calibration import calibrate_risk
+
+    repo = Repository(str(tmp_path / "card.db"))
+    repo.init_db()
+    _add_user(repo)
+    contact_id = _add_contact_with_summary(repo, risk=10)  # 🟢 под старым фиксированным 30/70
+
+    conn = repo._get_conn()
+    for i in range(60):
+        cur = conn.execute(
+            "INSERT INTO calls(user_id, direction, call_datetime, source_filename, "
+            "source_md5, status, duration_sec) VALUES (?,?,?,?,?,?,?)",
+            ("serhio", "IN", f"2026-01-{(i % 28) + 1:02d}T10:00:00", f"f{i}.mp3",
+             f"md5{i}", "done", 60),
+        )
+        conn.execute(
+            "INSERT INTO analyses(call_id, prompt_version, risk_score) VALUES (?,?,?)",
+            (cur.lastrowid, "v001", 5),  # все звонки юзера риск=5 -> green_max=yellow_max=5.0
+        )
+    conn.commit()
+    calibrate_risk(conn, "serhio")
+
+    gen = CardGenerator(repo)
+    card = gen.generate_card("serhio", contact_id)
+
+    # risk=10 > калиброванный green_max=5.0 -> уже НЕ 🟢 (был бы под старым фикс. 30/70)
+    assert "🟢" not in card
+    assert "🔴" in card
+
+
 def test_generate_card_with_bullets():
     """Карточка с promises и debts показывает bullet-строки."""
     repo = _make_repo()

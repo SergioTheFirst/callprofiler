@@ -99,6 +99,22 @@ def cmd_age_style(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_calibrate_risk(args: argparse.Namespace) -> int:
+    """calibrate-risk --user X — перцентильные пороги risk_score (A4)."""
+    setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = load_config_and_repo(args.config)
+    conn = repo._get_conn()
+    from callprofiler.insight.risk_calibration import calibrate_risk
+    res = calibrate_risk(conn, args.user_id)
+    if not res["ok"]:
+        print(f"calibrate-risk: недостаточно данных ({res['count']} < 50) — не откалибровано "
+              f"(user={args.user_id})")
+        return 0
+    print(f"calibrate-risk: n={res['count']} green_max={res['green_max']:.1f} "
+          f"yellow_max={res['yellow_max']:.1f} (user={args.user_id})")
+    return 0
+
+
 def cmd_person_archetype(args: argparse.Namespace) -> int:
     setup_logging(verbose=getattr(args, "verbose", False))
     cfg, repo = load_config_and_repo(args.config)

@@ -69,7 +69,7 @@ from callprofiler.cli.commands.graph import (  # noqa: E402
 # ---- insight commands ----
 from callprofiler.cli.commands.insight import (  # noqa: E402
     cmd_features_build, cmd_archetypes_fit, cmd_person_archetype, cmd_person_link,
-    cmd_age_estimate, cmd_age_style, cmd_spotcheck_sample,
+    cmd_age_estimate, cmd_age_style, cmd_spotcheck_sample, cmd_calibrate_risk,
 )
 
 # ---- doctor command (M1) ----
@@ -720,6 +720,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Число фрагментов для синтеза (по умолчанию 8)",
     )
 
+    # ── calibrate-risk ───────────────────────────────────────────────
+    p_calib_risk = sub.add_parser(
+        "calibrate-risk",
+        help="A4: перцентильные пороги risk_score (p50/p85), отдельно от BS-index",
+    )
+    p_calib_risk.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+
     return parser
 
 
@@ -775,6 +785,7 @@ def main() -> None:
         "canary-analyze": cmd_canary_analyze,
         "obligations-digest": cmd_obligations_digest,
         "ask": cmd_ask,
+        "calibrate-risk": cmd_calibrate_risk,
     }
 
     handler = dispatch.get(args.command)

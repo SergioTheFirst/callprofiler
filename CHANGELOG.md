@@ -8,6 +8,36 @@
 
 ## [Unreleased]
 
+### Fixed — A4: risk emoji использовал BS-index пороги вместо своих (2026-07-17)
+- **Bug:** `deliver/card_generator.py::_risk_emoji_with_calibration` звал
+  `graph.calibration.BSCalibrator.get_label(risk_score, user_id)` — калибратор обучен на
+  распределении `entity_metrics.bs_index` (graph-слой), применён к другой метрике
+  (`contact_summaries.global_risk`). Семантическая подмена без крэша — карточка молча красила
+  по чужой шкале перцентилей.
+- **Fix:** `src/callprofiler/insight/risk_calibration.py` (новый модуль) — своя таблица
+  `risk_thresholds` (`apply_risk_schema`, idempotent), `calibrate_risk(conn,user_id,
+  min_analyses=50)` — p50→green_max/p85→yellow_max по `analyses.risk_score` JOIN `calls`
+  (исключены `feedback='inaccurate'` и `risk_score=0`-заглушки коротких звонков, pipeline.md),
+  <50 значений → `{"ok": False}`, ничего не пишет. `get_latest_risk_thresholds` — None если ещё
+  не калибровано (guarded `sqlite3.OperationalError`, паттерн dashboard `_has_table`).
+  `risk_emoji(risk, thresholds)` — thresholds=None → дефолт 30/70 (прежнее поведение сохранено).
+  `bs_thresholds` НЕ тронут (`graph-health` от него зависит).
+- `card_generator.py`: `_get_calibrator`/`self._calibrator`/`BSCalibrator`/`GraphRepository`
+  импорт удалены (мёртвый код после фикса, не патч поверх). `_risk_emoji_with_calibration`
+  (имя метода сохранено — сайт вызова не тронут) теперь читает `risk_thresholds` тем же
+  lazy-connect паттерном (`self._db_conn`, был `self._graph_conn`).
+- CLI `calibrate-risk --user X` (`cli/commands/insight.py::cmd_calibrate_risk`).
+- **Отложено (см. decisions.md):** дашборд хардкодит СВОИ пороги риска в 2 местах
+  `db_reader.py` + 8 местах `app.js` (уже внутренне рассогласованные — 30/60/70/40 вперемешку) —
+  это отдельная, более крупная UI-чистка, не входит в названный A4-баг (там не подмена метрики,
+  а никогда не калиброванные литералы). `risk_emoji()` доступен дашборду для переиспользования.
+- Tests: `tests/insight/test_risk_calibration.py` (8: too_few не пишет, percentiles на 100
+  значениях, exclude inaccurate/zero, user-изоляция, None до калибровки, значения после,
+  emoji-fallback совпадает со старым 30/70, emoji с калиброванными порогами) +
+  `tests/test_card_generator.py::test_generate_card_uses_calibrated_risk_thresholds` (файловый
+  repo — доказывает, что карточка реально меняет цвет после калибровки, а не просто не падает).
+  893 passed/2 skipped.
+
 ### Added — A2: `ask` — вопрос к архиву (2026-07-17)
 - `src/callprofiler/ask.py`: `retrieve(conn,user_id,question,k=8)` — токенизация вопроса
   (regex `\w+`, стоп-слова, len>=3) → FTS5 OR-запрос (`"tok1" OR "tok2"...`, НЕ phrase-match

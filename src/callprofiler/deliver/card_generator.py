@@ -17,9 +17,11 @@ card_generator.py — генерация структурированных call
 Данные берутся из contact_summaries (materialized aggregate).
 Если summary нет — минимальная карточка: header + "Нет истории".
 
-Integration (Step 4 — THRESHOLD INTEGRATION):
-- Используется BSCalibrator для data-driven risk emoji на основе перцентилей
-- Fallback: "⚪" если thresholds недоступны для user_id
+Integration (A4 — risk-threshold calibration):
+- Используется risk_thresholds (insight/risk_calibration.py) для data-driven risk
+  emoji на основе перцентилей risk_score юзера (НЕ BS-index — другая метрика,
+  другое распределение; см. .claude/rules/decisions.md 2026-07-17).
+- Fallback: дефолт 30/70 если calibration недоступна для user_id
 """
 
 from __future__ import annotations
@@ -33,8 +35,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from callprofiler.db.repository import Repository
 
-from callprofiler.graph.calibration import BSCalibrator
-from callprofiler.graph.repository import GraphRepository
+from callprofiler.insight.risk_calibration import get_latest_risk_thresholds
+from callprofiler.insight.risk_calibration import risk_emoji as _calibrated_risk_emoji
 
 logger = logging.getLogger(__name__)
 
@@ -80,61 +82,43 @@ class CardGenerator:
         generator.write_card("serhio", 1, "/path/to/sync/cards")
         generator.update_all_cards("serhio")
 
-    Integration (Step 4):
-    - Использует BSCalibrator для data-driven risk emoji
-    - Fallback на hardcoded thresholds если calibration недоступна
+    Integration (A4):
+    - Использует risk_thresholds (perцентили risk_score юзера) для data-driven emoji
+    - Fallback на дефолт 30/70 если calibration недоступна
     """
 
     def __init__(self, repo: Repository) -> None:
         self.repo = repo
-        self._graph_conn: sqlite3.Connection | None = None
-        self._calibrator: BSCalibrator | None = None
+        self._db_conn: sqlite3.Connection | None = None
 
-    def _get_calibrator(self) -> BSCalibrator | None:
-        """Ленивая инициализация калибратора (коннект к графу через основной DB)."""
-        if self._calibrator is not None:
-            return self._calibrator
-
-        try:
-            # Получить путь к БД из репозитория и открыть коннект для графа
-            if not hasattr(self.repo, '_db_path'):
-                return None
-
-            if self._graph_conn is None:
-                self._graph_conn = sqlite3.connect(self.repo._db_path)
-                self._graph_conn.row_factory = sqlite3.Row
-
-            grepo = GraphRepository(self._graph_conn)
-            self._calibrator = BSCalibrator(grepo)
-            return self._calibrator
-        except Exception as e:
-            logger.debug("Failed to initialize BSCalibrator: %s", e)
+    def _get_conn(self) -> sqlite3.Connection | None:
+        """Ленивый коннект к основной БД для чтения risk_thresholds (A4)."""
+        if self._db_conn is not None:
+            return self._db_conn
+        if not hasattr(self.repo, '_db_path'):
             return None
+        self._db_conn = sqlite3.connect(self.repo._db_path)
+        self._db_conn.row_factory = sqlite3.Row
+        return self._db_conn
 
     def _risk_emoji_with_calibration(self, risk: int, user_id: str) -> str:
-        """Получить emoji для risk используя BSCalibrator если доступен.
+        """Emoji для risk_score с учётом user-specific percentile-порогов (A4).
 
         Args:
             risk: Risk score (0-100)
             user_id: User ID для поиска calibration thresholds
 
         Returns:
-            Emoji (🔴🟡🟢⚪) с учётом user-specific percentiles или fallback
+            Emoji (🔴🟡🟢) — калиброванные пороги юзера или дефолт 30/70
         """
+        thresholds = None
         try:
-            calibrator = self._get_calibrator()
-            if calibrator:
-                label, emoji = calibrator.get_label(float(risk), user_id)
-                return emoji
+            conn = self._get_conn()
+            if conn is not None:
+                thresholds = get_latest_risk_thresholds(conn, user_id)
         except Exception as e:
-            logger.debug("Failed to get calibrated label: %s", e)
-
-        # Fallback: hardcoded thresholds (compatible с старым поведением)
-        if risk >= 70:
-            return "🔴"
-        if risk >= 30:
-            return "🟡"
-        return "🟢"
+            logger.debug("Failed to get risk thresholds: %s", e)
+        return _calibrated_risk_emoji(risk, thresholds)
 
     def generate_card(self, user_id: str, contact_id: int) -> str:
         """Собрать структурированную caller card для контакта.
