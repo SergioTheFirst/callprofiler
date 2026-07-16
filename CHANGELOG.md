@@ -8,6 +8,28 @@
 
 ## [Unreleased]
 
+### Added — M5: drag&drop импорт аудио из дашборда (2026-07-17)
+- `dashboard/tools.py::save_incoming_audio(db_path, user_id, filename, data)` — пишет в
+  `users.incoming_dir` (SQL lookup, отказ если юзер/директория неизвестны — не угадываем путь):
+  whitelist `.mp3/.wav/.m4a/.ogg/.opus/.amr/.aac/.flac`, size-cap 512MB, `Path(filename).name`
+  режет path traversal (Windows- и Unix-стиль), коллизия имени → `stem-1.ext`, атомарная запись
+  `.part`→`os.replace` (watcher не видит недописанный файл). Пайплайн не тронут — watcher
+  подхватывает штатным MD5-дедупом.
+- `POST /api/tools/import-audio?name=` (`dashboard/server.py`) — тело запроса как есть
+  (`await request.body()`), БЕЗ python-multipart (инвариант 2); ошибка → HTTP 400.
+- UI: зона «перетащите записи сюда» + `<input type=file multiple>` на overview
+  (`templates/index.html`/`static/app.js`/`style.css`) — drag&drop + клиентский pre-check
+  расширения, статус-строка по каждому файлу.
+- **Security-review (subagent, sonnet) до коммита** — 1 HIGH исправлен: Windows reserved device
+  names (CON/NUL/AUX/COM1-9/LPT1-9) не фильтровались `Path.name` → добавлен явный гард
+  (`_WINDOWS_RESERVED_NAMES`). 2 MEDIUM (полное чтение тела до size-check; TOCTOU в
+  collision-loop под конкурентными аплоадами) оставлены как есть — приемлемо для локального
+  однопользовательского инструмента (не тот угроз-профиль), не блокируют коммит.
+- Tests: `tests/test_dashboard_import.py` (16: save_incoming_audio traversal×2/расширение/
+  пусто/размер/коллизия/неизвестный юзер/no-`.part`-leftover/reserved-names×4, TestClient
+  эндпоинт валид/400/fallback). 940 passed/2 skipped.
+- `.claude/rules/dashboard.md` +1 строка (эндпоинт).
+
 ### Added — A6: карточка v2 — freshness, Admiralty-грейд, due, best call time (2026-07-17)
 - `insight/admiralty.py` (`source_grade`/`info_grade`/`grade_line`) + `insight/call_time.py`
   (`best_call_time`, IMMUNE-сигнал: будни-день/будни-вечер/выходные/ночь, вес ×2 за 180 дней,

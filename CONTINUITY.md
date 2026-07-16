@@ -70,9 +70,10 @@ column — bugs.md 2026-07-02) · досье Ф0-Ф4 · русификация.
    (инлайн №7) · M3 llm_cache · M4 json_mode+canary-analyze · A1 obligations-digest — БЕЗ
    Telegram-пуша, см. decisions.md · A2 `ask` по архиву + инъекция-гард §4.1 · A4 risk_thresholds
    — фикс BS-index-подмены, dashboard-очистка отложена, см. decisions.md · A6 карточка v2 —
-   due/grade/call/freshness-штамп, канон имени файла, интерпретации в decisions.md). Следующая
-   по порядку — **14. M5 Drag&drop импорт аудио (oz2 §3.5, T2)**.
-   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 924 passed/2 skipped.
+   due/grade/call/freshness-штамп, канон имени файла, интерпретации в decisions.md · M5
+   drag&drop импорт аудио — security-reviewed, 1 HIGH исправлен (Windows reserved names)).
+   Следующая по порядку — **15. M6 Заметка владельца на контакте (oz2 §3.6, T1)**.
+   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 940 passed/2 skipped.
 2. **Бокс (не блокирует исполнение):** pull → `owner_birth_year` в base.yaml → пересчёт возраста
    (`age-estimate --user me` + `age-style --user me`, TABLE/RULES v2) → спот-чек 10 контактов →
    LLM-окно: `age-estimate --user me --llm`.

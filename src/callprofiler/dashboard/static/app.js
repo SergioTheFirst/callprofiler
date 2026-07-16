@@ -117,6 +117,7 @@
         };
     }
     connectSSE();
+    initImportDropzone();
 
     // ── Profile switcher ───────────────────────────────────────────────────
     (function initProfiles() {
@@ -155,6 +156,75 @@
                 }
             })
             .catch(function(e) { console.error('Overview load failed:', e); });
+    }
+
+    // ── M5: drag&drop audio import ──────────────────────────────────────────
+    var IMPORT_ALLOWED_EXT = ['.mp3', '.wav', '.m4a', '.ogg', '.opus', '.amr', '.aac', '.flac'];
+
+    function importAllowedExt(name) {
+        var lower = name.toLowerCase();
+        return IMPORT_ALLOWED_EXT.some(function(ext) { return lower.endsWith(ext); });
+    }
+
+    function importFile(file) {
+        var statusEl = $('#import-status');
+        if (!importAllowedExt(file.name)) {
+            statusEl.classList.add('error');
+            statusEl.textContent = file.name + ': неподдерживаемый тип файла';
+            return;
+        }
+        fetch('/api/tools/import-audio?name=' + encodeURIComponent(file.name), {
+            method: 'POST',
+            body: file,
+        })
+            .then(function(r) {
+                return r.json().then(function(data) { return { ok: r.ok, data: data }; });
+            })
+            .then(function(res) {
+                statusEl.classList.toggle('error', !res.ok);
+                statusEl.textContent = res.ok
+                    ? file.name + ': в очереди (' + res.data.saved + ')'
+                    : file.name + ': ' + (res.data.error || 'ошибка загрузки');
+            })
+            .catch(function(e) {
+                statusEl.classList.add('error');
+                statusEl.textContent = file.name + ': ошибка сети';
+                console.error('import-audio failed:', e);
+            });
+    }
+
+    function importFiles(fileList) {
+        var files = Array.prototype.slice.call(fileList);
+        if (!files.length) return;
+        var statusEl = $('#import-status');
+        statusEl.classList.remove('error');
+        statusEl.textContent = files.length + ' файл(ов) в очереди — watcher подхватит';
+        files.forEach(importFile);
+    }
+
+    function initImportDropzone() {
+        var zone = $('#import-dropzone');
+        var input = $('#import-file-input');
+        if (!zone || !input) return;
+        input.addEventListener('change', function() {
+            importFiles(input.files);
+            input.value = '';
+        });
+        ['dragenter', 'dragover'].forEach(function(evt) {
+            zone.addEventListener(evt, function(e) {
+                e.preventDefault();
+                zone.classList.add('drag-over');
+            });
+        });
+        ['dragleave', 'drop'].forEach(function(evt) {
+            zone.addEventListener(evt, function(e) {
+                e.preventDefault();
+                zone.classList.remove('drag-over');
+            });
+        });
+        zone.addEventListener('drop', function(e) {
+            if (e.dataTransfer && e.dataTransfer.files) importFiles(e.dataTransfer.files);
+        });
     }
 
     function updateStatCards(status) {

@@ -43,6 +43,11 @@ SSE-тик обновляет активную вкладку (bugs.md 2026-06-0
 - `/api/audio/{call_id}` (M2, 2026-07-16): `FileResponse` архивного mp3/wav из `calls.audio_path`;
   404 без записи/файла ИЛИ если путь вне `data_dir` (defense-in-depth). Клик по строке транскрипта
   в call-detail (`app.js`) мотает `<audio>` на `start_ms/1000`.
+- `/api/tools/import-audio?name=` (M5, 2026-07-17, security-sensitive): raw body → `tools.
+  save_incoming_audio` пишет в `users.incoming_dir` (watcher подхватывает штатно) — whitelist
+  расширений, size-cap 512MB, path-traversal через `Path(name).name`, Windows reserved-device-name
+  гард (CON/NUL/AUX/COM1-9/LPT1-9), атомарная запись `.part`→`os.replace`. Никакого
+  python-multipart (инвариант 2) — тело как есть.
 - Личности: `/api/characters` (список entities+metrics+psychology), `/api/character/{entity_id}`
   (модалка, app.js:541), `/api/contact/{contact_id}`, `/api/analytics`.
 - Досье (Ф2): `/api/people` (список контактов + архетип + BS через map + `age_point`/`age_confidence`

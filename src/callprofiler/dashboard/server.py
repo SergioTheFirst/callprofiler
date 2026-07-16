@@ -387,6 +387,20 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
             return JSONResponse(result)
         return JSONResponse({"status": "ok"})
 
+    @fa.post("/api/tools/import-audio")
+    async def _tools_import_audio(request: Request, name: str = Query(...)) -> JSONResponse:
+        # M5, security-sensitive: raw request body (no python-multipart — invariant 2).
+        tools = _get_tools()
+        if tools is None or not hasattr(tools, "run_import_audio"):
+            return JSONResponse({"status": "ok"})
+        data = await request.body()
+        result = tools.run_import_audio(name, data)
+        if asyncio.iscoroutine(result):
+            result = await result
+        if "error" in result:
+            return JSONResponse(result, status_code=400)
+        return JSONResponse(result)
+
     @fa.get("/api/characters")
     async def _characters() -> JSONResponse:
         dbr = _get_reader()

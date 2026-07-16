@@ -65,6 +65,11 @@
                 <div class="stat-card skeleton"><div class="stat-value">--</div><div class="stat-label">Errors</div></div>
                 <div class="stat-card skeleton"><div class="stat-value">--</div><div class="stat-label">Processed</div></div>
             </div>
+            <div class="panel frosted" id="import-dropzone">
+                <p id="import-dropzone-label">Перетащите записи сюда, или <label for="import-file-input" class="link-like">выберите файлы</label></p>
+                <input type="file" id="import-file-input" multiple accept=".mp3,.wav,.m4a,.ogg,.opus,.amr,.aac,.flac" hidden>
+                <div id="import-status"></div>
+            </div>
             <div class="overview-grid">
                 <div class="panel frosted">
                     <h3 class="panel-title">Pipeline Status</h3>

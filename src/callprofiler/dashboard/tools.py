@@ -8,11 +8,70 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
 
 log = logging.getLogger(__name__)
+
+_IMPORT_ALLOWED_EXT = {".mp3", ".wav", ".m4a", ".ogg", ".opus", ".amr", ".aac", ".flac"}
+_IMPORT_MAX_BYTES = 512 * 1024 * 1024
+_WINDOWS_RESERVED_NAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+    "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+}
+
+
+def save_incoming_audio(db_path: str, user_id: str, filename: str, data: bytes) -> dict[str, Any]:
+    """Сохранить перетащенный аудиофайл в incoming_dir юзера (M5, security-sensitive).
+
+    Watcher штатно подхватит файл дальше — ничего в пайплайне не меняется.
+    Path traversal режется через Path(filename).name; расширение — whitelist;
+    запись атомарна (.part -> os.replace), недописанный файл watcher не увидит.
+    """
+    import sqlite3
+
+    if not data:
+        return {"error": "empty file"}
+    if len(data) > _IMPORT_MAX_BYTES:
+        return {"error": "file too large"}
+
+    name = Path(filename).name
+    if not name:
+        return {"error": "invalid filename"}
+    if Path(name).stem.upper() in _WINDOWS_RESERVED_NAMES:
+        return {"error": "reserved filename"}
+    if Path(name).suffix.lower() not in _IMPORT_ALLOWED_EXT:
+        return {"error": "unsupported type"}
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT incoming_dir FROM users WHERE user_id = ?", (user_id,)
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None or not row["incoming_dir"]:
+        return {"error": "unknown user or incoming_dir not configured"}
+
+    incoming = Path(row["incoming_dir"])
+    incoming.mkdir(parents=True, exist_ok=True)
+
+    dst = incoming / name
+    stem, suffix = dst.stem, dst.suffix
+    i = 1
+    while dst.exists():
+        dst = incoming / f"{stem}-{i}{suffix}"
+        i += 1
+
+    tmp = dst.with_suffix(dst.suffix + ".part")
+    tmp.write_bytes(data)
+    os.replace(tmp, dst)
+
+    return {"saved": dst.name, "bytes": len(data)}
 
 
 class DashboardTools:
@@ -223,6 +282,20 @@ class DashboardTools:
         except Exception as e:
             log.error("age-recompute failed: %s", e)
             return {"status": "error", "message": str(e)}
+
+    async def run_import_audio(self, filename: str, data: bytes) -> dict[str, Any]:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._import_audio_sync, filename, data)
+
+    def _import_audio_sync(self, filename: str, data: bytes) -> dict[str, Any]:
+        try:
+            result = save_incoming_audio(str(self.db_path), self.user_id, filename, data)
+            if "error" not in result:
+                self._log(f"import-audio: {result['saved']} ({result['bytes']} bytes)")
+            return result
+        except Exception as e:
+            log.error("import-audio failed: %s", e)
+            return {"error": str(e)}
 
     def _log(self, msg: str):
         self._history.insert(0, {
