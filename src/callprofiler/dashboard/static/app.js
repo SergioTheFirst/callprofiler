@@ -434,6 +434,10 @@
         }
         promHtml += '</div>';
 
+        var audioHtml = '<div class="detail-section">' +
+            '<audio id="call-audio-player" controls preload="none" src="/api/audio/' + d.call_id + '" ' +
+            'style="width:100%"></audio></div>';
+
         $('#detail-content').innerHTML =
             '<div class="detail-section"><h4>Metadata</h4><dl class="detail-meta">' +
             '<dt>Call #</dt><dd>' + d.call_id + '</dd>' +
@@ -448,8 +452,26 @@
             '<dt>Call Type</dt><dd>' + escapeHtml(d.call_type || '--') + '</dd>' +
             '<dt>Model</dt><dd>' + escapeHtml(d.model || '--') + '</dd>' +
             '</dl></div>' +
+            audioHtml +
             '<div class="detail-section"><h4>Summary</h4><p style="font-size:13px;color:var(--text-secondary);line-height:1.6">' + escapeHtml(summary) + '</p></div>' +
             flagsHtml + segsHtml + promHtml;
+
+        var audioEl = $('#call-audio-player');
+        if (audioEl) {
+            audioEl.addEventListener('error', function() {
+                audioEl.style.display = 'none';
+            });
+            document.querySelectorAll('#detail-content .segment-item').forEach(function(item) {
+                item.style.cursor = 'pointer';
+                item.addEventListener('click', function() {
+                    var startMs = parseInt(item.dataset.start, 10);
+                    if (!isNaN(startMs)) {
+                        audioEl.currentTime = startMs / 1000;
+                        audioEl.play();
+                    }
+                });
+            });
+        }
     }
 
     $('#detail-close').addEventListener('click', function() {

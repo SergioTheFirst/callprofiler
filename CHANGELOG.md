@@ -8,6 +8,19 @@
 
 ## [Unreleased]
 
+### Added — M2: аудио-плеер в дашборде + seek по сегменту (2026-07-16)
+- `db_reader.get_call_audio_path(call_id, user_id)` — `calls.audio_path`, guarded на
+  существование файла на диске (NULL/удалён → None).
+- `GET /api/audio/{call_id}` (`server.py`, тот же `_CONFIG`/`_USER_ID`-паттерн, что
+  `/api/calls/{call_id}`): 404 без записи/файла; defense-in-depth — `resolve()`+`relative_to`
+  проверяет, что путь из БД лежит ВНУТРИ `data_dir`, иначе 404 (путь пришёл из БД, но
+  доверять ему без проверки нельзя). `FileResponse` с media_type по расширению (mp3/wav/octet-stream).
+- `app.js::renderCallDetail` — `<audio controls preload="none">` над транскриптом (`onerror`
+  скрывает плеер, если файл удалён); строки `.segment-item` кликабельны — мотают на `start_ms/1000`
+  и запускают воспроизведение. Досье уже использует ту же call-detail модалку — плеер доступен и там.
+- Tests: `tests/test_dashboard_audio.py` (6: байты совпадают+media_type, чужой user_id,
+  audio_path=NULL, путь вне data_dir, файл удалён с диска, reader напрямую). 840 passed/2 skipped.
+
 ### Added — 0.3: спот-чек-сэмплер (2026-07-16)
 - `src/callprofiler/insight/spotcheck.py::build_spotcheck(conn, user_id, n=25, seed=0)` —
   markdown: n done/transcribed-звонков, стратифицированных по длительности (короткие <60s /

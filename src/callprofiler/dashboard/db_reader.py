@@ -1379,6 +1379,19 @@ class DashboardDBReader:
 
         return detail
 
+    def get_call_audio_path(self, call_id: int, user_id: str) -> str | None:
+        """Путь к архивному аудио звонка (M2) — None если нет записи/файла нет на диске."""
+        self.connect()
+        row = self._conn.execute(
+            "SELECT audio_path FROM calls WHERE call_id = ? AND user_id = ?",
+            (call_id, user_id),
+        ).fetchone()
+        if row is None or not row["audio_path"]:
+            return None
+        if not Path(row["audio_path"]).exists():
+            return None
+        return row["audio_path"]
+
     def get_calls_filtered(self, user_id: str, limit: int = 50, offset: int = 0,
                            status: str = "", days: int = 0) -> list[dict[str, Any]]:
         """Get paginated calls with optional status/days filters."""

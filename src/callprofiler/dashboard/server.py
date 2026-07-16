@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -155,6 +155,31 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
         if detail is None:
             return JSONResponse({"call_id": call_id, "error": "not found"}, status_code=404)
         return JSONResponse(detail)
+
+    @fa.get("/api/audio/{call_id}")
+    async def _audio(call_id: int):
+        # M2: слушать звонок из дашборда, seek по сегменту транскрипта.
+        if _CONFIG is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        reader = DashboardDBReader(_CONFIG.data_dir)
+        path = reader.get_call_audio_path(call_id, _USER_ID)
+        if path is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        resolved = Path(path).resolve()
+        data_root = Path(_CONFIG.data_dir).resolve()
+        try:
+            resolved.relative_to(data_root)
+        except ValueError:
+            # Защита от выхода за пределы data_dir (defense-in-depth) — путь
+            # приходит из БД, но нельзя доверять ему без проверки.
+            return JSONResponse({"error": "not found"}, status_code=404)
+        suffix = resolved.suffix.lower()
+        media_type = (
+            "audio/mpeg" if suffix == ".mp3"
+            else "audio/wav" if suffix == ".wav"
+            else "application/octet-stream"
+        )
+        return FileResponse(str(resolved), media_type=media_type)
 
     @fa.get("/api/search")
     async def _search(q: str = Query(..., min_length=1), limit: int = Query(20, ge=1, le=100)) -> JSONResponse:
