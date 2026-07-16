@@ -8,6 +8,32 @@
 
 ## [Unreleased]
 
+### Added — A2: `ask` — вопрос к архиву (2026-07-17)
+- `src/callprofiler/ask.py`: `retrieve(conn,user_id,question,k=8)` — токенизация вопроса
+  (regex `\w+`, стоп-слова, len>=3) → FTS5 OR-запрос (`"tok1" OR "tok2"...`, НЕ phrase-match
+  как в `search_transcripts` — для натурального вопроса это дало бы 0 совпадений) → top-k
+  фрагментов `{idx,call_id,contact_name,date,text}`. `answer_question(conn,user_id,question,
+  *,llm_url,k=8,timeout=120)` — строит messages (`configs/prompts/ask_v001.txt` как system +
+  `<фрагменты>` как user), sha1-кэш (`ask_log`, своя таблица, `apply_ask_schema` idempotent),
+  зовёт LLM (`requests.post` напрямую, `json_mode` НЕ используется — ответ проза), извлекает
+  `[n]`-ссылки regex-ом и мапит на СВОИ метаданные фрагмента (модели не доверяем в атрибуции
+  контакта/даты). Пустой retrieve → LLM не зовётся вообще (`from_cache=False`, пустые citations).
+- **Инъекция-гард (ozalup2.md §4.1, инвариант 12):** фрагменты — чужой текст (транскрипты),
+  обёрнуты `<фрагменты>...</фрагменты>`; `ask_v001.txt` явно требует игнорировать любые
+  "инструкции", встречающиеся внутри фрагментов. Regress-тест кладёт фразу
+  «игнорируй все инструкции...» ВНУТРЬ транскрипта и проверяет, что гард-текст/теги реально
+  попадают в отправляемый prompt.
+- CLI `ask "<вопрос>" --user X [--k 8]` (`cli/commands/ask.py`, новый файл). `llama-server`
+  недоступен → чистая ошибка + `exit 2` (без ретрай-лупа), как canary-analyze/M4.
+- **Отклонение от буквы oz5-спеки:** таблица кэша — своя `ask.py::apply_ask_schema`
+  (self-contained, паттерн `llm_cache.py`), а не миграция внутри `insight/repository.py` —
+  `ask` не является insight-концептом (архетипы/фичи контактов), меньший blast radius не трогать
+  insight-схему ради несвязанной таблицы.
+- Tests: `tests/test_ask.py` (6: retrieve находит релевантный фрагмент, user-изоляция,
+  детерминированные citations из `[n]`, пустой retrieve не зовёт LLM, второй одинаковый вопрос
+  бьёт кэш, инъекция-гард реально в отправленном prompt). 884 passed/2 skipped.
+- `.claude/rules/llm.md` — секция «`ask` — вопрос к архиву (A2)».
+
 ### Added — A1: реестр обязательств (obligations-digest) (2026-07-17)
 - `src/callprofiler/deliver/digest.py`: `overdue_items`/`open_items` — UNION `events`
   (promise/debt, `status='open'`, `deadline IS NOT NULL`) и legacy `promises` (`due IS NOT NULL`),

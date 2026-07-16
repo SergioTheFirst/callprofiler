@@ -78,6 +78,9 @@ from callprofiler.cli.commands.doctor import cmd_doctor  # noqa: E402
 # ---- deliver commands (A1) ----
 from callprofiler.cli.commands.deliver import cmd_obligations_digest  # noqa: E402
 
+# ---- ask command (A2) ----
+from callprofiler.cli.commands.ask import cmd_ask  # noqa: E402
+
 # cmd_graph_audit -> cli/commands/graph.py
 
 
@@ -702,6 +705,21 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Путь к выходному .md файлу (по умолчанию — вывод в консоль)",
     )
 
+    # ── ask ──────────────────────────────────────────────────────────
+    p_ask = sub.add_parser(
+        "ask",
+        help="A2: вопрос к архиву звонков (FTS5 + LLM-синтез со ссылками [n])",
+    )
+    p_ask.add_argument("question", help="Вопрос на русском языке")
+    p_ask.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_ask.add_argument(
+        "--k", type=int, default=8, metavar="K",
+        help="Число фрагментов для синтеза (по умолчанию 8)",
+    )
+
     return parser
 
 
@@ -756,6 +774,7 @@ def main() -> None:
         "doctor": cmd_doctor,
         "canary-analyze": cmd_canary_analyze,
         "obligations-digest": cmd_obligations_digest,
+        "ask": cmd_ask,
     }
 
     handler = dispatch.get(args.command)
