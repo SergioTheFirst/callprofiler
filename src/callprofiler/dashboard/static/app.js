@@ -1306,6 +1306,15 @@
             }).join(''));
         }
 
+        // M8: факты/обещания из map-reduce прохода по длинным звонкам
+        if (d.deep_facts && d.deep_facts.length) {
+            html += dossierSec('Из длинных разговоров', d.deep_facts.map(function(f) {
+                return '<div class="dossier-quote">«' + escapeHtml(f.quote || '') + '»' +
+                    '<div class="dossier-quote-meta">' + escapeHtml(f.what || '') +
+                    (f.call_date ? ' · ' + escapeHtml(f.call_date) : '') + '</div></div>';
+            }).join(''));
+        }
+
         // Противоречия
         if (d.contradictions && d.contradictions.length) {
             html += dossierSec('Противоречия', d.contradictions.map(function(x) {

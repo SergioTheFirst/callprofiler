@@ -17,8 +17,10 @@ def cmd_obligations_digest(args: argparse.Namespace) -> int:
     conn = repo._get_conn()
 
     from callprofiler.deliver.digest import build_digest
+    from callprofiler.insight.deep_extract import recent_deep_lines
 
-    report = build_digest(conn, args.user_id)
+    extra = [("🔎 Из глубокого прохода", recent_deep_lines(conn, args.user_id))]
+    report = build_digest(conn, args.user_id, extra_sections=extra)
 
     # F8: тиры — дёшево, обновляем при каждом построении дайджеста (Fable §3.8 п.3)
     try:

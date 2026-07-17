@@ -157,6 +157,35 @@ CREATE TABLE IF NOT EXISTS report_state (
     user_id           TEXT PRIMARY KEY,
     last_report_date  TEXT
 );
+
+-- M8: map-reduce deep-extract по ПОЛНОМУ транскрипту длинных звонков. Дисплей-слой
+-- (НЕ events/graph — replay-инвариант, graph.md layer contract). item_key дедупит
+-- перекрытия соседних чанков одного звонка. deep_scans — "звонок X уже пройден
+-- версией промпта Y", гейт повторного прогона без --force.
+CREATE TABLE IF NOT EXISTS deep_facts (
+    user_id        TEXT NOT NULL,
+    item_key       TEXT NOT NULL,
+    call_id        INTEGER NOT NULL,
+    contact_id     INTEGER,
+    type           TEXT NOT NULL CHECK(type IN ('promise','debt','fact','date')),
+    who            TEXT NOT NULL CHECK(who IN ('OWNER','OTHER')),
+    what           TEXT NOT NULL,
+    quote          TEXT NOT NULL,
+    deadline_raw   TEXT,
+    chunk_idx      INTEGER,
+    prompt_version TEXT NOT NULL,
+    created_at     TEXT DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, item_key)
+);
+CREATE INDEX IF NOT EXISTS idx_deepfacts_contact ON deep_facts(user_id, contact_id);
+
+CREATE TABLE IF NOT EXISTS deep_scans (
+    user_id        TEXT NOT NULL,
+    call_id        INTEGER NOT NULL,
+    prompt_version TEXT NOT NULL,
+    created_at     TEXT DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, call_id, prompt_version)
+);
 """
 
 # Колонки, добавленные после первого релиза схемы. ALTER, не recreate (db.md).

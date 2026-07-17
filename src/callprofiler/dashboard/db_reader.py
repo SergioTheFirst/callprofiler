@@ -761,6 +761,7 @@ class DashboardDBReader:
             "temperament": None,
             "motivation": None,
             "facts": [],
+            "deep_facts": [],
             "contradictions": [],
             "promises": {"open": base.get("open_promises") or []},
             "personal_facts": base.get("personal_facts") or [],
@@ -809,6 +810,22 @@ class DashboardDBReader:
                     # A7 tension.py: сырые (dim,z) — traits выше уже редуцировал до фраз
                     "dims": [{"dim": d.get("dim"), "z": d.get("z")} for d in dims if d.get("dim")],
                 }
+
+        if self._has_table("deep_facts"):
+            rows = self._conn.execute(
+                """SELECT df.what, df.quote, df.who, df.type, df.deadline_raw,
+                          date(c.call_datetime) AS call_date
+                     FROM deep_facts df
+                     JOIN calls c ON c.call_id = df.call_id
+                    WHERE df.contact_id = ? AND df.user_id = ?
+                    ORDER BY df.created_at DESC LIMIT 5""",
+                (contact_id, user_id),
+            ).fetchall()
+            dossier["deep_facts"] = [
+                {"what": r["what"], "quote": r["quote"], "who": r["who"],
+                 "type": r["type"], "deadline_raw": r["deadline_raw"], "call_date": r["call_date"]}
+                for r in rows
+            ]
 
         if self._has_table("contact_age_estimates"):
             row = self._conn.execute(

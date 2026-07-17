@@ -172,8 +172,14 @@ def _format_item(item: dict) -> list[str]:
     return lines
 
 
-def build_digest(conn, user_id: str, today: str | None = None) -> str:
-    """Markdown-отчёт: просрочено ИМИ / просрочено ВАМИ / открыто (14 дней)."""
+def build_digest(
+    conn, user_id: str, today: str | None = None,
+    extra_sections: list[tuple[str, list[str]]] | None = None,
+) -> str:
+    """Markdown-отчёт: просрочено ИМИ / просрочено ВАМИ / открыто (14 дней).
+
+    ``extra_sections`` — [(заголовок, [строка, ...])] от других модулей (M8:
+    recent_deep_lines); пустые секции (нет строк) пропускаются молча."""
     overdue = overdue_items(conn, user_id, today)
     owner_overdue = [i for i in overdue if i["side"] == "owner"]
     contact_overdue = [i for i in overdue if i["side"] == "contact"]
@@ -201,5 +207,11 @@ def build_digest(conn, user_id: str, today: str | None = None) -> str:
             lines.extend(_format_item(item))
     else:
         lines.append("- нет")
+
+    for title, section_lines in (extra_sections or []):
+        if not section_lines:
+            continue
+        lines.append(f"\n## {title}")
+        lines.extend(section_lines)
 
     return "\n".join(lines)

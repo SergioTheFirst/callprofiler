@@ -180,6 +180,27 @@ top 5%→`core`, до 25%→`active`, до 60%→`warm`, до 90%→`cold`, хв
 
 ---
 
+## Deep-extract — map-reduce по длинным звонкам (M8, `deep_extract.py`)
+
+Снимает слепоту head+tail-клипа основного analyze-промпта (llm.md: >3000 символов → 1500+1500):
+`chunk_text()` режет ПОЛНЫЙ транскрипт на символьные чанки (9000/800 overlap, разрез по
+word-boundary) → каждый чанк — отдельный LLM-вызов (`LLMClient(cache_conn=conn)`, json_mode,
+temperature 0.1) → JSON `{"items":[{type,who,what,quote,deadline}]}`. Таблицы `deep_facts`
+(PK `user_id,item_key` — sha1(call_id|type|what[:60])[:16], дедупит перекрытия чанков) и
+`deep_scans` (гейт повторного прогона без `--force`). **Границы: результат — СВОЯ таблица,
+НЕ events/graph** (replay-инвариант graph.md, прецедент B2) — дисплей-слой + материал для
+`obligations-digest` (A1 `extra_sections`). Гейты на item: `who` не в {OWNER,OTHER} → дроп,
+`quote` не substring чанка → дроп ЦЕЛИКОМ (факту без цитаты веры нет), `what` пустой → дроп,
+`type` не в {promise,debt,fact,date} → дроп. `call_type='note'` (F4 голосовые заметки)
+исключены из отбора звонков — не отношение с контактом (та же логика, что F8
+`select_pending_calls`). CLI: `deep-extract --user X [--min-duration 600] [--min-priority N]
+[--limit 100] [--force]`; llama-server недоступен → exit 2 (только на первом реальном чанке —
+пустая выборка сеть не трогает). Потребители: досье «Из длинных разговоров» (guarded
+`_has_table`, top-5) · digest секция «🔎 Из глубокого прохода» (только promise/debt,
+`recent_deep_lines`, ≤300 симв/строка).
+
+---
+
 ## Возраст (age-estimate)
 
 `age_markers.py` (чистые regex) + `age_estimate.py` (агрегатор+LLM). 3 ступени:
@@ -325,6 +346,7 @@ src/callprofiler/insight/
   repository.py  feature_store.py  archetypes.py  cli_ops.py  labels.py  cards.py  person_link.py
   age_markers.py  age_estimate.py   # возраст: маркеры/якоря/LLM (см. секцию выше)
   tiers.py                          # F8: Эббингауз-тиры (см. секцию выше)
+  deep_extract.py                   # M8: map-reduce deep-extract (см. секцию выше)
   features/{base,temporal,reciprocity,trajectory,linguistic,formality,pronouns,affective,topical}.py
   synth/{corpus,archetypes,noise,phrasebank}.py
   # build_contact_features маршрутизирует META(calls)+TEXT(segments)+AFFECTIVE(analyses)

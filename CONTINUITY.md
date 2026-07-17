@@ -115,8 +115,12 @@ column — bugs.md 2026-07-02) · досье Ф0-Ф4 · русификация.
    `obligations-digest`, оба тоже вызывают); потребители: `enricher.select_pending_calls`
    (ORDER BY тир) + дашборд `get_people`/`get_person_dossier` (бейдж+сортировка). Biography
    per-entity очередь сознательно не тронута — предмет будущей F21 (entity_contact_map).
-   Следующая по порядку — **28. M8 Deep-extract длинных звонков (oz2 §3.8+§4.1, T2)**.
-   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1150 passed/2 skipped.
+   **M8 Deep-extract длинных звонков** — `insight/deep_extract.py`, map-reduce чанкинг (9000/800,
+   word-boundary) + `LLMClient(cache_conn=conn)` per-chunk (реюз M3 llm_calls, НЕ свой кэш),
+   `deep_facts`/`deep_scans` (дисплей-слой, НЕ events/graph). CLI `deep-extract`; digest получил
+   `extra_sections`; досье — секция «Из длинных разговоров». `call_type='note'` исключён из отбора.
+   Следующая по порядку — **29. F26 Deep-extract голосовых заметок, осторожный (§3.26, T1-T2)**.
+   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1172 passed/2 skipped.
 2. **Бокс (не блокирует исполнение):** pull → `owner_birth_year` в base.yaml → пересчёт возраста
    (`age-estimate --user me` + `age-style --user me`, TABLE/RULES v2) → спот-чек 10 контактов →
    LLM-окно: `age-estimate --user me --llm`.

@@ -70,7 +70,7 @@ from callprofiler.cli.commands.graph import (  # noqa: E402
 from callprofiler.cli.commands.insight import (  # noqa: E402
     cmd_features_build, cmd_archetypes_fit, cmd_person_archetype, cmd_person_link,
     cmd_age_estimate, cmd_age_style, cmd_spotcheck_sample, cmd_calibrate_risk,
-    cmd_mirror_build, cmd_tiers_recompute,
+    cmd_mirror_build, cmd_tiers_recompute, cmd_deep_extract,
 )
 
 # ---- doctor command (M1) ----
@@ -787,6 +787,32 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Идентификатор пользователя",
     )
 
+    # ── deep-extract (M8) ────────────────────────────────────────────
+    p_deep = sub.add_parser(
+        "deep-extract",
+        help="M8: map-reduce извлечение обязательств/фактов по длинным звонкам (LLM-окно)",
+    )
+    p_deep.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_deep.add_argument(
+        "--min-duration", dest="min_duration", type=int, default=600, metavar="SEC",
+        help="Минимальная длительность звонка в секундах (по умолчанию 600)",
+    )
+    p_deep.add_argument(
+        "--min-priority", dest="min_priority", type=int, default=None, metavar="N",
+        help="Только звонки с analyses.priority >= N (по умолчанию — без фильтра)",
+    )
+    p_deep.add_argument(
+        "--limit", type=int, default=100, metavar="N",
+        help="Максимум звонков за прогон (по умолчанию 100)",
+    )
+    p_deep.add_argument(
+        "--force", action="store_true",
+        help="Пересканировать звонки, уже пройденные текущей версией промпта",
+    )
+
     return parser
 
 
@@ -847,6 +873,7 @@ def main() -> None:
         "calibrate-risk": cmd_calibrate_risk,
         "mirror-build": cmd_mirror_build,
         "tiers-recompute": cmd_tiers_recompute,
+        "deep-extract": cmd_deep_extract,
     }
 
     handler = dispatch.get(args.command)

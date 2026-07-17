@@ -130,6 +130,35 @@ def cmd_tiers_recompute(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_deep_extract(args: argparse.Namespace) -> int:
+    """deep-extract --user X [--min-duration][--min-priority][--limit][--force] — M8:
+    map-reduce извлечение обязательств/фактов по ПОЛНОМУ транскрипту длинных звонков
+    (LLM-окно)."""
+    import requests
+
+    setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = load_config_and_repo(args.config)
+    conn = repo._get_conn()
+    from callprofiler.insight.deep_extract import run_deep_extract
+
+    try:
+        stats = run_deep_extract(
+            conn, args.user_id, llm_url=cfg.models.llm_url,
+            min_duration=getattr(args, "min_duration", 600),
+            min_priority=getattr(args, "min_priority", None),
+            limit=getattr(args, "limit", 100),
+            force=getattr(args, "force", False),
+        )
+    except (ConnectionError, requests.exceptions.RequestException) as exc:
+        log.error("llama-server недоступен: %s", exc)
+        return 2
+
+    print(f"deep-extract (user={args.user_id}): звонков={stats['calls_seen']} "
+          f"обработано={stats['calls_scanned']} чанков={stats['chunks']} "
+          f"фактов сохранено={stats['items_saved']} отброшено={stats['items_dropped']}")
+    return 0
+
+
 def cmd_mirror_build(args: argparse.Namespace) -> int:
     """mirror-build --user X — досье владельца: обещания/риск-тренд/зависимость/регистр (A3)."""
     setup_logging(verbose=getattr(args, "verbose", False))
