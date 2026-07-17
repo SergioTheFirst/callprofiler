@@ -7,7 +7,7 @@ from .features.base import Tier
 from .features.temporal import compute_temporal
 from .features.reciprocity import compute_reciprocity
 from .features.trajectory import compute_trajectory
-from .features.linguistic import compute_linguistic
+from .features.linguistic import compute_linguistic, compute_request_balance
 from .features.formality import compute_formality
 from .features.pronouns import compute_pronouns
 from .features.affective import compute_affective
@@ -27,7 +27,7 @@ _META_FNS = (compute_temporal, compute_reciprocity, compute_trajectory)
 _IMMUNE_FNS = _META_FNS  # alias for backward compat
 _TEXT_FNS = (
     compute_linguistic, compute_formality, compute_pronouns, compute_tempo,
-    compute_specificity, compute_emotion_palette,
+    compute_specificity, compute_emotion_palette, compute_request_balance,
 )
 _AFFECTIVE_FNS = (compute_affective, compute_topical)
 

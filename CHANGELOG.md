@@ -6,6 +6,22 @@
 
 ---
 
+### Added — B5: баланс просьб, ось request_balance (2026-07-17)
+- `insight/features/linguistic.py::compute_request_balance` — (req_other − req_owner) /
+  (req_other + req_owner) по regex-маркерам просьб (`прошу/можешь/сделай/скинь/...`, 20
+  форм включая двусловные «мог бы»/«могла бы»). Считает ОБЕ стороны раздельно (OWNER vs
+  OTHER) — UNKNOWN-сегменты пропускаются целиком, ни в одну корзину (единый
+  fallback-на-всё паттерн модуля здесь не подходит: нужны обе стороны отдельно). Гейт
+  сумма≥3, иначе фича не эмитится. `Tier.ROBUST`, `support_n` = req_other+req_owner.
+- `feature_store.py`: зарегистрирована в `_TEXT_FNS` (тот же модуль что hedge/directive —
+  просьбы тематически туда, новый файл не создавался).
+- `labels.py`: `request_balance` → («просьбы», «чаще просит он», «чаще просите вы»).
+- Досье: отдельной секции нет — сигнал уже питает A7 tension-правило 5 («сам ищет контакта
+  и сам же просит») через `distinctive_dims`, per спека.
+- Тесты: `tests/insight/test_linguistic_extra.py` (7) — OTHER≫OWNER/OWNER≫OTHER/паритет≈0/
+  гейт-отказ при сумме<3/UNKNOWN не считается/двусловные фразы матчатся/пустой вход.
+  Suite: 1232 passed, 2 skipped.
+
 ### Added — B4: эмоциональная палитра, лексиконные фичи (2026-07-17)
 - `insight/features/emotion_palette.py::compute_emotion_palette` — 4 оси
   (emo_anger/emo_anxiety/emo_joy/emo_contempt), плотность на 1000 токенов речи
