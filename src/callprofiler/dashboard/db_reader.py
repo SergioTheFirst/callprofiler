@@ -811,7 +811,8 @@ class DashboardDBReader:
                     "dims": [{"dim": d.get("dim"), "z": d.get("z")} for d in dims if d.get("dim")],
                 }
 
-        if self._has_table("deep_facts"):
+        # F26: "Мои заметки" (self:notes) — self-леджер, живёт в digest, не в чужом досье
+        if self._has_table("deep_facts") and base.get("phone_e164") != "self:notes":
             rows = self._conn.execute(
                 """SELECT df.what, df.quote, df.who, df.type, df.deadline_raw,
                           date(c.call_datetime) AS call_date

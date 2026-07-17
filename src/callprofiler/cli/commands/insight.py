@@ -133,7 +133,9 @@ def cmd_tiers_recompute(args: argparse.Namespace) -> int:
 def cmd_deep_extract(args: argparse.Namespace) -> int:
     """deep-extract --user X [--min-duration][--min-priority][--limit][--force] — M8:
     map-reduce извлечение обязательств/фактов по ПОЛНОМУ транскрипту длинных звонков
-    (LLM-окно)."""
+    (LLM-окно). F26: голосовые заметки (call_type='note') входят по умолчанию со своим
+    порогом NOTE_MIN_DURATION=30с и более жёсткими гейтами (who=OWNER, type⊂{promise,fact},
+    числовой гейт) — --min-duration на них не влияет."""
     import requests
 
     setup_logging(verbose=getattr(args, "verbose", False))

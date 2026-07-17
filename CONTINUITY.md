@@ -118,9 +118,14 @@ column — bugs.md 2026-07-02) · досье Ф0-Ф4 · русификация.
    **M8 Deep-extract длинных звонков** — `insight/deep_extract.py`, map-reduce чанкинг (9000/800,
    word-boundary) + `LLMClient(cache_conn=conn)` per-chunk (реюз M3 llm_calls, НЕ свой кэш),
    `deep_facts`/`deep_scans` (дисплей-слой, НЕ events/graph). CLI `deep-extract`; digest получил
-   `extra_sections`; досье — секция «Из длинных разговоров». `call_type='note'` исключён из отбора.
-   Следующая по порядку — **29. F26 Deep-extract голосовых заметок, осторожный (§3.26, T1-T2)**.
-   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1172 passed/2 skipped.
+   `extra_sections`; досье — секция «Из длинных разговоров».
+   **§4.1 фикс (ретроактивно к M8) + F26 заметки-осторожно** — `textnorm.py::norm_quote()`
+   (пропущенная поправка Fable §4.1, теперь и в M8-гейте); `call_type='note'` РЕВЕРС —
+   входят по умолчанию (`NOTE_MIN_DURATION=30`), гейты жёстче (who=OWNER only,
+   type⊂{promise,fact}, числовой гейт `extract_numbers`); 🎙 в digest, досье self:notes
+   подавлено.
+   Следующая по порядку — **30. B1 Темп/ритм из таймстампов (oz5, T2)**.
+   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1190 passed/2 skipped.
 2. **Бокс (не блокирует исполнение):** pull → `owner_birth_year` в base.yaml → пересчёт возраста
    (`age-estimate --user me` + `age-style --user me`, TABLE/RULES v2) → спот-чек 10 контактов →
    LLM-окно: `age-estimate --user me --llm`.

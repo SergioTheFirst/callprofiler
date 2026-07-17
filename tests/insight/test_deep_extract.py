@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""test_deep_extract.py — M8: map-reduce deep-extract по длинным звонкам (LLM mock)."""
+"""test_deep_extract.py — M8/F26: map-reduce deep-extract по длинным звонкам и
+голосовым заметкам (LLM mock)."""
 from __future__ import annotations
 
 import json
@@ -9,8 +10,10 @@ from callprofiler.analyze.llm_client import LLMResult
 from callprofiler.db.repository import Repository
 from callprofiler.deliver.digest import build_digest
 from callprofiler.insight.deep_extract import (
+    NOTE_MIN_DURATION,
     PROMPT_VERSION_DEEP,
     chunk_text,
+    extract_numbers,
     recent_deep_lines,
     run_deep_extract,
 )
@@ -328,23 +331,6 @@ def test_min_priority_requires_analysis_row():
     assert scanned == {high_id}
 
 
-def test_note_call_type_excluded():
-    """F4 голосовые заметки (call_type='note') — не разговор с контактом, вне охвата M8."""
-    repo = _repo()
-    _user(repo)
-    conn = repo._get_conn()
-    cid = _contact(conn)
-    note_id = _call(conn, "me", cid, call_type="note")
-    _transcript(conn, note_id, [("OWNER", "заметка самому себе про обещание")])
-    conn.commit()
-
-    with mock.patch("callprofiler.insight.deep_extract.LLMClient") as MC:
-        stats = run_deep_extract(conn, "me", llm_url="http://fake")
-
-    assert stats["calls_seen"] == 0
-    MC.assert_not_called()
-
-
 def test_user_isolation():
     repo = _repo()
     _user(repo, "me")
@@ -483,3 +469,231 @@ def test_dossier_deep_facts_populated_top5_by_created_at(tmp_path):
 
     assert len(dossier["deep_facts"]) == 3
     assert {f["what"] for f in dossier["deep_facts"]} == {"факт 0", "факт 1", "факт 2"}
+
+
+# ── F26: extract_numbers (чистая функция) ────────────────────────────────
+
+def test_extract_numbers_digits():
+    assert extract_numbers("занял 50000 рублей") == {50000}
+
+
+def test_extract_numbers_words():
+    assert extract_numbers("занял пятьдесят тысяч рублей") == {50, 1000}
+
+
+def test_extract_numbers_mixed_and_empty():
+    assert extract_numbers("тридцать пять и 12") == {30, 5, 12}
+    assert extract_numbers("без чисел совсем") == set()
+    assert extract_numbers("") == set()
+
+
+# ── F26: заметки — осторожный режим (жёстче гейты) ───────────────────────
+
+def _note_call(conn, user_id, cid, *, duration=60, text="заметка себе"):
+    call_id = _call(conn, user_id, cid, duration=duration, call_type="note")
+    _transcript(conn, call_id, [("OWNER", text)])
+    return call_id
+
+
+def test_note_who_other_dropped_as_hallucination():
+    repo = _repo()
+    _user(repo)
+    conn = repo._get_conn()
+    cid = _contact(conn, name="Мои заметки")
+    _note_call(conn, "me", cid, text="надо не забыть позвонить в банк завтра")
+    conn.commit()
+
+    resp = _llm_response([{"type": "promise", "who": "OTHER", "what": "позвонить в банк",
+                            "quote": "позвонить в банк завтра", "deadline": "завтра"}])
+    with mock.patch("callprofiler.insight.deep_extract.LLMClient") as MC:
+        MC.return_value.complete.return_value = resp
+        stats = run_deep_extract(conn, "me", llm_url="http://fake", min_duration=NOTE_MIN_DURATION)
+
+    assert stats["items_saved"] == 0
+    assert stats["items_dropped"] == 1
+
+
+def test_note_who_owner_saved():
+    repo = _repo()
+    _user(repo)
+    conn = repo._get_conn()
+    cid = _contact(conn, name="Мои заметки")
+    _note_call(conn, "me", cid, text="надо не забыть позвонить в банк завтра")
+    conn.commit()
+
+    resp = _llm_response([{"type": "promise", "who": "OWNER", "what": "позвонить в банк",
+                            "quote": "позвонить в банк завтра", "deadline": "завтра"}])
+    with mock.patch("callprofiler.insight.deep_extract.LLMClient") as MC:
+        MC.return_value.complete.return_value = resp
+        stats = run_deep_extract(conn, "me", llm_url="http://fake", min_duration=NOTE_MIN_DURATION)
+
+    assert stats["items_saved"] == 1
+    row = conn.execute("SELECT contact_id FROM deep_facts WHERE user_id='me'").fetchone()
+    assert row["contact_id"] == cid  # F26: contact_id из БД, не из LLM-вывода
+
+
+def test_note_type_debt_and_date_dropped():
+    repo = _repo()
+    _user(repo)
+    conn = repo._get_conn()
+    cid = _contact(conn, name="Мои заметки")
+    _note_call(conn, "me", cid, text="ему я должен пять тысяч рублей")
+    conn.commit()
+
+    resp = _llm_response([
+        {"type": "debt", "who": "OWNER", "what": "долг", "quote": "должен пять тысяч", "deadline": None},
+        {"type": "date", "who": "OWNER", "what": "дата", "quote": "должен пять тысяч", "deadline": None},
+    ])
+    with mock.patch("callprofiler.insight.deep_extract.LLMClient") as MC:
+        MC.return_value.complete.return_value = resp
+        stats = run_deep_extract(conn, "me", llm_url="http://fake", min_duration=NOTE_MIN_DURATION)
+
+    assert stats["items_saved"] == 0
+    assert stats["items_dropped"] == 2
+
+
+def test_note_numeric_gate_digit_mismatch_dropped():
+    repo = _repo()
+    _user(repo)
+    conn = repo._get_conn()
+    cid = _contact(conn, name="Мои заметки")
+    _note_call(conn, "me", cid, text="занял у Пети пятьдесят тысяч рублей")
+    conn.commit()
+
+    # what утверждает 500000 — ASR-искажение суммы: этого числа нет ни цифрой, ни словом в quote
+    resp = _llm_response([{"type": "promise", "who": "OWNER", "what": "вернуть 500000",
+                            "quote": "занял у Пети пятьдесят тысяч рублей", "deadline": None}])
+    with mock.patch("callprofiler.insight.deep_extract.LLMClient") as MC:
+        MC.return_value.complete.return_value = resp
+        stats = run_deep_extract(conn, "me", llm_url="http://fake", min_duration=NOTE_MIN_DURATION)
+
+    assert stats["items_saved"] == 0
+    assert stats["items_dropped"] == 1
+
+
+def test_note_numeric_gate_word_form_match_saved():
+    repo = _repo()
+    _user(repo)
+    conn = repo._get_conn()
+    cid = _contact(conn, name="Мои заметки")
+    _note_call(conn, "me", cid, text="занял у Пети пятьдесят тысяч рублей")
+    conn.commit()
+
+    # what цифрой "50000" -- в quote те же числа СЛОВОМ (пятьдесят=50, тысяч=1000) -> совпадение
+    resp = _llm_response([{"type": "promise", "who": "OWNER", "what": "вернуть 50 1000",
+                            "quote": "занял у Пети пятьдесят тысяч рублей", "deadline": None}])
+    with mock.patch("callprofiler.insight.deep_extract.LLMClient") as MC:
+        MC.return_value.complete.return_value = resp
+        stats = run_deep_extract(conn, "me", llm_url="http://fake", min_duration=NOTE_MIN_DURATION)
+
+    assert stats["items_saved"] == 1
+
+
+def test_note_numeric_gate_no_numbers_in_what_passes():
+    repo = _repo()
+    _user(repo)
+    conn = repo._get_conn()
+    cid = _contact(conn, name="Мои заметки")
+    _note_call(conn, "me", cid, text="надо купить корм для кота")
+    conn.commit()
+
+    resp = _llm_response([{"type": "fact", "who": "OWNER", "what": "купить корм для кота",
+                            "quote": "купить корм для кота", "deadline": None}])
+    with mock.patch("callprofiler.insight.deep_extract.LLMClient") as MC:
+        MC.return_value.complete.return_value = resp
+        stats = run_deep_extract(conn, "me", llm_url="http://fake", min_duration=NOTE_MIN_DURATION)
+
+    assert stats["items_saved"] == 1  # нет цифр в what -> гейт не участвует
+
+
+def test_note_min_duration_independent_of_caller_min_duration():
+    repo = _repo()
+    _user(repo)
+    conn = repo._get_conn()
+    cid = _contact(conn, name="Мои заметки")
+    too_short = _note_call(conn, "me", cid, duration=NOTE_MIN_DURATION - 1)
+    long_enough = _note_call(conn, "me", cid, duration=NOTE_MIN_DURATION + 10)
+    conn.commit()
+
+    with mock.patch("callprofiler.insight.deep_extract.LLMClient") as MC:
+        MC.return_value.complete.return_value = _llm_response([])
+        # caller min_duration=600 (обычные звонки) НЕ должен душить заметки
+        stats = run_deep_extract(conn, "me", llm_url="http://fake", min_duration=600)
+
+    assert stats["calls_seen"] == 1
+    scanned = {r[0] for r in conn.execute("SELECT call_id FROM deep_scans").fetchall()}
+    assert scanned == {long_enough}
+    assert too_short not in scanned
+
+
+def test_note_repeat_run_no_new_llm_calls():
+    repo = _repo()
+    _user(repo)
+    conn = repo._get_conn()
+    cid = _contact(conn, name="Мои заметки")
+    _note_call(conn, "me", cid, text="надо не забыть позвонить в банк завтра")
+    conn.commit()
+
+    resp = _llm_response([{"type": "promise", "who": "OWNER", "what": "позвонить в банк",
+                            "quote": "позвонить в банк завтра", "deadline": "завтра"}])
+    with mock.patch("callprofiler.insight.deep_extract.LLMClient") as MC:
+        MC.return_value.complete.return_value = resp
+        run_deep_extract(conn, "me", llm_url="http://fake", min_duration=NOTE_MIN_DURATION)
+        first_calls = MC.return_value.complete.call_count
+        stats2 = run_deep_extract(conn, "me", llm_url="http://fake", min_duration=NOTE_MIN_DURATION)
+
+    assert first_calls == 1
+    assert MC.return_value.complete.call_count == first_calls
+    assert stats2["calls_seen"] == 0
+
+
+def test_recent_deep_lines_marks_note_with_microphone():
+    repo = _repo()
+    _user(repo)
+    conn = repo._get_conn()
+    cid = _contact(conn, name="Мои заметки")
+    note_id = _note_call(conn, "me", cid)
+    apply_insight_schema(conn)
+    conn.execute(
+        "INSERT INTO deep_facts(user_id,item_key,call_id,contact_id,type,who,what,quote,"
+        "prompt_version) VALUES (?,?,?,?,?,?,?,?,?)",
+        ("me", "note-k1", note_id, cid, "promise", "OWNER", "позвонить в банк",
+         "цитата", PROMPT_VERSION_DEEP),
+    )
+    conn.commit()
+
+    lines = recent_deep_lines(conn, "me", days=30, top=5)
+    assert len(lines) == 1
+    assert lines[0].startswith("- 🎙 ")
+
+
+def test_dossier_deep_facts_suppressed_for_self_notes_contact(tmp_path):
+    from callprofiler.dashboard.db_reader import DashboardDBReader
+
+    db = tmp_path / "cp3.db"
+    repo = Repository(str(db))
+    repo.init_db()
+    _user(repo)
+    conn = repo._get_conn()
+    cur = conn.execute(
+        "INSERT INTO contacts(user_id, phone_e164, display_name) VALUES (?,?,?)",
+        ("me", "self:notes", "Мои заметки"),
+    )
+    cid = cur.lastrowid
+    call_id = _call(conn, "me", cid, call_type="note")
+    apply_insight_schema(conn)
+    conn.execute(
+        "INSERT INTO deep_facts(user_id,item_key,call_id,contact_id,type,who,what,quote,"
+        "prompt_version) VALUES (?,?,?,?,?,?,?,?,?)",
+        ("me", "note-k2", call_id, cid, "promise", "OWNER", "позвонить в банк",
+         "цитата", PROMPT_VERSION_DEEP),
+    )
+    conn.commit()
+    repo.close()
+
+    reader = DashboardDBReader(str(db))
+    reader.connect()
+    dossier = reader.get_person_dossier(cid, "me")
+    reader.close()
+
+    assert dossier["deep_facts"] == []  # self-леджер живёт в digest, не в этом досье
