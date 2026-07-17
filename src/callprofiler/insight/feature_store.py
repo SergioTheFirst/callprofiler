@@ -12,6 +12,7 @@ from .features.formality import compute_formality
 from .features.pronouns import compute_pronouns
 from .features.affective import compute_affective
 from .features.topical import compute_topical
+from .features.tempo import compute_tempo
 
 TIER_WEIGHTS = {
     Tier.IMMUNE: 1.0,
@@ -22,7 +23,7 @@ TIER_WEIGHTS = {
 
 _META_FNS = (compute_temporal, compute_reciprocity, compute_trajectory)
 _IMMUNE_FNS = _META_FNS  # alias for backward compat
-_TEXT_FNS = (compute_linguistic, compute_formality, compute_pronouns)
+_TEXT_FNS = (compute_linguistic, compute_formality, compute_pronouns, compute_tempo)
 _AFFECTIVE_FNS = (compute_affective, compute_topical)
 
 
@@ -87,9 +88,11 @@ def build_contact_features(conn, user_id, feature_fns=None, reference_now=None):
         ).fetchall()
         calls = [dict(r) for r in rows]
 
-        # Читаем сегменты транскрипта (для текст-фич)
+        # Читаем сегменты транскрипта (для текст-фич). call_id/start_ms/end_ms — B1
+        # (tempo.py); существующие текст-фичи читают только speaker/text из dict,
+        # лишние ключи не мешают (обратная совместимость).
         seg_rows = conn.execute(
-            "SELECT t.speaker, t.text FROM transcripts t "
+            "SELECT t.call_id, t.speaker, t.text, t.start_ms, t.end_ms FROM transcripts t "
             "JOIN calls c ON c.call_id = t.call_id "
             "WHERE c.user_id = ? AND c.contact_id = ? "
             "ORDER BY t.call_id, t.start_ms",

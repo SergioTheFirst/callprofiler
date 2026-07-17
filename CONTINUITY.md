@@ -124,8 +124,11 @@ column — bugs.md 2026-07-02) · досье Ф0-Ф4 · русификация.
    входят по умолчанию (`NOTE_MIN_DURATION=30`), гейты жёстче (who=OWNER only,
    type⊂{promise,fact}, числовой гейт `extract_numbers`); 🎙 в digest, досье self:notes
    подавлено.
-   Следующая по порядку — **30. B1 Темп/ритм из таймстампов (oz5, T2)**.
-   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1190 passed/2 skipped.
+   **B1 темп/ритм из таймстампов** — `insight/features/tempo.py` (tempo_cps/reply_latency_ms/
+   tempo_accel), роутер `feature_store.py` SELECT расширен на call_id/start_ms/end_ms (полный
+   регресс tests/insight зелёный — обратная совместимость подтверждена).
+   Следующая по порядку — **31. B2 Специфичность vs вода (oz5, T1)**.
+   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1203 passed/2 skipped.
 2. **Бокс (не блокирует исполнение):** pull → `owner_birth_year` в base.yaml → пересчёт возраста
    (`age-estimate --user me` + `age-style --user me`, TABLE/RULES v2) → спот-чек 10 контактов →
    LLM-окно: `age-estimate --user me --llm`.
