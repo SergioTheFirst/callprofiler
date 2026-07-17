@@ -196,6 +196,66 @@ def test_dossier_pivotal_scenes_via_bio_scene_entities_junction(tmp_path):
     assert all(len(s["synopsis"]) <= 300 for s in scenes)
 
 
+def test_dossier_promise_verdicts_hide_rejected_mark_confirmed(tmp_path):
+    """F1: get_person_dossier промисы несут id (events.id, summary_builder.py) —
+    rejected скрыт, confirmed помечен, item_kind='event' (JSON-блок contact_summaries,
+    не live promises-таблица — get_character_profile ниже покрывает второй путь)."""
+    db, cid, _eid = _seed_db(tmp_path, with_entity=False, with_archetype=False)
+    repo = Repository(db)
+    conn = repo._get_conn()
+    conn.execute(
+        "UPDATE contact_summaries SET open_promises = ? WHERE contact_id = ? AND user_id = 'me'",
+        (json.dumps([
+            {"id": 101, "who": "OWNER", "what": "вернуть долг", "deadline": "2020-01-05"},
+            {"id": 102, "who": "OTHER", "what": "прислать документы", "deadline": "2020-02-01"},
+        ], ensure_ascii=False), cid),
+    )
+    from callprofiler.insight.repository import set_fact_verdict
+    set_fact_verdict(conn, "me", item_kind="event", item_key="101", verdict="rejected")
+    set_fact_verdict(conn, "me", item_kind="event", item_key="102", verdict="confirmed")
+    conn.commit()
+    repo.close()
+
+    r = _reader(db)
+    d = r.get_person_dossier(cid, "me")
+    r.close()
+
+    opens = d["promises"]["open"]
+    assert len(opens) == 1
+    assert opens[0]["id"] == 102
+    assert opens[0]["confirmed"] is True
+    assert opens[0]["item_kind"] == "event"
+
+
+def test_character_profile_promise_verdicts(tmp_path):
+    """F1: get_character_profile (граф-модалка, промисы из live `promises` table,
+    item_kind='promise' — отдельное id-пространство от event/dossier-путь выше)."""
+    db, cid, eid = _seed_db(tmp_path)
+    repo = Repository(db)
+    conn = repo._get_conn()
+    call_id = conn.execute(
+        "SELECT call_id FROM calls WHERE contact_id = ? LIMIT 1", (cid,)
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO promises(user_id, contact_id, call_id, who, what, due, status) "
+        "VALUES ('me', ?, ?, 'OTHER', 'привезти документы', '2020-03-01', 'open')",
+        (cid, call_id),
+    )
+    promise_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    from callprofiler.insight.repository import set_fact_verdict
+    set_fact_verdict(conn, "me", item_kind="promise", item_key=str(promise_id), verdict="confirmed")
+    conn.commit()
+    repo.close()
+
+    r = _reader(db)
+    cp = r.get_character_profile(eid, "me")
+    r.close()
+
+    assert len(cp["open_promises"]) == 1
+    assert cp["open_promises"][0]["confirmed"] is True
+    assert cp["open_promises"][0]["item_kind"] == "promise"
+
+
 def test_dossier_readonly_conn_not_written(tmp_path):
     """Построение досье на query_only-коннекте не пишет кэш профайлера."""
     db, cid, _eid = _seed_db(tmp_path)

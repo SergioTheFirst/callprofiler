@@ -115,6 +115,32 @@ def set_contact_note(db_path: str, user_id: str, contact_id: int, note: str) -> 
         conn.close()
 
 
+def set_fact_verdict(db_path: str, user_id: str, item_kind: str, item_key: str, verdict: str) -> dict[str, Any]:
+    """UPSERT ✓/✗ вердикт по факту/обещанию из дашборда (F1, tools-канал, инвариант 13).
+
+    Тот же fact_feedback, что и Telegram-бот (insight/repository.py) — источник
+    единый, вердикт с любой поверхности исключает item из дайджеста и досье.
+    """
+    import sqlite3
+
+    from callprofiler.insight.repository import FACT_KINDS, apply_insight_schema
+    from callprofiler.insight.repository import set_fact_verdict as _set_fact_verdict
+
+    if item_kind not in FACT_KINDS:
+        return {"error": "invalid item_kind"}
+    if verdict not in ("confirmed", "rejected"):
+        return {"error": "invalid verdict"}
+
+    conn = sqlite3.connect(db_path)
+    try:
+        apply_insight_schema(conn)
+        _set_fact_verdict(conn, user_id, item_kind=item_kind, item_key=str(item_key),
+                          verdict=verdict, source="dashboard")
+        return {"item_kind": item_kind, "item_key": str(item_key), "verdict": verdict}
+    finally:
+        conn.close()
+
+
 class DashboardTools:
     """Thin wrapper for admin actions triggered from the web UI."""
 
@@ -349,6 +375,20 @@ class DashboardTools:
             return result
         except Exception as e:
             log.error("contact-note failed: %s", e)
+            return {"error": str(e)}
+
+    async def run_fact_verdict(self, item_kind: str, item_key: str, verdict: str) -> dict[str, Any]:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._fact_verdict_sync, item_kind, item_key, verdict)
+
+    def _fact_verdict_sync(self, item_kind: str, item_key: str, verdict: str) -> dict[str, Any]:
+        try:
+            result = set_fact_verdict(str(self.db_path), self.user_id, item_kind, item_key, verdict)
+            if "error" not in result:
+                self._log(f"fact-verdict: {item_kind}/{item_key} -> {verdict}")
+            return result
+        except Exception as e:
+            log.error("fact-verdict failed: %s", e)
             return {"error": str(e)}
 
     def _log(self, msg: str):

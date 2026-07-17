@@ -22,6 +22,21 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_FV_VERDICT_LETTERS = {"c": "confirmed", "r": "rejected"}
+_FV_KINDS = ("promise", "event", "deep_fact")
+
+
+def parse_fv_callback(data: str) -> tuple[str, str, str] | None:
+    """Разобрать callback_data='fv|{kind}|{key}|{c|r}' (F1). None — битые данные
+    (старая кнопка/чужой формат), вызывающий должен ответить «устарело», не падать."""
+    parts = (data or "").split("|")
+    if len(parts) != 4 or parts[0] != "fv":
+        return None
+    _, kind, key, letter = parts
+    if kind not in _FV_KINDS or letter not in _FV_VERDICT_LETTERS or not key:
+        return None
+    return kind, key, _FV_VERDICT_LETTERS[letter]
+
 
 class TelegramNotifier:
     """Telegram-бот для уведомлений и команд.
@@ -462,49 +477,105 @@ class TelegramNotifier:
 
         await update.message.reply_text(msg, parse_mode="HTML")
 
+    def _render_promises_view(self, user_id: str):
+        """Собрать текст+клавиатуру /promises (F1): rejected скрыты, confirmed
+        помечены ✓; каждый item — своя пара кнопок ✓N/✗N в общей клавиатуре
+        сообщения (Telegram не даёт кнопки внутри текста, только грид на сообщение).
+        Реюз: первичная отправка (cmd_promises) и refresh после тапа (handle_fact_verdict)."""
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+        from callprofiler.insight.repository import apply_insight_schema, get_verdicts
+
+        promises = self.repo.get_open_events(user_id, event_type="promise")
+
+        conn = self.repo._get_conn()
+        apply_insight_schema(conn)
+        keys = [str(p["id"]) for p in promises]
+        verdicts = get_verdicts(conn, user_id, "event", keys)
+        promises = [p for p in promises if verdicts.get(str(p["id"])) != "rejected"]
+
+        if not promises:
+            return "✅ Нет открытых обещаний", None
+
+        by_contact: dict = {}
+        for p in promises:
+            by_contact.setdefault(p.get("contact_id"), []).append(p)
+
+        lines = [f"📌 Открытые обещания ({len(promises)}):", ""]
+        keyboard = []
+        shown_contacts = 0
+        for contact_id, contact_promises in by_contact.items():
+            if shown_contacts >= 5:  # Максимум 5 контактов в сообщении
+                lines.append(f"... и ещё {len(by_contact) - shown_contacts} контактов")
+                break
+
+            contact = self.repo.get_contact(user_id, contact_id) if contact_id else None
+            name = contact.get("display_name", "?") if contact else "?"
+            lines.append(f"👤 <b>{name}</b>")
+
+            for p in contact_promises[:3]:
+                n = len(keyboard) + 1
+                mark = "✓ " if verdicts.get(str(p["id"])) == "confirmed" else ""
+                payload = p.get("payload", "?")
+                who = p.get("who", "?")
+                deadline = p.get("deadline", "—")
+                lines.append(f"  {n}. {mark}[{who}] {payload} (до {deadline})")
+                keyboard.append([
+                    InlineKeyboardButton(f"✓{n}", callback_data=f"fv|event|{p['id']}|c"),
+                    InlineKeyboardButton(f"✗{n}", callback_data=f"fv|event|{p['id']}|r"),
+                ])
+
+            lines.append("")
+            shown_contacts += 1
+
+        return "\n".join(lines), InlineKeyboardMarkup(keyboard)
+
     async def cmd_promises(self, update, context) -> None:
-        """/promises — открытые обещания, сгруппированные по контакту."""
+        """/promises — открытые обещания, сгруппированные по контакту, с ✓/✗ на item (F1)."""
         user_id = self._get_user_id(update)
         if not user_id:
             await update.message.reply_text("❌ Не найден ваш user_id")
             return
 
-        # Получить все open promises из events таблицы
-        promises = self.repo.get_open_events(user_id, event_type="promise")
+        msg, keyboard = self._render_promises_view(user_id)
+        await update.message.reply_text(msg, parse_mode="HTML", reply_markup=keyboard)
 
-        if not promises:
-            await update.message.reply_text("✅ Нет открытых обещаний")
+    async def handle_fact_verdict(self, update, context) -> None:
+        """Обработать тап ✓/✗ по одному факту/обещанию (F1).
+
+        Параметры:
+            update   — объект события Telegram
+            context  — контекст бота
+        """
+        query = update.callback_query
+        await query.answer()
+
+        parsed = parse_fv_callback(query.data)
+        if parsed is None:
+            await query.edit_message_text(text="⏳ Устарело")
+            return
+        item_kind, item_key, verdict = parsed
+
+        user_id = self._get_user_id(update)
+        if user_id is None:
+            await query.edit_message_text(text="❌ Не найден ваш user_id")
             return
 
-        # Сгруппировать по контакту
-        by_contact = {}
-        for p in promises:
-            contact_id = p.get("contact_id")
-            if contact_id not in by_contact:
-                by_contact[contact_id] = []
-            by_contact[contact_id].append(p)
+        try:
+            from callprofiler.insight.repository import apply_insight_schema, set_fact_verdict
 
-        msg = f"📌 Открытые обещания ({len(promises)}):\n\n"
-        count = 0
-        for contact_id, contact_promises in by_contact.items():
-            if count >= 5:  # Максимум 5 контактов в сообщении
-                msg += f"... и ещё {len(by_contact) - count} контактов\n"
-                break
+            conn = self.repo._get_conn()
+            apply_insight_schema(conn)
+            set_fact_verdict(conn, user_id, item_kind=item_kind, item_key=item_key, verdict=verdict)
+        except Exception as exc:
+            logger.error("Ошибка сохранения вердикта fv %s: %s", query.data, exc)
+            await query.edit_message_text(text="❌ Ошибка сохранения")
+            return
 
-            contact = self.repo.get_contact(user_id, contact_id) if contact_id else None
-            name = contact.get("display_name", "?") if contact else "?"
-
-            msg += f"👤 <b>{name}</b>\n"
-            for p in contact_promises[:3]:
-                payload = p.get("payload", "?")
-                who = p.get("who", "?")
-                deadline = p.get("deadline", "—")
-                msg += f"  • [{who}] {payload} (до {deadline})\n"
-
-            msg += "\n"
-            count += 1
-
-        await update.message.reply_text(msg, parse_mode="HTML")
+        # Единственный сегодняшний источник fv-кнопок — /promises: перерисовать
+        # тот же вид (rejected пропадёт из списка, confirmed получит ✓).
+        msg, keyboard = self._render_promises_view(user_id)
+        await query.edit_message_text(text=msg, parse_mode="HTML", reply_markup=keyboard)
 
     async def cmd_status(self, update, context) -> None:
         """/status — состояние очереди и БД."""
@@ -638,9 +709,14 @@ class TelegramNotifier:
                     CommandHandler("status", self.cmd_status)
                 )
 
-                # Обработчик callback кнопок для feedback
+                # Обработчики callback-кнопок: feedback (по звонку) и fv (F1, по факту).
+                # pattern обязателен на обоих — иначе безусловный feedback-хендлер
+                # перехватит fv|... первым (первое совпадение в порядке регистрации).
                 self.app.add_handler(
-                    CallbackQueryHandler(self.handle_feedback)
+                    CallbackQueryHandler(self.handle_feedback, pattern=r"^feedback_")
+                )
+                self.app.add_handler(
+                    CallbackQueryHandler(self.handle_fact_verdict, pattern=r"^fv\|")
                 )
 
                 logger.info("✓ Telegram-бот запущен и слушает команды")

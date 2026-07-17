@@ -68,6 +68,18 @@ None currently identified.
    - **Requires:** 50+ calls minimum for fine-tuning
    - **Status:** FUTURE (Phase 10 intelligence)
 
+9. **contact_summaries.open_promises: поле "payload" vs "what" — вероятная тихая
+   дыра в дашборде** (2026-07-17, найдено при верификации F1 anchors)
+   - **Observation:** `aggregate/summary_builder.py::_extract_open_promises` пишет JSON-объекты
+     с ключом **`payload`** (`{"id","who","payload","deadline"}`). Но `dashboard/static/app.js`
+     (секция «Открытые обещания» в досье) и старый тест-фикстур `_seed_db` в
+     `test_dashboard_dossier.py` читают/сеют ключ **`what`**. Если сборка происходит через
+     `summary_builder` (боевой путь), поле в UI показало бы «?» вместо текста обещания молча.
+   - **Не проверено на реальных данных боксе** — не трогать без проверки, кто на боксе реально
+     заполняет `contact_summaries.open_promises` (возможно есть другой путь записи с ключом `what`).
+   - **Status:** IDEA/НЕПОДТВЕРЖДЕНО — проверить на боксе перед фиксом (`SELECT open_promises
+     FROM contact_summaries LIMIT 5` и глазами).
+
 ---
 
 ## Bug Report Template

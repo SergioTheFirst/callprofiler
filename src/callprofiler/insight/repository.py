@@ -120,6 +120,20 @@ CREATE TABLE IF NOT EXISTS owner_mirror (
     payload     TEXT NOT NULL,
     computed_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Пофактовое ✓/✗ подтверждение владельцем (F1). item_key всегда TEXT (str(rowid)
+-- для promise/event; готовый sha1[:16] для будущего deep_fact, M8). user_id —
+-- часть составного PK, поэтому кросс-юзерная коллизия по (kind,key) невозможна
+-- в принципе (не нужен доп. guard как у contact_id-only таблиц).
+CREATE TABLE IF NOT EXISTS fact_feedback (
+    user_id    TEXT NOT NULL,
+    item_kind  TEXT NOT NULL CHECK(item_kind IN ('promise','event','deep_fact')),
+    item_key   TEXT NOT NULL,
+    verdict    TEXT NOT NULL CHECK(verdict IN ('confirmed','rejected')),
+    source     TEXT NOT NULL DEFAULT 'telegram',
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, item_kind, item_key)
+);
 """
 
 # Колонки, добавленные после первого релиза схемы. ALTER, не recreate (db.md).
@@ -249,3 +263,38 @@ def load_contact_age_style(conn, user_id, contact_id=None):
     cur = conn.execute(sql, params)
     cols = [d[0] for d in cur.description]
     return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+FACT_KINDS = ("promise", "event", "deep_fact")
+
+
+def set_fact_verdict(conn, user_id, *, item_kind, item_key, verdict, source="telegram"):
+    """UPSERT ✓/✗ вердикт владельца по одному факту/обещанию (F1). Повторный тап
+    меняет вердикт (не копит историю — источник истины = последнее решение)."""
+    if item_kind not in FACT_KINDS:
+        raise ValueError(f"unknown item_kind: {item_kind!r}")
+    if verdict not in ("confirmed", "rejected"):
+        raise ValueError(f"unknown verdict: {verdict!r}")
+    conn.execute(
+        "INSERT INTO fact_feedback(user_id, item_kind, item_key, verdict, source, created_at) "
+        "VALUES (?,?,?,?,?,CURRENT_TIMESTAMP) "
+        "ON CONFLICT(user_id, item_kind, item_key) DO UPDATE SET "
+        "verdict=excluded.verdict, source=excluded.source, created_at=CURRENT_TIMESTAMP",
+        (user_id, item_kind, str(item_key), verdict, source),
+    )
+    conn.commit()
+
+
+def get_verdicts(conn, user_id, item_kind, keys):
+    """Вердикты для батча ключей одного kind. Возврат: {item_key: verdict}, ключи
+    без вердикта отсутствуют в словаре (не 'unknown'-заглушка)."""
+    keys = [str(k) for k in keys]
+    if not keys:
+        return {}
+    placeholders = ",".join("?" for _ in keys)
+    rows = conn.execute(
+        f"SELECT item_key, verdict FROM fact_feedback "
+        f"WHERE user_id = ? AND item_kind = ? AND item_key IN ({placeholders})",
+        (user_id, item_kind, *keys),
+    ).fetchall()
+    return {r[0]: r[1] for r in rows}

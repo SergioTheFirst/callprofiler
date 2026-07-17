@@ -43,7 +43,7 @@ def _dedup_key(call_id: int, what: str | None) -> tuple:
 
 def _rows_from_events(conn, user_id: str) -> list[dict]:
     rows = conn.execute(
-        """SELECT e.call_id, e.who, e.payload AS what, e.deadline,
+        """SELECT e.id AS item_id, e.call_id, e.who, e.payload AS what, e.deadline,
                   e.source_quote AS quote, e.contact_id,
                   date(c.call_datetime) AS call_date,
                   COALESCE(ct.display_name, ct.guessed_name, ct.phone_e164, '?') AS contact_name
@@ -63,14 +63,15 @@ def _rows_from_events(conn, user_id: str) -> list[dict]:
             "side": side, "contact_id": r["contact_id"], "contact_name": r["contact_name"],
             "what": r["what"], "deadline": r["deadline"], "call_date": r["call_date"],
             "quote": r["quote"], "origin": "events", "call_id": r["call_id"],
+            "item_kind": "event", "item_key": str(r["item_id"]),
         })
     return items
 
 
 def _rows_from_promises(conn, user_id: str) -> list[dict]:
     rows = conn.execute(
-        """SELECT p.call_id, p.who, p.what, p.due AS deadline, p.contact_id,
-                  date(c.call_datetime) AS call_date,
+        """SELECT p.promise_id AS item_id, p.call_id, p.who, p.what, p.due AS deadline,
+                  p.contact_id, date(c.call_datetime) AS call_date,
                   COALESCE(ct.display_name, ct.guessed_name, ct.phone_e164, '?') AS contact_name
              FROM promises p
              JOIN calls c ON c.call_id = p.call_id
@@ -87,8 +88,33 @@ def _rows_from_promises(conn, user_id: str) -> list[dict]:
             "side": side, "contact_id": r["contact_id"], "contact_name": r["contact_name"],
             "what": r["what"], "deadline": r["deadline"], "call_date": r["call_date"],
             "quote": None, "origin": "promises", "call_id": r["call_id"],
+            "item_kind": "promise", "item_key": str(r["item_id"]),
         })
     return items
+
+
+def _apply_verdicts(conn, user_id: str, items: list[dict]) -> list[dict]:
+    """F1: rejected выбрасываем, confirmed помечаем. Один choke-point для
+    overdue_items/open_items (оба идут через _merged_open_items)."""
+    from callprofiler.insight.repository import apply_insight_schema, get_verdicts
+
+    apply_insight_schema(conn)
+    by_kind: dict[str, list[str]] = {}
+    for item in items:
+        by_kind.setdefault(item["item_kind"], []).append(item["item_key"])
+    verdicts = {
+        kind: get_verdicts(conn, user_id, kind, keys) for kind, keys in by_kind.items()
+    }
+
+    out = []
+    for item in items:
+        verdict = verdicts.get(item["item_kind"], {}).get(item["item_key"])
+        if verdict == "rejected":
+            continue
+        item = dict(item)
+        item["confirmed"] = verdict == "confirmed"
+        out.append(item)
+    return out
 
 
 def _merged_open_items(conn, user_id: str) -> list[dict]:
@@ -98,7 +124,7 @@ def _merged_open_items(conn, user_id: str) -> list[dict]:
         merged[_dedup_key(item["call_id"], item["what"])] = item
     for item in _rows_from_events(conn, user_id):
         merged[_dedup_key(item["call_id"], item["what"])] = item  # events перезаписывают
-    return list(merged.values())
+    return _apply_verdicts(conn, user_id, list(merged.values()))
 
 
 def overdue_items(conn, user_id: str, today: str | None = None) -> list[dict]:
@@ -138,7 +164,8 @@ def _truncate(text: str, n: int = _MAX_ITEM_CHARS) -> str:
 
 def _format_item(item: dict) -> list[str]:
     what = _truncate(item["what"], 160)
-    line = f"- **{item['contact_name']}**: {what} — обещано {item['call_date'] or '?'}, срок {item['deadline']}"
+    mark = "✓ " if item.get("confirmed") else ""
+    line = f"- {mark}**{item['contact_name']}**: {what} — обещано {item['call_date'] or '?'}, срок {item['deadline']}"
     lines = [_truncate(line)]
     if item.get("quote"):
         lines.append(_truncate(f"  > «{item['quote']}»"))

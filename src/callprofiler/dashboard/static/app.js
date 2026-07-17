@@ -778,15 +778,11 @@
 
             if (d.open_promises && d.open_promises.length) {
                 html += '<div class="detail-section"><h4>Открытые обещания</h4><ul class="detail-promises">';
-                d.open_promises.forEach(function(p) {
-                    html += '<li><span class="promise-who">' + escapeHtml(p.who || '?') + '</span> — ' +
-                        escapeHtml(p.what || '?') +
-                        (p.due ? '<span class="promise-due">до ' + escapeHtml(p.due) + '</span>' : '') +
-                        '</li>';
-                });
+                html += d.open_promises.map(promiseItemHtml).join('');
                 html += '</ul></div>';
             }
             body.innerHTML = html;
+            wireFactVerdictButtons(body, function() { openEntityModal(d.entity_id); });
 
             document.querySelectorAll('#entity-modal-body .call-row').forEach(function(row) {
                 row.addEventListener('click', function() {
@@ -961,6 +957,37 @@
 
     function dossierLayer(title) {
         return '<div class="dossier-layer-title">' + escapeHtml(title) + '</div>';
+    }
+
+    // F1: ✓/✗ на одном обещании/факте. p.id/p.item_kind — из db_reader._apply_fact_verdicts;
+    // без них (напр. call-detail promises, id пока не пробрасывается) — просто текст, без кнопок.
+    function promiseItemHtml(p) {
+        var text = '<span class="promise-who">' + escapeHtml(p.who || '?') + '</span> — ' +
+            escapeHtml(p.what || '?') +
+            (p.due ? '<span class="promise-due">до ' + escapeHtml(p.due) + '</span>' : '');
+        if (p.confirmed) text = '<span style="color:var(--accent)">✓</span> ' + text;
+        if (p.id == null || !p.item_kind) return '<li>' + text + '</li>';
+        return '<li>' + text +
+            ' <button class="btn btn-outline btn-sm fv-btn" data-kind="' + escapeHtml(p.item_kind) +
+            '" data-key="' + escapeHtml(String(p.id)) + '" data-verdict="confirmed" title="Подтвердить">✓</button>' +
+            '<button class="btn btn-outline btn-sm fv-btn" data-kind="' + escapeHtml(p.item_kind) +
+            '" data-key="' + escapeHtml(String(p.id)) + '" data-verdict="rejected" title="Отклонить">✗</button></li>';
+    }
+
+    function wireFactVerdictButtons(root, refreshFn) {
+        root.querySelectorAll('.fv-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                fetch('/api/tools/fact-verdict', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        item_kind: this.dataset.kind,
+                        item_key: this.dataset.key,
+                        verdict: this.dataset.verdict,
+                    }),
+                }).then(refreshFn).catch(refreshFn);
+            });
+        });
     }
 
     function dossierIdx(label, value, cls) {
@@ -1209,14 +1236,10 @@
             }).join(''));
         }
 
-        // Обещания
+        // Обещания (F1: ✓/✗ на item, rejected уже исключены на бэкенде)
         if (d.promises && d.promises.open && d.promises.open.length) {
             html += dossierSec('Открытые обещания', '<ul class="detail-promises">' +
-                d.promises.open.map(function(p) {
-                    return '<li><span class="promise-who">' + escapeHtml(p.who || '?') + '</span> — ' +
-                        escapeHtml(p.what || '?') +
-                        (p.due ? '<span class="promise-due">до ' + escapeHtml(p.due) + '</span>' : '') + '</li>';
-                }).join('') + '</ul>');
+                d.promises.open.map(promiseItemHtml).join('') + '</ul>');
         }
 
         // A7: группа «Место в сети» — личное, связи
@@ -1312,6 +1335,7 @@
 
         var body = $('#person-modal-body');
         body.innerHTML = html;
+        wireFactVerdictButtons(body, function() { openPersonDossier(c.contact_id); });
 
         var ecgBtn = $('#dossier-ecg-btn');
         if (ecgBtn) ecgBtn.addEventListener('click', function() {

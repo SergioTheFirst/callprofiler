@@ -311,6 +311,32 @@ class DashboardDBReader:
                 parts.append("Надёжный")
         return "-".join(parts) if parts else "Неизвестный"
 
+    def _apply_fact_verdicts(self, user_id: str, item_kind: str, items: list[dict],
+                              key_field: str = "id") -> list[dict]:
+        """F1: rejected выбрасываем, confirmed помечаем ключом 'confirmed'.
+
+        Read-only коннект дашборда (query_only=ON) — НЕ вызывать apply_insight_schema
+        здесь (executescript пишет, упадёт на readonly); guard `_has_table` вместо этого,
+        нет таблицы = никто ещё не тапал вердикт = отдаём items как есть.
+        """
+        verdicts: dict[str, str] = {}
+        if self._has_table("fact_feedback"):
+            keys = [str(it[key_field]) for it in items if it.get(key_field) is not None]
+            if keys:
+                from callprofiler.insight.repository import get_verdicts
+                verdicts = get_verdicts(self._conn, user_id, item_kind, keys)
+        out = []
+        for it in items:
+            key = it.get(key_field)
+            verdict = verdicts.get(str(key)) if key is not None else None
+            if verdict == "rejected":
+                continue
+            it = dict(it)
+            it["item_kind"] = item_kind
+            it["confirmed"] = verdict == "confirmed"
+            out.append(it)
+        return out
+
     def _has_portrait(self, entity_id: int, user_id: str) -> bool:
         if not self._has_table("bio_portraits"):
             return False
@@ -386,12 +412,13 @@ class DashboardDBReader:
             profile["contact"] = dict(contact_row)
             cid = contact_row["contact_id"]
             promise_rows = self._conn.execute(
-                """SELECT what, status, due, who FROM promises
+                """SELECT promise_id AS id, what, status, due, who FROM promises
                    WHERE user_id = ? AND contact_id = ? AND status = 'open'
                    ORDER BY created_at DESC LIMIT 10""",
                 (user_id, cid),
             ).fetchall()
-            profile["open_promises"] = [dict(r) for r in promise_rows]
+            profile["open_promises"] = self._apply_fact_verdicts(
+                user_id, "promise", [dict(r) for r in promise_rows])
 
             call_rows = self._conn.execute(
                 """SELECT c.call_id, c.call_datetime, c.direction, c.duration_sec,
@@ -477,6 +504,9 @@ class DashboardDBReader:
                     profile[field] = json.loads(summary_row[field] or "[]")
                 except (json.JSONDecodeError, TypeError):
                     profile[field] = []
+            # F1: open_promises уже несёт "id" (events.id) — aggregate/summary_builder.py
+            profile["open_promises"] = self._apply_fact_verdicts(
+                user_id, "event", profile["open_promises"])
         else:
             profile["total_calls"] = 0
             profile["open_promises"] = profile["open_debts"] = profile["personal_facts"] = []

@@ -418,6 +418,24 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
             return JSONResponse(result, status_code=400)
         return JSONResponse(result)
 
+    @fa.post("/api/tools/fact-verdict")
+    async def _tools_fact_verdict(request: Request) -> JSONResponse:
+        tools = _get_tools()
+        if tools is None or not hasattr(tools, "run_fact_verdict"):
+            return JSONResponse({"status": "ok"})
+        body = await request.json()
+        item_kind = body.get("item_kind")
+        item_key = body.get("item_key")
+        verdict = body.get("verdict")
+        if not item_kind or not item_key or verdict not in ("confirmed", "rejected"):
+            return JSONResponse({"error": "item_kind, item_key, verdict required"}, status_code=400)
+        result = tools.run_fact_verdict(item_kind, str(item_key), verdict)
+        if asyncio.iscoroutine(result):
+            result = await result
+        if "error" in result:
+            return JSONResponse(result, status_code=400)
+        return JSONResponse(result)
+
     @fa.get("/api/mirror")
     async def _mirror() -> JSONResponse:
         dbr = _get_reader()

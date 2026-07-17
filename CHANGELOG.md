@@ -8,6 +8,41 @@
 
 ## [Unreleased]
 
+### Added — F1: пофактовое ✓/✗ подтверждение владельцем (2026-07-17)
+- `insight/repository.py`: таблица `fact_feedback` (PK `user_id,item_kind,item_key` — user_id
+  часть ключа, кросс-юзерная коллизия структурно невозможна) + `set_fact_verdict`/`get_verdicts`/
+  `FACT_KINDS=(promise,event,deep_fact)` (deep_fact — форвард-совместимость с M8, таблицы ещё нет).
+- **Бот:** `parse_fv_callback` (чистая функция, `fv|{kind}|{key}|{c|r}`, битые данные → None, не
+  падает) + `_render_promises_view` (общий билдер текста+клавиатуры, реюз в `cmd_promises` и после
+  тапа) — rejected скрыт, confirmed с ✓, каждый item — своя пара кнопок `✓N`/`✗N` в общей
+  клавиатуре сообщения (Telegram не даёт кнопки внутри текста, только грид на сообщение целиком).
+  `handle_fact_verdict` — сохраняет вердикт, перерисовывает то же сообщение. Регистрация
+  callback-хендлеров разведена по `pattern=` (`^feedback_` / `^fv\|`) — иначе безусловный
+  feedback-хендлер перехватил бы `fv|...` первым по порядку регистрации.
+- **Дашборд:** `POST /api/tools/fact-verdict` (`dashboard/server.py`+`tools.py::set_fact_verdict`,
+  тот же tools-канал, что M6/M5) → ✓/✗ кнопки у обещаний в досье (`get_contact_profile`,
+  item_kind='event', id уже был в JSON от `summary_builder._extract_open_promises`, просто не
+  использовался) И в граф-модалке (`get_character_profile`, item_kind='promise', добавлен
+  `promise_id` в SELECT). Общий ридер-хелпер `db_reader._apply_fact_verdicts` — **НЕ** зовёт
+  `apply_insight_schema` на read-only коннекте дашборда (query_only=ON упал бы на попытке
+  CREATE TABLE) — guard `_has_table` вместо этого, таблицы нет = никто не тапал = items как есть.
+- **Дайджест (A1):** `deliver/digest.py` — `_rows_from_events`/`_rows_from_promises` теперь несут
+  `item_kind`/`item_key`; `_apply_verdicts` (единый choke-point внутри `_merged_open_items`) режет
+  rejected и метит confirmed (✓ в `_format_item`) — оба потребителя (`overdue_items`/`open_items`)
+  получают это бесплатно.
+- **Security-review (subagent, sonnet) до финализации** — 0 CRITICAL/HIGH: параметризация
+  сплошная, user_id-изоляция через составной PK, callback-парсер не крашится на мусоре,
+  item_key дашборда никогда не эхбэкается в Telegram callback_data чужих кнопок.
+- **Побочная находка (НЕ фикшена, см. bugs.md идея #9):** `summary_builder._extract_open_promises`
+  пишет ключ `payload`, а `app.js`/тестовый фикстур читают `what` — возможная тихая пустота
+  текста обещания в UI на боевых данных. Не проверено на боксе, не трогать без проверки.
+- Tests: `tests/test_fact_feedback.py` (26: репозиторий round-trip/UPSERT/изоляция/валидация,
+  parse_fv_callback×9 на мусоре, digest rejected/confirmed×4, dashboard tools+endpoint×7) +
+  `tests/test_promises_verdict_bot.py` (6: keyboard-рендер, no-user-id, confirmed/rejected/
+  malformed/no-user-id на handle_fact_verdict) + 2 новых в `test_dashboard_dossier.py` (оба
+  промис-пути: event-JSON и live promises-таблица). `.claude/rules/insight.md` +1 блок.
+  1019 passed/2 skipped.
+
 ### Added — A7: досье 5 слоёв + Admiralty в шапке + напряжения (2026-07-17)
 - `insight/tension.py::cross_layer_tensions(d)` — ровно 5 детерминированных правил расхождения
   слоёв (§6 STRATEGIC_PLAN), читает `dims` (сырые distinctive_dims z-score из `contact_archetypes`,

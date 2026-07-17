@@ -13,6 +13,17 @@
 **эмпирические архетипы** (обнаруженные, не заданные руками). НЕ оценка человека —
 паттерны для внимания (как `graph.md` про BS-index).
 
+## Пофактовое ✓/✗ подтверждение (F1)
+
+`fact_feedback(user_id, item_kind CHECK IN promise|event|deep_fact, item_key TEXT, verdict
+CHECK IN confirmed|rejected, source, created_at)` — составной PK `(user_id,item_kind,item_key)`,
+`set_fact_verdict`/`get_verdicts` (`insight/repository.py`). item_key — `str(rowid)`: `event`
+для events.id (bot `/promises`, dashboard person-dossier promises из summary_builder JSON),
+`promise` для legacy `promises.promise_id` (dashboard граф-модалка), `deep_fact` зарезервирован
+для M8 (таблицы ещё нет). **Rejected не рендерится нигде** (digest.py `_merged_open_items`,
+db_reader.py `_apply_fact_verdicts` — оба выбрасывают до передачи наверх, не просто прячут в UI).
+Повторный тап = UPSERT (последнее решение — источник истины, история не копится).
+
 ## Role-fragile звонки (шум-доктрина, инлайн-задача №7 — OzaluplivanieFable.md §4.2)
 
 `calls.role_fragile` (INTEGER, миграция аддитивна — `db/repository.py::_migrate`, схема
