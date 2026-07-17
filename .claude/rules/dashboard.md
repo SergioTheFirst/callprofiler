@@ -55,7 +55,9 @@ FRAGILE-gated по доле UNKNOWN, guarded try/except).
 правил по `dims`(distinctive_dims сырые z из contact_archetypes)/`evolution`/`indices.
 emotional_pattern`, без данных → правило молча не срабатывает.
 
-**группа «Что делать»:** **«Моя заметка»** (M6: свободное ручное поле владельца, `contact_notes`
+**группа «Что делать»:** **флаг затухания** (C3, шапка слоя: `d.dormant` — `insight/dormancy.py::
+dormant_valuable`, вызван с `top=10**6` — этот контакт целиком, не top-5 digest-выборка; guarded
+try/except) → **«Моя заметка»** (M6: свободное ручное поле владельца, `contact_notes`
 table, `_has_table`-guarded read → ключ `owner_note`; `POST /api/tools/contact-note`
 {contact_id,note} — пустая строка удаляет, cap 2000, UPSERT user-guarded; `set_contact_note` сама
 вызывает `apply_insight_schema`) → интерпретация (persisted или подсказка `profile-all`) → совет.

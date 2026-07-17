@@ -6,6 +6,21 @@
 
 ---
 
+### Added — C3: алерты затухания ценных связей (2026-07-17)
+- `insight/dormancy.py::dormant_valuable(conn, user_id, today=None, top=5) ->
+  list[{contact_id,name,last_date,why}]` — второй insight-модуль (после B7 finance.py),
+  сам ходящий в БД. Ценность: ≥1 год с ≥26 звонками ИЛИ длительность в топ-квартиле юзера
+  (`_percentile` реюз из `tiers.py`). Затухание — ЛИЧНЫЙ ритм: `days_since_last >
+  max(60, 3×median_gap)` по датам СОБСТВЕННЫХ звонков контакта, не общий порог.
+- `cli/commands/deliver.py::cmd_obligations_digest`: секция «😴 Спящие ценные связи» через
+  `extra_sections` (не `digest.py` — тот уже generic с M8, extra_sections собираются
+  снаружи). `dashboard/db_reader.py`: `dossier["dormant"]` — флаг в шапке слоя «Что делать»
+  (`top=10**6`, нужен ЭТОТ контакт целиком, не top-5 digest-выборка); `layers.practical`
+  расширен ключом `dormant`. `static/app.js`: строка-флаг перед «Моя заметка».
+- Тесты: `tests/insight/test_dormancy.py` (6) — еженедельный+8мес тишины→в списке/регулярный
+  ежемесячный gap30+пауза45<90→не в списке/мелкий контакт затенён крупным по перцентилю→не в
+  списке/1 звонок без gap→исключён/top режет длину списка. Suite: 1264 passed, 2 skipped.
+
 ### Added — B8: дрейф стиля по годам, FRAGILE-gated (2026-07-17)
 - `insight/age_style/drift.py::style_drift(conn, user_id, contact_id, min_tokens_per_year=500,
   min_years=3) -> list[str]` — переиспользует существующие `slang_density`/

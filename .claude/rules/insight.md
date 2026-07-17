@@ -383,6 +383,23 @@ live-вычисление в `db_reader.get_person_dossier` (guarded try/except,
 
 ---
 
+## Спящие ценные связи (C3, `dormancy.py`) — второй БД-ходящий insight-модуль после finance.py
+
+`dormant_valuable(conn, user_id, today=None, top=5) -> list[{contact_id,name,last_date,why}]`.
+**Ценность** (любое из двух): ≥1 календарный год с ≥26 звонками (`why`=«раньше вы говорили
+почти каждую неделю») ИЛИ суммарная длительность в топ-квартиле ЭТОГО юзера (`_percentile`
+реюз из `tiers.py`, `why`=«один из самых длинных собеседников»; приоритет — недельный признак,
+если оба истинны). **Затухание** — ЛИЧНЫЙ ритм, не общий порог: `days_since_last >
+max(60, 3×median_gap)`, median по разностям дат СОБСТВЕННЫХ звонков контакта (не <2 звонков —
+гейт median неопределён, такой контакт исключается ещё на этапе `len(dates)<2`). Сортировка
+(объём звонков убыв., days_since_last убыв.), top-N.
+**Потребители:** `cli/commands/deliver.py::cmd_obligations_digest` — секция «😴 Спящие ценные
+связи» через `extra_sections` (не сам `digest.py` — тот уже был generic с M8, извне собирается
+и туда, и сюда). `dashboard/db_reader.py` — `dossier["dormant"]` (флаг в шапке слоя «Что
+делать»), вызов с `top=10**6` (нужен ЭТОТ контакт целиком, top-5 маскировал бы 6+ позицию).
+
+---
+
 ## Офлайн-разработка (нет БД на дев-ПК)
 
 `synth/corpus.py SyntheticCorpus.build()` — schema-accurate temp SQLite из `db/schema.sql` +
@@ -400,6 +417,7 @@ src/callprofiler/insight/
   tiers.py                          # F8: Эббингауз-тиры (см. секцию выше)
   deep_extract.py                   # M8: map-reduce deep-extract (см. секцию выше)
   finance.py                        # B7: финансовая экспозиция (см. секцию выше)
+  dormancy.py                       # C3: спящие ценные связи (см. секцию выше)
   features/{base,temporal,reciprocity,trajectory,linguistic,formality,pronouns,affective,topical}.py
   features/{tempo,specificity,emotion_palette,accommodation}.py       # B1/B2/B4/B6
   age_style/lexicons/emo_{anger,anxiety,joy,contempt}.txt          # B4 данные

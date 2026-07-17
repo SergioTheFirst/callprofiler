@@ -18,8 +18,16 @@ def cmd_obligations_digest(args: argparse.Namespace) -> int:
 
     from callprofiler.deliver.digest import build_digest
     from callprofiler.insight.deep_extract import recent_deep_lines
+    from callprofiler.insight.dormancy import dormant_valuable
 
-    extra = [("🔎 Из глубокого прохода", recent_deep_lines(conn, args.user_id))]
+    dormant_lines = [
+        f"{d['name']} — тишина с {d['last_date']}; {d['why']}"
+        for d in dormant_valuable(conn, args.user_id)
+    ]
+    extra = [
+        ("🔎 Из глубокого прохода", recent_deep_lines(conn, args.user_id)),
+        ("😴 Спящие ценные связи", dormant_lines),
+    ]
     report = build_digest(conn, args.user_id, extra_sections=extra)
 
     # F8: тиры — дёшево, обновляем при каждом построении дайджеста (Fable §3.8 п.3)

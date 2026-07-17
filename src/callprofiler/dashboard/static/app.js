@@ -1417,6 +1417,13 @@
 
         // A7: группа «Что делать» — заметка, интерпретация, совет
         html += dossierLayer('Что делать');
+
+        // C3: флаг затухания ценной связи — в шапке слоя
+        if (d.dormant && d.dormant.why) {
+            html += '<p style="font-size:13px;color:var(--text-secondary);margin:0 0 10px">😴 ' +
+                escapeHtml(d.dormant.why) + ' — тишина с ' + escapeHtml(d.dormant.last_date || '') + '</p>';
+        }
+
         html += dossierSec('Моя заметка', ownerNoteHtml);
 
         // Интерпретация (3 абзаца, persisted)

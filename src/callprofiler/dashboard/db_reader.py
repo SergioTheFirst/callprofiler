@@ -769,6 +769,7 @@ class DashboardDBReader:
             "personal_facts": base.get("personal_facts") or [],
             "evolution": [],
             "drift": [],
+            "dormant": None,
             "interpretation": None,
             "advice": base.get("advice"),
             "recent_calls": base.get("recent_calls") or [],
@@ -1128,6 +1129,17 @@ class DashboardDBReader:
         except Exception as exc:  # noqa: BLE001 — дрейф стиля опционален
             log.debug("dossier: style_drift недоступен: %s", exc)
 
+        # C3: флаг затухания ценной связи — top=∞, т.к. нужен ЭТОТ контакт целиком,
+        # не top-5 (top-5 — только для digest-секции).
+        try:
+            from callprofiler.insight.dormancy import dormant_valuable
+            for d in dormant_valuable(self._conn, user_id, top=10 ** 6):
+                if d["contact_id"] == contact_id:
+                    dossier["dormant"] = {"why": d["why"], "last_date": d["last_date"]}
+                    break
+        except Exception as exc:  # noqa: BLE001 — флаг затухания опционален
+            log.debug("dossier: dormant_valuable недоступен: %s", exc)
+
         # A7: 5-слойная презентационная группировка (маппинг существующих секций;
         # ключи с * появятся в Ф-B/Ф-C, рендер app.js для них уже guarded).
         dossier["layers"] = {
@@ -1135,7 +1147,7 @@ class DashboardDBReader:
             "speech": ["age_style", "formality", "traits"],
             "relational": ["network", "mentions", "finance"],
             "dynamic": ["evolution", "drift", "pivotal_scenes"],
-            "practical": ["advice", "obligations", "best_time"],
+            "practical": ["advice", "obligations", "best_time", "dormant"],
         }
 
         # A7: детерминированные напряжения между слоями (ДО локализации).
