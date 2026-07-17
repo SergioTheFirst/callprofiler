@@ -156,7 +156,66 @@
                 }
             })
             .catch(function(e) { console.error('Overview load failed:', e); });
+        loadHealth();
     }
+
+    // ── F7: панель «Здоровье системы» (doctor-чеки, F6) ─────────────────────
+    var HEALTH_ICON = { OK: '🟢', WARN: '🟡', FAIL: '🔴', SKIP: '⚪' };
+    var HEALTH_COLOR = { OK: 'var(--success)', WARN: 'var(--warning)', FAIL: 'var(--danger)', SKIP: 'var(--text-muted)' };
+
+    function loadHealth() {
+        fetch('/api/health-report')
+            .then(function(r) { return r.json(); })
+            .then(function(data) { renderHealth(data.checks || []); })
+            .catch(function(e) {
+                console.error('Health report load failed:', e);
+                var body = $('#health-body');
+                if (body) body.innerHTML = '<div class="empty-state">Не удалось загрузить</div>';
+            });
+    }
+
+    function renderHealth(checks) {
+        var body = $('#health-body');
+        if (!body) return;
+        var badge = $('#header-health-badge');
+        var hasFail = checks.some(function(c) { return c.status === 'FAIL'; });
+        if (badge) badge.style.display = hasFail ? '' : 'none';
+
+        if (!checks.length) {
+            body.innerHTML = '<div class="empty-state">Нет данных</div>';
+            return;
+        }
+        body.innerHTML = checks.map(function(c) {
+            var icon = HEALTH_ICON[c.status] || '?';
+            var color = HEALTH_COLOR[c.status] || 'var(--text-muted)';
+            return '<div style="font-size:13px;margin-bottom:5px;display:flex;gap:8px;align-items:baseline">' +
+                '<span>' + icon + '</span>' +
+                '<span style="color:' + color + ';min-width:120px;font-family:var(--font-mono,monospace)">' + escapeHtml(c.name) + '</span>' +
+                '<span style="color:var(--text-muted)">' + escapeHtml(c.detail || '') + '</span>' +
+                '</div>';
+        }).join('');
+    }
+
+    (function initHealthPanel() {
+        var toggle = $('#health-toggle');
+        var body = $('#health-body');
+        var caret = $('#health-caret');
+        var refresh = $('#health-refresh');
+        if (toggle && body) {
+            toggle.addEventListener('click', function(e) {
+                if (e.target === refresh) return;
+                var collapsed = body.style.display === 'none';
+                body.style.display = collapsed ? '' : 'none';
+                if (caret) caret.textContent = collapsed ? '▾' : '▸';
+            });
+        }
+        if (refresh) {
+            refresh.addEventListener('click', function(e) {
+                e.stopPropagation();
+                loadHealth();
+            });
+        }
+    })();
 
     // ── M5: drag&drop audio import ──────────────────────────────────────────
     var IMPORT_ALLOWED_EXT = ['.mp3', '.wav', '.m4a', '.ogg', '.opus', '.amr', '.aac', '.flac'];

@@ -19,6 +19,7 @@ from fastapi.templating import Jinja2Templates
 from callprofiler.dashboard.config import POLL_INTERVAL_SEC, SSE_KEEPALIVE_SEC, THEME
 from callprofiler.dashboard.db_reader import DashboardDBReader
 from callprofiler.dashboard.tools import DashboardTools
+from callprofiler.doctor import run_checks
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +223,26 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
             "db_path": str(_CONFIG.data_dir) if _CONFIG else "",
             "role_unknown_share": role_unknown,
             "version": VERSION,
+        })
+
+    @fa.get("/api/health-report")
+    async def _health_report() -> JSONResponse:
+        # F7: тот же doctor-отчёт (F6), что уходит в Telegram, видно в дашборде
+        # без бота. doctor уже side-effect-free — вызываем напрямую, никакой
+        # записи в БД. Threadpool — чеки быстрые, но llm-чек делает сетевой
+        # запрос (timeout=2s) и не должен блокировать event loop.
+        if _CONFIG is None:
+            return JSONResponse({"checks": []})
+        reader = _get_reader()
+        conn = None
+        if reader is not None:
+            if hasattr(reader, "connect"):
+                reader.connect()
+            conn = getattr(reader, "_conn", None)
+        loop = asyncio.get_event_loop()
+        checks = await loop.run_in_executor(None, run_checks, _CONFIG, conn)
+        return JSONResponse({
+            "checks": [{"name": c.name, "status": c.status, "detail": c.detail} for c in checks],
         })
 
     @fa.get("/api/sse")

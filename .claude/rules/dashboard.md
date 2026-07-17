@@ -17,9 +17,12 @@ biography, менять нельзя). `get_entity_profile`/`get_character_profi
 `renderEntityTab`; `entity_type` фронт показывает как `entity_type_label`.
 
 ## Вкладки (templates/index.html)
-`overview` · `calls` · `search` · `entities` (**«Личности»**: «Зеркало» владельца (A3,
-collapsible, СВЕРХУ вкладки) → таблица людей `#people-table` с поиском + «Упомянутые персоны
-(граф)» + модалки) · `insight` («Архетипы», 4 вида, Ф7) · `system`.
+`overview` (+ **«Здоровье»**, F7: collapsible-панель `#health-panel` — те же doctor-чеки F6 через
+`GET /api/health-report` (`doctor.run_checks` напрямую, threadpool, никакой записи в БД); 🔴-бейдж
+в шапке `#header-health-badge` при любом FAIL; кнопка «Обновить») · `calls` · `search` ·
+`entities` (**«Личности»**: «Зеркало» владельца (A3, collapsible, СВЕРХУ вкладки) → таблица людей
+`#people-table` с поиском + «Упомянутые персоны (граф)» + модалки) · `insight` («Архетипы», 4 вида,
+Ф7) · `system`.
 SSE-тик обновляет активную вкладку (bugs.md 2026-06-05).
 
 **Досье-UI (Ф3):** клик по строке людей / точке PCA (`_cid` в data) / узлу эго-сети (`id='c{cid}'`)
