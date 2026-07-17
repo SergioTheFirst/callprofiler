@@ -923,6 +923,12 @@
         });
     })();
 
+    // ── F8: тиры контактов (core/active/warm/cold/archive) ──────────────────
+    var TIER_COLOR = {
+        core: 'var(--success)', active: 'var(--accent, #4A90D9)',
+        warm: 'var(--warning)', cold: 'var(--text-muted)', archive: 'var(--text-muted)',
+    };
+
     // ── Личности: список людей + досье (Ф3 плана досье) ────────────────────
     state.peopleCache = [];
 
@@ -946,10 +952,13 @@
                    (p.phone_e164 || '').indexOf(q) >= 0;
         });
         if (!rows.length) {
-            tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text-muted);text-align:center">Никого не найдено</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" style="color:var(--text-muted);text-align:center">Никого не найдено</td></tr>';
             return;
         }
         tbody.innerHTML = rows.map(function(p) {
+            var tier = p.tier
+                ? '<span class="sr-tag" style="border-color:' + TIER_COLOR[p.tier] + ';color:' + TIER_COLOR[p.tier] + '">' + escapeHtml(p.tier_label || p.tier) + '</span>'
+                : '--';
             var risk = p.global_risk != null ? p.global_risk : null;
             var riskCls = risk !== null ? (risk >= 60 ? 'risk-high' : (risk >= 30 ? 'risk-med' : 'risk-low')) : '';
             var bs = p.bs_index != null ? Number(p.bs_index).toFixed(0)
@@ -969,6 +978,7 @@
                 : '--';
             return '<tr class="call-row" data-contact-id="' + p.contact_id + '" title="Открыть досье">' +
                 '<td>' + escapeHtml(p.name || '?') + '</td>' +
+                '<td>' + tier + '</td>' +
                 '<td>' + age + '</td>' +
                 '<td>' + arch + '</td>' +
                 '<td>' + (risk !== null ? '<span class="risk ' + riskCls + '">' + risk + '</span>' : '--') + '</td>' +
@@ -1094,6 +1104,10 @@
 
         // Шапка: архетип, телефон, граф-связка
         var head = [];
+        if (d.tier && d.tier.code) {
+            head.push('<span class="sr-tag" style="border-color:' + TIER_COLOR[d.tier.code] +
+                ';color:' + TIER_COLOR[d.tier.code] + '">' + escapeHtml(d.tier.label || d.tier.code) + '</span>');
+        }
         if (d.archetype && d.archetype.label) {
             head.push('<span class="sr-tag entity">' + escapeHtml(d.archetype.label) +
                 (d.archetype.membership != null ? ' · ' + Math.round(d.archetype.membership * 100) + '%' : '') +

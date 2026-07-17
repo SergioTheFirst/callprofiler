@@ -330,12 +330,18 @@ class FileWatcher:
             # Стилометрический возраст (age.md): чисто numpy/regex, без GPU/LLM
             # -> безопасно во время ASR-прогона, в отличие от --llm-ступени выше.
             style = cli_ops.run_style_estimate(conn, uid, stale_only=True)
+            # F8: Эббингауз-тиры — дёшево (один SQL-агрегат + перцентили), пересчитываем
+            # каждый автофит, чтобы ночные очереди (enricher) видели свежий приоритет.
+            from callprofiler.insight.tiers import recompute_tiers
+
+            tiers = recompute_tiers(conn, uid)
             logger.info(
                 "Insight autofit user=%s: features=%d, k=%d, assigned=%d, "
-                "age est=%d skip=%d, age-style est=%d skip=%d",
+                "age est=%d skip=%d, age-style est=%d skip=%d, tiers n=%d",
                 uid, n_feats, res.get("k", 0), res.get("n_assigned", 0),
                 age.get("estimated", 0), age.get("skipped_fresh", 0),
                 style.get("estimated", 0), style.get("skipped_fresh", 0),
+                tiers.get("n_contacts", 0),
             )
 
     # ── Heartbeat + doctor (F6) ──────────────────────────────────────────

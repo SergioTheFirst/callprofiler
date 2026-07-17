@@ -109,8 +109,14 @@ column — bugs.md 2026-07-02) · досье Ф0-Ф4 · русификация.
    25 теперь реализованы (F5 вечер + F6 doctor) — новый пуш-на-событие впредь = нарушение.
    **F7 панель «Здоровье» в дашборде** — GET /api/health-report (doctor.run_checks напрямую,
    threadpool, read-only), collapsible-панель overview + 🔴-бейдж в шапке при FAIL.
-   Следующая по порядку — **27. F8 Тиры контактов: память, которая забывает (Fable §3.8, T2)**.
-   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1135 passed/2 skipped.
+   **F8 Эббингауз-тиры контактов** — `insight/tiers.py` (score=retention·log1p(minutes),
+   перцентильные тиры core/active/warm/cold/archive, `contact_tiers` UPSERT+prev_tier).
+   Реальный ночной триггер — watcher `_run_insight_fit` (не только `bulk_enrich()`/
+   `obligations-digest`, оба тоже вызывают); потребители: `enricher.select_pending_calls`
+   (ORDER BY тир) + дашборд `get_people`/`get_person_dossier` (бейдж+сортировка). Biography
+   per-entity очередь сознательно не тронута — предмет будущей F21 (entity_contact_map).
+   Следующая по порядку — **28. M8 Deep-extract длинных звонков (oz2 §3.8+§4.1, T2)**.
+   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1150 passed/2 skipped.
 2. **Бокс (не блокирует исполнение):** pull → `owner_birth_year` в base.yaml → пересчёт возраста
    (`age-estimate --user me` + `age-style --user me`, TABLE/RULES v2) → спот-чек 10 контактов →
    LLM-окно: `age-estimate --user me --llm`.

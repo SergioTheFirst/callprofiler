@@ -19,6 +19,17 @@ def cmd_obligations_digest(args: argparse.Namespace) -> int:
     from callprofiler.deliver.digest import build_digest
 
     report = build_digest(conn, args.user_id)
+
+    # F8: тиры — дёшево, обновляем при каждом построении дайджеста (Fable §3.8 п.3)
+    try:
+        from callprofiler.insight.tiers import recompute_tiers
+
+        recompute_tiers(conn, args.user_id)
+    except Exception as exc:  # noqa: BLE001 — digest не должен падать из-за тиров
+        import logging
+
+        logging.getLogger(__name__).warning("tiers-recompute error (non-fatal): %s", exc)
+
     out = getattr(args, "out", None)
     if out:
         with open(out, "w", encoding="utf-8") as f:

@@ -266,6 +266,38 @@ def _update_graph(repo: Repository, call_ids: list[int]) -> None:
         log.warning("[enricher] graph update failed (non-fatal): %s", e)
 
 
+def select_pending_calls(conn, user_id: str) -> list[dict]:
+    """Звонки без анализа, отсортированные для очереди enricher.
+
+    F8: тир контакта (core первым) приоритезирует очередь, если contact_tiers
+    уже вычислена (tiers-recompute); иначе — прежний хронологический порядок
+    (таблицы может не быть до первого прогона).
+    """
+    has_tiers = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='contact_tiers'"
+    ).fetchone()
+    if has_tiers:
+        from callprofiler.insight.tiers import TIER_RANK_SQL_CASE
+
+        order_sql = f"{TIER_RANK_SQL_CASE}, c.call_datetime"
+        tier_join = "LEFT JOIN contact_tiers ct ON ct.user_id = c.user_id AND ct.contact_id = c.contact_id"
+    else:
+        order_sql = "c.call_datetime"
+        tier_join = ""
+    rows = conn.execute(
+        f"""SELECT c.call_id, c.user_id, c.contact_id, c.call_datetime,
+                  c.source_filename, c.direction, cnt.phone_e164, cnt.display_name
+           FROM calls c
+           LEFT JOIN contacts cnt ON c.contact_id = cnt.contact_id
+           LEFT JOIN analyses a ON c.call_id = a.call_id
+           {tier_join}
+           WHERE c.user_id = ? AND a.analysis_id IS NULL
+           ORDER BY {order_sql}""",
+        (user_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def bulk_enrich(
     user_id: str,
     db_path: str,
@@ -306,18 +338,7 @@ def bulk_enrich(
     prompt_template = _load_prompt_template(cfg.prompts_dir)
 
     conn = repo._get_conn()
-    rows = conn.execute(
-        """SELECT c.call_id, c.user_id, c.contact_id, c.call_datetime,
-                  c.source_filename, c.direction, cnt.phone_e164, cnt.display_name
-           FROM calls c
-           LEFT JOIN contacts cnt ON c.contact_id = cnt.contact_id
-           LEFT JOIN analyses a ON c.call_id = a.call_id
-           WHERE c.user_id = ? AND a.analysis_id IS NULL
-           ORDER BY c.call_datetime""",
-        (user_id,),
-    ).fetchall()
-
-    calls = [dict(row) for row in rows]
+    calls = select_pending_calls(conn, user_id)
     if limit > 0:
         calls = calls[:limit]
 
@@ -554,6 +575,14 @@ def bulk_enrich(
         log.info("[enricher] Batch summary rebuilt for %d contacts", len(affected_contacts))
     except Exception as e:
         log.warning("[enricher] Batch summary rebuild error (non-fatal): %s", e)
+
+    # F8: тиры контактов — конец bulk-прогона (Fable §3.8 п.3, дёшево, non-fatal)
+    try:
+        from callprofiler.insight.tiers import recompute_tiers
+
+        recompute_tiers(conn, user_id)
+    except Exception as e:
+        log.warning("[enricher] tiers-recompute error (non-fatal): %s", e)
 
     # Вернуть совместимые со старым кодом stats
     return {

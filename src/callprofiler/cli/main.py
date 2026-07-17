@@ -70,7 +70,7 @@ from callprofiler.cli.commands.graph import (  # noqa: E402
 from callprofiler.cli.commands.insight import (  # noqa: E402
     cmd_features_build, cmd_archetypes_fit, cmd_person_archetype, cmd_person_link,
     cmd_age_estimate, cmd_age_style, cmd_spotcheck_sample, cmd_calibrate_risk,
-    cmd_mirror_build,
+    cmd_mirror_build, cmd_tiers_recompute,
 )
 
 # ---- doctor command (M1) ----
@@ -777,6 +777,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Идентификатор пользователя",
     )
 
+    # ── tiers-recompute (F8) ─────────────────────────────────────────
+    p_tiers = sub.add_parser(
+        "tiers-recompute",
+        help="F8: Эббингауз-тиры контактов (core/active/warm/cold/archive)",
+    )
+    p_tiers.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+
     return parser
 
 
@@ -836,6 +846,7 @@ def main() -> None:
         "ask": cmd_ask,
         "calibrate-risk": cmd_calibrate_risk,
         "mirror-build": cmd_mirror_build,
+        "tiers-recompute": cmd_tiers_recompute,
     }
 
     handler = dispatch.get(args.command)

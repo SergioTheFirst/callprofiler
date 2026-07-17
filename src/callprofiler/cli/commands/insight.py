@@ -115,6 +115,21 @@ def cmd_calibrate_risk(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_tiers_recompute(args: argparse.Namespace) -> int:
+    """tiers-recompute --user X — F8: Эббингауз-тиры контактов (core/active/warm/cold/archive)."""
+    setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = load_config_and_repo(args.config)
+    conn = repo._get_conn()
+    from callprofiler.insight.tiers import recompute_tiers
+    res = recompute_tiers(conn, args.user_id)
+    counts = ", ".join(f"{t}={res['counts'][t]}" for t in ("core", "active", "warm", "cold", "archive"))
+    print(f"tiers-recompute (user={args.user_id}): n={res['n_contacts']} [{counts}], "
+          f"{len(res['transitions'])} переходов")
+    for t in res["transitions"][:10]:
+        print(f"  contact_id={t['contact_id']}: {t['from']} → {t['to']}")
+    return 0
+
+
 def cmd_mirror_build(args: argparse.Namespace) -> int:
     """mirror-build --user X — досье владельца: обещания/риск-тренд/зависимость/регистр (A3)."""
     setup_logging(verbose=getattr(args, "verbose", False))

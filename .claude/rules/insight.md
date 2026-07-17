@@ -155,7 +155,28 @@ LLM-уточнение имён — шов на боксе (офлайн не н
   UPSERT user-guarded. **Агрегация в пространстве ГОДА РОЖДЕНИЯ** → дашборд выводит возраст к
   текущей дате (динамика); age_* = срез на computed_at.
 
+- `contact_tiers (user_id, contact_id PK, tier, score, prev_tier, computed_at)` — см. секцию
+  «Тиры контактов» ниже.
+
 `contact_id` глобально уникален → принадлежит одному user_id; reads всегда `WHERE user_id=?`.
+
+---
+
+## Тиры контактов — Эббингауз-забывание (F8, `tiers.py`)
+
+`score = retention(days_since_last_call, strength(call_count)) * log1p(total_talk_minutes)`,
+`retention = exp(-days/(30*strength))`, `strength = 1+log1p(call_count)` — касание поднимает,
+тишина опускает, TAU_DAYS=30. Тир по ПЕРЦЕНТИЛЯМ score внутри юзера (не абсолютным порогам):
+top 5%→`core`, до 25%→`active`, до 60%→`warm`, до 90%→`cold`, хвост/0 звонков→`archive`.
+`recompute_tiers()` — UPSERT, старый tier → `prev_tier` (переходы для C3/F5 «перешли в остывшие»).
+**Триггеры (все дёшево, numpy/SQL-only):** watcher `_run_insight_fit` (реальный ночной автофит,
+каждый debounced цикл) · конец `bulk_enrich()` · после `obligations-digest`. **Потребители:**
+`enricher.select_pending_calls` сортирует очередь по тиру (core первым, `TIER_RANK_SQL_CASE`) —
+до первого прогона (таблицы нет) деградирует к прежнему хронологическому порядку; дашборд
+`get_people`/`get_person_dossier` — колонка/бейдж с русской меткой (`labels_ru.TIER`) + сортировка
+списка. Biography-очередь (per-entity, не per-contact) сознательно НЕ трогается здесь — это
+предмет будущей F21 (`ночной хук... очередь по тирам F8`), которая уже резолвит entity→contact
+через `entity_contact_map`.
 
 ---
 
@@ -303,6 +324,7 @@ transactional / fading_tie / intimate_frequent). Всё тестируется �
 src/callprofiler/insight/
   repository.py  feature_store.py  archetypes.py  cli_ops.py  labels.py  cards.py  person_link.py
   age_markers.py  age_estimate.py   # возраст: маркеры/якоря/LLM (см. секцию выше)
+  tiers.py                          # F8: Эббингауз-тиры (см. секцию выше)
   features/{base,temporal,reciprocity,trajectory,linguistic,formality,pronouns,affective,topical}.py
   synth/{corpus,archetypes,noise,phrasebank}.py
   # build_contact_features маршрутизирует META(calls)+TEXT(segments)+AFFECTIVE(analyses)

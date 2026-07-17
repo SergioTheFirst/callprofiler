@@ -84,7 +84,9 @@ def test_run_insight_fit_includes_age_estimate():
          mock.patch("callprofiler.insight.cli_ops.run_age_estimate",
                     return_value={"estimated": 1, "skipped_fresh": 2}) as ma, \
          mock.patch("callprofiler.insight.cli_ops.run_style_estimate",
-                    return_value={"estimated": 1, "skipped_fresh": 2}) as ms:
+                    return_value={"estimated": 1, "skipped_fresh": 2}) as ms, \
+         mock.patch("callprofiler.insight.tiers.recompute_tiers",
+                    return_value={"n_contacts": 0, "counts": {}, "transitions": []}):
         w._run_insight_fit()
     assert ma.call_count == 1
     kw = ma.call_args.kwargs
@@ -94,6 +96,26 @@ def test_run_insight_fit_includes_age_estimate():
     assert ms.call_count == 1            # age.md: стилометрия тоже инкрементальна
     assert ms.call_args.kwargs["stale_only"] is True
     assert "use_llm" not in ms.call_args.kwargs  # безмодельный метод — LLM-флага нет
+
+
+def test_run_insight_fit_includes_tiers_recompute():
+    """F8: тиры пересчитываются каждый автофит — реальный ночной триггер (не только bulk-enrich)."""
+    repo = _Repo(users=[{"user_id": "me"}], conn=object())
+    w = _watcher(repo=repo)
+    with mock.patch("callprofiler.insight.cli_ops.run_features_build", return_value=0), \
+         mock.patch("callprofiler.insight.cli_ops.run_archetypes_fit",
+                    return_value={"k": 0, "n_assigned": 0}), \
+         mock.patch("callprofiler.insight.cli_ops.run_age_estimate",
+                    return_value={"estimated": 0, "skipped_fresh": 0}), \
+         mock.patch("callprofiler.insight.cli_ops.run_style_estimate",
+                    return_value={"estimated": 0, "skipped_fresh": 0}), \
+         mock.patch("callprofiler.insight.tiers.recompute_tiers",
+                    return_value={"n_contacts": 7, "counts": {}, "transitions": []}) as mt:
+        w._run_insight_fit()
+    assert mt.call_count == 1
+    args = mt.call_args.args
+    assert args[0] is repo._conn
+    assert args[1] == "me"
 
 
 def test_terminal_counter_baseline_then_delta():

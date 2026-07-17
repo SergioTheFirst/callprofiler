@@ -621,6 +621,11 @@ class DashboardDBReader:
                 "LEFT JOIN entity_metrics em "
                 "ON em.entity_id = m.entity_id AND em.user_id = ct.user_id",
             ]
+        has_tiers = self._has_table("contact_tiers")
+        if has_tiers:
+            select += ["ctier.tier AS tier"]
+            joins += ["LEFT JOIN contact_tiers ctier "
+                      "ON ctier.contact_id = ct.contact_id AND ctier.user_id = ct.user_id"]
         has_age_est = self._has_table("contact_age_estimates")
         has_age_style = self._has_table("contact_age_style")
         if has_age_est:
@@ -642,9 +647,16 @@ class DashboardDBReader:
                        "cas.confidence_level AS style_confidence_level"]
             joins += ["LEFT JOIN contact_age_style cas "
                       "ON cas.contact_id = ct.contact_id AND cas.user_id = ct.user_id"]
+        order_by = "COALESCE(cs.total_calls, 0) DESC, ct.contact_id"
+        if has_tiers:
+            # F8: тир — первичная сортировка (core наверху), объём звонков — вторичная
+            order_by = (
+                "CASE ctier.tier WHEN 'core' THEN 0 WHEN 'active' THEN 1 WHEN 'warm' THEN 2 "
+                "WHEN 'cold' THEN 3 WHEN 'archive' THEN 4 ELSE 5 END, " + order_by
+            )
         sql = ("SELECT " + ", ".join(select) + " FROM contacts ct " + " ".join(joins)
                + " WHERE ct.user_id = ?"
-               + " ORDER BY COALESCE(cs.total_calls, 0) DESC, ct.contact_id LIMIT ?")
+               + " ORDER BY " + order_by + " LIMIT ?")
         rows = self._conn.execute(sql, (user_id, limit)).fetchall()
 
         people = []
@@ -657,8 +669,13 @@ class DashboardDBReader:
                         "age_low", "age_high", "age_method", "birth_year_point",
                         "birth_year_low", "birth_year_high",
                         "style_birth_year_point", "style_birth_year_low", "style_birth_year_high",
-                        "style_age_confidence", "style_confidence_level"):
+                        "style_age_confidence", "style_confidence_level", "tier"):
                 d.setdefault(key, None)
+            if d.get("tier"):
+                from callprofiler.dashboard.labels_ru import TIER, ru
+                d["tier_label"] = ru(TIER, d["tier"])
+            else:
+                d["tier_label"] = None
 
             # C2: age_fused — единая итоговая оценка из маркеров и стиля
             marker_dict = None
@@ -731,6 +748,7 @@ class DashboardDBReader:
                 "volatility": None, "conflict_count": None, "emotional_pattern": None,
             },
             "owner_note": None,
+            "tier": None,
             "archetype": None,
             "entity": None,
             "age": None,
@@ -761,6 +779,15 @@ class DashboardDBReader:
             ).fetchone()
             if row:
                 dossier["owner_note"] = {"note": row["note"], "updated_at": row["updated_at"]}
+
+        if self._has_table("contact_tiers"):
+            row = self._conn.execute(
+                "SELECT tier FROM contact_tiers WHERE contact_id = ? AND user_id = ?",
+                (contact_id, user_id),
+            ).fetchone()
+            if row:
+                from callprofiler.dashboard.labels_ru import TIER, ru
+                dossier["tier"] = {"code": row["tier"], "label": ru(TIER, row["tier"])}
 
         if self._has_table("contact_archetypes"):
             row = self._conn.execute(
