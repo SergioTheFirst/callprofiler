@@ -69,7 +69,7 @@ from callprofiler.cli.commands.graph import (  # noqa: E402
 # ---- insight commands ----
 from callprofiler.cli.commands.insight import (  # noqa: E402
     cmd_features_build, cmd_archetypes_fit, cmd_person_archetype, cmd_person_link,
-    cmd_mentions_build, cmd_quarterly_report,
+    cmd_mentions_build, cmd_quarterly_report, cmd_promise_outcomes,
     cmd_age_estimate, cmd_age_style, cmd_spotcheck_sample, cmd_calibrate_risk,
     cmd_mirror_build, cmd_tiers_recompute, cmd_deep_extract,
 )
@@ -582,6 +582,22 @@ def _build_parser() -> argparse.ArgumentParser:
         "--force", action="store_true",
         help="Игнорировать кэш insight_reports и пересчитать",
     )
+    p_promise_out = sub.add_parser(
+        "promise-outcomes",
+        help="B3: исход каждого обещания kept/late/broken/unknown (det; --llm донасыщает unknown)",
+    )
+    p_promise_out.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_promise_out.add_argument(
+        "--llm", action="store_true",
+        help="Добавить LLM-пасс для unknown (llama-server должен быть жив, ASR не идти)",
+    )
+    p_promise_out.add_argument(
+        "--llm-limit", dest="llm_limit", type=int, default=200, metavar="N",
+        help="Максимум LLM-вызовов за прогон (по умолчанию 200)",
+    )
     p_person_arch = sub.add_parser(
         "person-archetype",
         help="Insight: карточка архетипа контакта",
@@ -894,6 +910,7 @@ def main() -> None:
         "person-link": cmd_person_link,
         "mentions-build": cmd_mentions_build,
         "quarterly-report": cmd_quarterly_report,
+        "promise-outcomes": cmd_promise_outcomes,
         "person-archetype": cmd_person_archetype,
         "age-estimate": cmd_age_estimate,
         "age-style": cmd_age_style,

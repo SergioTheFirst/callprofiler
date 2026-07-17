@@ -223,7 +223,19 @@ def _amount_suffix(item: dict) -> str:
     return "(" + " + ".join(parts) + ")"
 
 
-def _format_item(item: dict) -> list[str]:
+def _reliability_note(conn, user_id: str, contact_id) -> str | None:
+    """B3: фраза надёжности контакта (kept_ratio) для contact-side overdue-строк."""
+    if contact_id is None or not _has_table(conn, "promise_outcomes"):
+        return None
+    try:
+        from callprofiler.insight.promise_outcomes import contact_reliability
+        rel = contact_reliability(conn, user_id, contact_id)
+    except Exception:  # noqa: BLE001 — digest-строка не должна падать из-за опц. слоя
+        return None
+    return rel["phrase"] if rel else None
+
+
+def _format_item(item: dict, reliability_phrase: str | None = None) -> list[str]:
     what = _truncate(item["what"], 160)
     mark = "✓ " if item.get("confirmed") else ""
     line = f"- {mark}**{item['contact_name']}**: {what} — обещано {item['call_date'] or '?'}, срок {item['deadline']}"
@@ -231,6 +243,8 @@ def _format_item(item: dict) -> list[str]:
         amount = _amount_suffix(item)
         if amount:
             line += f" {amount}"
+        if reliability_phrase:
+            line += f" ({reliability_phrase})"
     lines = [_truncate(line)]
     if item.get("quote"):
         lines.append(_truncate(f"  > «{item['quote']}»"))
@@ -262,7 +276,8 @@ def build_digest(
     lines.append("\n## Просрочено ИМИ")
     if contact_overdue:
         for item in contact_overdue[:_MAX_ITEMS_PER_SECTION]:
-            lines.extend(_format_item(item))
+            note = _reliability_note(conn, user_id, item.get("contact_id"))
+            lines.extend(_format_item(item, note))
     else:
         lines.append("- нет")
 

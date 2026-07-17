@@ -209,6 +209,33 @@ CREATE TABLE IF NOT EXISTS insight_reports (
     created_at     TEXT DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, period, prompt_version)
 );
+
+-- B3: исход каждого обещания (events promise/debt + legacy promises, дедуп как A1).
+-- det-эвристика первой проходит все строки; LLM донасыщает только unknown (--llm,
+-- memoized по llm_prompt_hash — паттерн contact_age_estimates). Статусы events/promises
+-- НЕ мутируются — это отдельный derived-слой (decisions.md).
+CREATE TABLE IF NOT EXISTS promise_outcomes (
+    user_id          TEXT    NOT NULL,
+    promise_key      TEXT    NOT NULL,   -- sha1(f"{call_id}|{who}|{what_lower[:80]}")[:16]
+    contact_id       INTEGER,
+    call_id          INTEGER NOT NULL,   -- звонок, где обещано
+    side             TEXT    NOT NULL CHECK(side IN ('owner', 'contact')),
+    what             TEXT    NOT NULL,
+    due              TEXT,
+    status           TEXT    NOT NULL CHECK(status IN ('kept', 'late', 'broken', 'unknown')),
+    evidence_call_id INTEGER,
+    evidence_date    TEXT,
+    evidence_quote   TEXT,
+    days_late        INTEGER,
+    method           TEXT    NOT NULL CHECK(method IN ('det', 'llm')),
+    confidence       REAL    NOT NULL,
+    llm_prompt_hash  TEXT,
+    llm_result       TEXT,
+    prompt_version   TEXT,
+    computed_at      TEXT    DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, promise_key)
+);
+CREATE INDEX IF NOT EXISTS idx_promoutcome_contact ON promise_outcomes(user_id, contact_id, side);
 """
 
 # Колонки, добавленные после первого релиза схемы. ALTER, не recreate (db.md).
@@ -425,6 +452,31 @@ def set_fact_verdict(conn, user_id, *, item_kind, item_key, verdict, source="tel
         (user_id, item_kind, str(item_key), verdict, source),
     )
     conn.commit()
+
+
+def save_promise_outcome(conn, user_id, *, promise_key, contact_id, call_id, side, what, due,
+                         status, evidence_call_id, evidence_date, evidence_quote, days_late,
+                         method, confidence, llm_prompt_hash=None, llm_result=None,
+                         prompt_version=None):
+    """UPSERT исхода одного обещания (B3). Caller коммитит (батч из run_promise_outcomes)."""
+    conn.execute(
+        "INSERT INTO promise_outcomes(user_id, promise_key, contact_id, call_id, side, what, "
+        "due, status, evidence_call_id, evidence_date, evidence_quote, days_late, method, "
+        "confidence, llm_prompt_hash, llm_result, prompt_version) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(user_id, promise_key) DO UPDATE SET "
+        "contact_id=excluded.contact_id, call_id=excluded.call_id, side=excluded.side, "
+        "what=excluded.what, due=excluded.due, status=excluded.status, "
+        "evidence_call_id=excluded.evidence_call_id, evidence_date=excluded.evidence_date, "
+        "evidence_quote=excluded.evidence_quote, days_late=excluded.days_late, "
+        "method=excluded.method, confidence=excluded.confidence, "
+        "llm_prompt_hash=excluded.llm_prompt_hash, llm_result=excluded.llm_result, "
+        "prompt_version=excluded.prompt_version, computed_at=CURRENT_TIMESTAMP "
+        "WHERE promise_outcomes.user_id = excluded.user_id",  # user-scoped guard
+        (user_id, promise_key, contact_id, call_id, side, what, due, status,
+         evidence_call_id, evidence_date, evidence_quote, days_late, method,
+         confidence, llm_prompt_hash, llm_result, prompt_version),
+    )
 
 
 def get_verdicts(conn, user_id, item_kind, keys):

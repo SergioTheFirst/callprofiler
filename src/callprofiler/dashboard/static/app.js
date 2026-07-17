@@ -1343,6 +1343,25 @@
                 d.promises.open.map(promiseItemHtml).join('') + '</ul>');
         }
 
+        // B3: надёжность обещаний контакта (kept/late/broken по прошлым звонкам)
+        if (d.promise_outcomes) {
+            var po = d.promise_outcomes;
+            var PO_STATUS_RU = {kept: 'выполнено', late: 'с опозданием', broken: 'не выполнено'};
+            var poHtml = '<div style="font-size:13px;margin-bottom:8px">' + escapeHtml(po.phrase) +
+                ' <span style="color:var(--text-muted);font-size:11px">(' +
+                Math.round(po.kept_ratio * 100) + '%, n=' + po.n + ')</span></div>';
+            if (po.recent && po.recent.length) {
+                poHtml += po.recent.map(function(r) {
+                    return '<div class="dossier-quote">' + escapeHtml(r.what || '') + ' → <strong>' +
+                        (PO_STATUS_RU[r.status] || r.status) + '</strong>' +
+                        (r.evidence_date ? ' · ' + escapeHtml(r.evidence_date) : '') +
+                        (r.quote ? '<div class="dossier-quote-meta">«' + escapeHtml(r.quote) + '»</div>' : '') +
+                        '</div>';
+                }).join('');
+            }
+            html += dossierSec('Надёжность обещаний', poHtml);
+        }
+
         // A7: группа «Место в сети» — личное, связи
         html += dossierLayer('Место в сети');
 

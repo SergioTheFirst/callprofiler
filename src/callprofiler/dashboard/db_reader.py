@@ -761,6 +761,7 @@ class DashboardDBReader:
             "network": None,
             "finance": None,
             "mentions": None,
+            "promise_outcomes": None,
             "temperament": None,
             "motivation": None,
             "facts": [],
@@ -976,6 +977,28 @@ class DashboardDBReader:
                 "events": [{"quote": r["quote"], "date": r["call_date"]} for r in rows],
             }
 
+        if self._has_table("promise_outcomes"):
+            try:
+                from callprofiler.insight.promise_outcomes import contact_reliability
+                rel = contact_reliability(self._conn, user_id, contact_id)
+            except Exception as exc:  # noqa: BLE001 — надёжность обещаний опциональна
+                log.debug("dossier: contact_reliability недоступна: %s", exc)
+                rel = None
+            if rel:
+                rows = self._conn.execute(
+                    """SELECT what, status, evidence_date, evidence_quote FROM promise_outcomes
+                        WHERE user_id = ? AND contact_id = ? AND side = 'contact'
+                          AND status IN ('kept', 'late', 'broken')
+                        ORDER BY evidence_date DESC LIMIT 3""",
+                    (user_id, contact_id),
+                ).fetchall()
+                dossier["promise_outcomes"] = {
+                    "phrase": rel["phrase"], "kept_ratio": rel["kept_ratio"], "n": rel["n"],
+                    "recent": [{"what": r["what"], "status": r["status"],
+                               "evidence_date": r["evidence_date"], "quote": r["evidence_quote"]}
+                              for r in rows],
+                }
+
         if self._has_table("mention_edges"):
             try:
                 from callprofiler.insight.mentions import mentioned_by, outgoing_count
@@ -1102,7 +1125,12 @@ class DashboardDBReader:
                 (user_id, contact_id),
             ).fetchone()
             avg_confidence = avg_conf_row["avg_conf"] if avg_conf_row is not None else None
-            dossier["admiralty"] = grade_line(source_grade(bs_label), info_grade(avg_confidence))
+            kept_ratio = kept_n = None
+            if dossier["promise_outcomes"]:
+                kept_ratio = dossier["promise_outcomes"]["kept_ratio"]
+                kept_n = dossier["promise_outcomes"]["n"]
+            dossier["admiralty"] = grade_line(
+                source_grade(bs_label, kept_ratio, kept_n or 0), info_grade(avg_confidence))
         except Exception as exc:  # noqa: BLE001 — шапка не должна ронять досье
             log.debug("dossier: admiralty-грейд недоступен: %s", exc)
 

@@ -6,6 +6,40 @@
 
 ---
 
+### Added — B3: поведенческая надёжность обещаний (2026-07-17)
+- `insight/promise_outcomes.py::run_promise_outcomes(conn,user_id,*,use_llm=False,
+  llm_url=None,llm_limit=200) -> dict` — исход КАЖДОГО обещания (UNION `promises`+
+  `events(promise/debt)`, дедуп как A1) через дет-эвристику: последующие (до +120 дней)
+  сегменты речи ТОЙ ЖЕ стороны, которая обещала, у того же контакта; content-word overlap
+  (≥1 слово, `tokenize`+`normalize_lemma`, минус `accommodation._STOPWORDS` — переиспользован)
+  + `_RE_DONE`/`_RE_FAIL` по ё-нормализованному тексту (спека даёт литеральный `привез` без
+  ё-варианта, но свой же тест использует «привёз» — фикс на уровне матчинга, не хранения:
+  цитата в БД остаётся verbatim). Первый резолвящий сегмент побеждает; `due+2дн` grace →
+  `late`. Новая таблица `promise_outcomes` (PK user_id+promise_key=sha1(call_id|who|what[:80])).
+- LLM донасыщает ТОЛЬКО unknown, ТОЛЬКО `--llm` (`promise_outcome_v001.txt`, top-6 кандидатов
+  по word-overlap), memoized по sha1(prompt+`promise-v1`) — паттерн `contact_age_estimates`;
+  det-реран БЕЗ `--llm` переиспользует уже оплаченный LLM-результат (не откатывает в
+  unknown). Verbatim-гейт цитаты (не substring кандидатов → пусто, confidence −0.15) и
+  парсер (`<think>`/fences) — переиспользованы из `age_estimate.py`, не продублированы.
+  LLM-сбой graceful (log+skip, НЕ RuntimeError — в отличие от D3, обоснование в decisions.md).
+- `contact_reliability(conn,user_id,contact_id)` — ТОЛЬКО `side='contact'` (надёжность
+  ИСТОЧНИКА). `kept_ratio=kept/(kept+late+broken)`, n<3→None. Фраза: ≥0.8 «держит слово»,
+  ≥0.5 «через раз», иначе «чаще не выполняет»; медианное опоздание>2дн дописывает
+  неделю/две недели (5-9/10-18дн) или точное число с верным русским склонением.
+- Потребители: досье-секция «Надёжность обещаний» (слой `behavioral`, ключ был заранее
+  зарезервирован в A7 `layers`) — фраза + до 3 последних исходов; A6/A7
+  `admiralty.source_grade(bs_label, kept_ratio, kept_n)` — оба call site (`card_generator.py`,
+  `db_reader.py`) теперь передают реальные kept_ratio/n вместо None (admiralty.py не тронут —
+  принимал этот параметр с самого A6); digest A1 contact-side overdue-строки получают суффикс
+  `(фраза)` через `_reliability_note` (owner-side/upcoming не тронуты — только contact-side).
+- CLI: `promise-outcomes --user X [--llm] [--llm-limit 200]`.
+- **Закрывает находку из D3-сессии** (decisions.md «B3 обнаружена пропущенной») — портфель
+  B1-B8 теперь фактически полон, не только по счётчику.
+- Тесты: `tests/insight/test_promise_outcomes.py` (8) — kept/late/broken по det, UNKNOWN-спикер
+  игнорируется, LLM донасыщение + memoization (HTTP зовётся 1 раз на 2 прогона), verbatim-гейт,
+  идемпотентный реран (0 новых строк), пороги фразы надёжности (n<3→None).
+  Suite: 1294 passed, 2 skipped.
+
 ### Added — D3: квартальный отчёт о социальной вселенной (2026-07-17)
 - `insight/quarterly.py::gather_aggregates(conn,user_id,period) -> dict` — ТОЛЬКО
   агрегаты (риз-ры/фолл-ры звонков к prev-кварталу, risk_shifts |Δ|≥15, new_people

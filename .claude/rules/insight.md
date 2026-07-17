@@ -394,6 +394,47 @@ live-вычисление в `db_reader.get_person_dossier` (guarded try/except,
 
 ---
 
+## Надёжность обещаний (B3, `promise_outcomes.py`) — det + мемоизированный LLM
+
+Own таблица `promise_outcomes` (PK `user_id, promise_key` = sha1(call_id|who|what[:80])[:16]).
+Источник — UNION `promises`+`events(promise/debt)`, дедуп как A1/`digest.py`
+(events приоритетнее). `who='UNKNOWN'` — пропуск. **events/promises.status НЕ мутируются** —
+исход живёт отдельно (decisions.md).
+
+**Дет-эвристика первой:** для стороны, которая обещала (owner→ищем в её же будущих
+OWNER-сегментах, contact→в её OTHER-сегментах), окно +120 дней у ТОГО ЖЕ contact_id.
+Content-words обещания (`tokenize`+`normalize_lemma`, len≥4, минус `accommodation._STOPWORDS`
+— переиспользован, не продублирован) должны пересечься с content-words сегмента (≥1 слово);
+regex `_RE_DONE`/`_RE_FAIL` матчится по **ё-нормализованному** тексту (не по сырому — иначе
+«привёз» не матчит `\bпривез\w*`, ASR-дрейф vozrast.md §11.4), цитата в БД хранится verbatim.
+Первый резолвящий сегмент в хронологии побеждает; kept-матч побеждает broken при обоих
+в одном сегменте. `due+2дн` grace → `late`, `days_late` = разница. Нет резолва → `unknown`.
+
+**LLM донасыщает только unknown, только `--llm`** (`promise_outcome_v001.txt`, top-6
+кандидатов по word-overlap, клип 4000). Memoized по `sha1(prompt+"promise-v1")` —
+паттерн `contact_age_estimates`: det-реран БЕЗ `--llm` переиспользует уже оплаченный
+LLM-результат (не откатывает статус обратно в unknown). Verbatim-гейт цитаты (не substring
+кандидатов → `quote=''`, confidence −0.15) — паттерн `age_estimate.py`; парсер (`<think>`/
+fences/truncated-JSON) переиспользован оттуда же (`_parse_llm_json`), не продублирован.
+
+`contact_reliability(conn, user_id, contact_id)` — ТОЛЬКО `side='contact'` (обещания
+контакта владельцу — оценивается надёжность ИСТОЧНИКА). `kept_ratio=kept/(kept+late+broken)`,
+`n<3 → None`. Фраза: ≥0.8 «держит слово», ≥0.5 «через раз», иначе «чаще не выполняет»;
+`median(days_late по late)>2` дописывает опоздание (неделя/две недели при 5-9/10-18 дн,
+иначе точное число с верным русским склонением).
+
+**Потребители:** досье-секция «Надёжность обещаний» (слой `behavioral`, ключ был заранее
+зарезервирован в `layers.behavioral` при A7) — фраза + до 3 последних исходов. A6/A7
+`admiralty.source_grade(bs_label, kept_ratio, kept_n)` — оба call site (`card_generator.py`
+`_grade_line`, `db_reader.py` шапка досье) теперь передают `contact_reliability` вместо
+голого `bs_label` (admiralty.py не тронут — принимал kept_ratio с самого A6, decisions.md).
+digest.py A1: contact-side overdue-строки получают суффикс `(фраза)` через
+`_reliability_note` (owner-side и upcoming — не тронуты, только contact-side per spec).
+
+CLI: `promise-outcomes --user X [--llm] [--llm-limit 200]`.
+
+---
+
 ## Спящие ценные связи (C3, `dormancy.py`) — второй БД-ходящий insight-модуль после finance.py
 
 `dormant_valuable(conn, user_id, today=None, top=5) -> list[{contact_id,name,last_date,why}]`.
@@ -451,6 +492,7 @@ src/callprofiler/insight/
   dormancy.py                       # C3: спящие ценные связи (см. секцию выше)
   mentions.py                       # C1: граф упоминаний (см. секцию выше)
   quarterly.py                      # D3: квартальный LLM-отчёт (см. секцию выше)
+  promise_outcomes.py               # B3: надёжность обещаний, det+LLM (см. секцию выше)
   features/{base,temporal,reciprocity,trajectory,linguistic,formality,pronouns,affective,topical}.py
   features/{tempo,specificity,emotion_palette,accommodation}.py       # B1/B2/B4/B6
   age_style/lexicons/emo_{anger,anxiety,joy,contempt}.txt          # B4 данные

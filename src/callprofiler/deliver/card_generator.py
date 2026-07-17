@@ -194,7 +194,17 @@ class CardGenerator:
             except Exception as e:
                 logger.debug("Не удалось посчитать avg_confidence: %s", e)
 
-        src = source_grade(bs_label)
+        kept_ratio = kept_n = None
+        if conn is not None:
+            try:
+                from callprofiler.insight.promise_outcomes import contact_reliability
+                rel = contact_reliability(conn, user_id, contact_id)
+                if rel:
+                    kept_ratio, kept_n = rel["kept_ratio"], rel["n"]
+            except Exception as e:
+                logger.debug("Не удалось получить contact_reliability: %s", e)
+
+        src = source_grade(bs_label, kept_ratio, kept_n or 0)
         info = info_grade(avg_confidence)
         return f"grade: {grade_line(src, info)}"
 

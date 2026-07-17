@@ -163,14 +163,21 @@ column — bugs.md 2026-07-02) · досье Ф0-Ф4 · русификация.
    **D3 квартальный отчёт** — `insight/quarterly.py` (gather_aggregates только числа/имена/даты,
    build_report кэш по user_id+period+prompt_version в `insight_reports`, LLM-сбой →
    `RuntimeError` не глотается, `quarterly-report` CLI). **Портфель D (D1-D3) завершён.**
-   ⚠ **Находка при разборе D3, НЕ решение:** задача **B3 «Поведенческая надёжность обещаний»**
-   (oz5 T2, killer-сигнал по спеке) никогда не была реализована — прогон перескочил B2→B4.
-   `promise_outcomes` нет нигде в коде. Зафиксировано в decisions.md. **Следующая задача —
-   B3**, ПЕРЕД финализацией портфеля (гейт oz5 требует: «расхождение → доделать, не
-   рационализировать»). После B3 — чеклист «Финализация» (`ozalupennieStrategic5.md`
-   строки 902-914): сверка коммитов A1-A6/B1-B8/C1,C3/D1-D3 · kill-criteria параграф в
-   dashboard.md · State-обновление (бокс-очередь LLM-пассов) · финальный pytest+push.
-   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1286 passed/2 skipped.
+   **B3 поведенческая надёжность обещаний** (закрывает находку из D3-сессии, decisions.md) —
+   `insight/promise_outcomes.py`: det-эвристика (content-word overlap + `_RE_DONE`/`_RE_FAIL`
+   по ё-нормализованному тексту, первый резолвящий сегмент побеждает, due+2дн grace→late) +
+   LLM-донасыщение unknown (memoized, verbatim-гейт и парсер переиспользованы из
+   `age_estimate.py`, LLM-сбой graceful НЕ RuntimeError); `contact_reliability` (side=contact
+   only, kept_ratio, фраза с русским склонением опоздания). Потребители: досье-секция
+   «Надёжность обещаний», A6/A7 `admiralty.source_grade` теперь получает реальные kept_ratio/n
+   (было None), digest A1 contact-side suffix. CLI `promise-outcomes --user X [--llm]`.
+   **Портфель B (B1-B8) теперь фактически полон.**
+   Финализация портфеля (`ozalupennieStrategic5.md` строки 902-914) — следующий шаг: сверка
+   коммитов A1-A6/B1-B8/C1,C3/D1-D3 · kill-criteria параграф в dashboard.md (grep uvicorn
+   access log каждые 4 недели, без кода) · State-обновление (бокс-очередь LLM-пассов:
+   `age-estimate --llm`, `deep-extract`, `promise-outcomes --llm`, `quarterly-report`,
+   `calibrate-risk`, `mirror-build`, `mentions-build`) · финальный pytest+push.
+   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1294 passed/2 skipped.
 2. **Бокс (не блокирует исполнение):** pull → `owner_birth_year` в base.yaml → пересчёт возраста
    (`age-estimate --user me` + `age-style --user me`, TABLE/RULES v2) → спот-чек 10 контактов →
    LLM-окно: `age-estimate --user me --llm`.

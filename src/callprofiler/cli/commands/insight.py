@@ -70,6 +70,23 @@ def cmd_quarterly_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_promise_outcomes(args: argparse.Namespace) -> int:
+    """promise-outcomes --user X [--llm][--llm-limit N] — B3: исход каждого обещания
+    (det-эвристика; --llm донасыщает unknown, memoized, LLM-окно)."""
+    setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = load_config_and_repo(args.config)
+    conn = repo._get_conn()
+    from callprofiler.insight.promise_outcomes import run_promise_outcomes
+    stats = run_promise_outcomes(
+        conn, args.user_id, use_llm=getattr(args, "llm", False),
+        llm_url=cfg.models.llm_url, llm_limit=getattr(args, "llm_limit", 200))
+    print(f"promise-outcomes (user={args.user_id}): promises={stats['promises']} "
+          f"kept={stats['kept']} late={stats['late']} broken={stats['broken']} "
+          f"unknown={stats['unknown']} llm: вызовов={stats['llm_called']} "
+          f"кэш={stats['llm_cached']}")
+    return 0
+
+
 def cmd_age_estimate(args: argparse.Namespace) -> int:
     setup_logging(verbose=getattr(args, "verbose", False))
     cfg, repo = load_config_and_repo(args.config)
