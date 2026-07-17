@@ -20,7 +20,16 @@
 - `data_dir = C:\calls\data`. Лог: `C:\calls\callprofiler.log`.
 - **GPU sequential (Hard Constraint):** ASR+pyannote и LLM НИКОГДА одновременно (12GB RTX 3060).
 
-**State (2026-07-16):**
+**State (2026-07-17):**
+
+✅ **Портфель `ozalupennieStrategic5.md` (A1-A7/B1-B8/C1,C3/D1-D3) исполнен** — каждая строка
+имеет коммит (сверено по `git log`, 2026-07-17); C2 — единственный задокументированный пропуск
+(T3-гейт, decisions.md). Код-side финализация закрыта (kill-criteria в dashboard.md, decisions.md
+покрывает BS-v2/C2). **Не прогнано на боксе** (нужна реальная БД + LLM-окно, команды):
+`age-estimate --user me --llm` · `deep-extract --user me` · `promise-outcomes --user me --llm` ·
+`quarterly-report --user me --quarter YYYY-Qn` · `calibrate-risk --user me` ·
+`mirror-build --user me` · `mentions-build --user me` (последние 3 — numpy/SQL-only, не LLM, но
+нужны на реальных данных). См. также «Бокс» ниже (age-style v2, canary M4).
 
 ✅ **`OzaluplivanieFable2.md` — мастер-план (Fable-ревизия 3), входная точка исполнения**
 (scheduled replan, Fable/max). Supersedes `OzaluplivanieFable.md` (ревизия 2, F1-F27 + инварианты
