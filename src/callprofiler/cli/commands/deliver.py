@@ -29,6 +29,33 @@ def cmd_obligations_digest(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_daily_report(args: argparse.Namespace) -> int:
+    """daily-report --user X [--date YYYY-MM-DD] [--send] — F5 вечерний отчёт."""
+    setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = load_config_and_repo(args.config)
+    conn = repo._get_conn()
+
+    from callprofiler.deliver.daily_report import build_daily_report
+
+    date = getattr(args, "date", None) or datetime.now().date().isoformat()
+    report = build_daily_report(conn, args.user_id, date)
+
+    if getattr(args, "send", False):
+        from callprofiler.deliver.telegram_sender import send_telegram_message
+
+        user = repo.get_user(args.user_id)
+        chat_id = user.get("telegram_chat_id") if user else None
+        if not chat_id:
+            print(f"daily-report: у пользователя {args.user_id} не задан telegram_chat_id")
+            return 1
+        ok = send_telegram_message(chat_id, report)
+        print(f"daily-report: {'отправлен' if ok else 'ОШИБКА отправки'} (user={args.user_id}, date={date})")
+        return 0 if ok else 1
+
+    print(report or f"daily-report: нечего показать за {date} (user={args.user_id})")
+    return 0
+
+
 def cmd_reminders_due(args: argparse.Namespace) -> int:
     """reminders-due --user X — печать ждущих/просроченных напоминаний (F2, без бота)."""
     setup_logging(verbose=getattr(args, "verbose", False))

@@ -151,6 +151,12 @@ CREATE TABLE IF NOT EXISTS reminders (
     created_at          TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(user_id, enabled, sent_at, due_at);
+
+-- Дедуп 21:00-триггера вечернего отчёта (F5): один отчёт в день на юзера.
+CREATE TABLE IF NOT EXISTS report_state (
+    user_id           TEXT PRIMARY KEY,
+    last_report_date  TEXT
+);
 """
 
 # Колонки, добавленные после первого релиза схемы. ALTER, не recreate (db.md).
@@ -198,6 +204,25 @@ def append_contact_note(conn: sqlite3.Connection, user_id: str, contact_id: int,
         "updated_at=CURRENT_TIMESTAMP "
         "WHERE contact_notes.user_id = excluded.user_id",
         (contact_id, user_id, combined),
+    )
+    conn.commit()
+
+
+def get_report_state(conn: sqlite3.Connection, user_id: str) -> str | None:
+    """F5: дата последнего отправленного вечернего отчёта (или None)."""
+    apply_insight_schema(conn)
+    row = conn.execute(
+        "SELECT last_report_date FROM report_state WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    return row["last_report_date"] if row else None
+
+
+def set_report_state(conn: sqlite3.Connection, user_id: str, date_str: str) -> None:
+    apply_insight_schema(conn)
+    conn.execute(
+        "INSERT INTO report_state(user_id, last_report_date) VALUES (?,?) "
+        "ON CONFLICT(user_id) DO UPDATE SET last_report_date=excluded.last_report_date",
+        (user_id, date_str),
     )
     conn.commit()
 

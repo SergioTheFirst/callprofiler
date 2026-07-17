@@ -77,7 +77,11 @@ from callprofiler.cli.commands.insight import (  # noqa: E402
 from callprofiler.cli.commands.doctor import cmd_doctor  # noqa: E402
 
 # ---- deliver commands (A1) ----
-from callprofiler.cli.commands.deliver import cmd_obligations_digest, cmd_reminders_due  # noqa: E402
+from callprofiler.cli.commands.deliver import (  # noqa: E402
+    cmd_daily_report,
+    cmd_obligations_digest,
+    cmd_reminders_due,
+)
 
 # ---- ask command (A2) ----
 from callprofiler.cli.commands.ask import cmd_ask  # noqa: E402
@@ -716,6 +720,24 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Идентификатор пользователя",
     )
 
+    # ── daily-report (F5) ──────────────────────────────────────────────
+    p_daily = sub.add_parser(
+        "daily-report",
+        help="F5: вечерний отчёт дня (звонки/обязательства/завтра/ошибки/воспоминание)",
+    )
+    p_daily.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_daily.add_argument(
+        "--date", default=None, metavar="YYYY-MM-DD",
+        help="Дата отчёта (по умолчанию — сегодня)",
+    )
+    p_daily.add_argument(
+        "--send", action="store_true",
+        help="Отправить в Telegram (иначе — печать в stdout)",
+    )
+
     # ── ask ──────────────────────────────────────────────────────────
     p_ask = sub.add_parser(
         "ask",
@@ -805,6 +827,7 @@ def main() -> None:
         "doctor": cmd_doctor,
         "canary-analyze": cmd_canary_analyze,
         "obligations-digest": cmd_obligations_digest,
+        "daily-report": cmd_daily_report,
         "reminders-due": cmd_reminders_due,
         "ask": cmd_ask,
         "calibrate-risk": cmd_calibrate_risk,

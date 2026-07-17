@@ -16,6 +16,10 @@
 7. _maybe_autofit()    — debounced insight-fit (features-build+archetypes-fit, numpy/без GPU):
    гейт `insight_autofit` + порог `insight_autofit_min_new` новых терминальных (baseline на старте —
    исторические не триггерят) + `insight_autofit_min_interval_sec`; сбой fit НЕ роняет цикл
+8. _maybe_send_daily_report() — F5, инвариант 25 (1 из ровно 2 плановых пушей): local hour>=21 И
+   `report_state.last_report_date != today` → build_daily_report → send через telegram_sender
+   (голый HTTP POST sendMessage — НЕ TelegramNotifier.send_summary, тот no-op вне bot-процесса,
+   self.app там None) → state продвигается ТОЛЬКО при успехе; сбой build/send НЕ роняет цикл
 ```
 scan: MD5-дедуп (`get_call_by_md5`). Новый → ingest = КОПИЯ в архив
 `users/{uid}/audio/originals/YYYY/MM` (на ВХОДЕ, до обработки). Файл-ещё-пишется →

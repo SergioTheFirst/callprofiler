@@ -99,8 +99,11 @@ column — bugs.md 2026-07-02) · досье Ф0-Ф4 · русификация.
    **F4 голосовая заметка владельца → конвейер** — voicenote_* парсер, спец-контакт self:notes,
    note-ветка orchestrator (без диаризации/analyze), caption `@Имя` → contact_notes, bot
    handle_voice_note (allowlist/cap 50MB/атомарная запись), дашборд-фильтр «🎙 Заметки».
-   Следующая по порядку — **24. F5 вечерний отчёт дня + случайное воспоминание (Fable §3.5, T1)**.
-   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1101 passed/2 skipped.
+   **F5 вечерний отчёт дня** — daily_report.py (5 секций, reuse digest A1/F1/F2), telegram_sender.py
+   (новый голый sync HTTP-sender — TelegramNotifier не годится вне bot-процесса, self.app=None),
+   watcher._maybe_send_daily_report (21:00-триггер, report_state дедуп), CLI daily-report.
+   Следующая по порядку — **25. F6 Heartbeat + плановый doctor → Telegram 🟢/🔴 (Fable §3.6, T2)**.
+   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1113 passed/2 skipped.
 2. **Бокс (не блокирует исполнение):** pull → `owner_birth_year` в base.yaml → пересчёт возраста
    (`age-estimate --user me` + `age-style --user me`, TABLE/RULES v2) → спот-чек 10 контактов →
    LLM-окно: `age-estimate --user me --llm`.

@@ -23,6 +23,7 @@ import logging
 import os
 import shutil
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -167,6 +168,9 @@ class FileWatcher:
                 # Авто-fit архетипов по новым терминальным (debounced, non-fatal)
                 self._update_terminal_counter()
                 self._maybe_autofit()
+
+                # F5: вечерний отчёт (инвариант 25 — один из ровно двух плановых пушей)
+                self._maybe_send_daily_report()
 
             except KeyboardInterrupt:
                 logger.info("Остановка по Ctrl+C")
@@ -328,6 +332,45 @@ class FileWatcher:
                 age.get("estimated", 0), age.get("skipped_fresh", 0),
                 style.get("estimated", 0), style.get("skipped_fresh", 0),
             )
+
+    # ── Вечерний отчёт (F5) ─────────────────────────────────────────────
+
+    def _maybe_send_daily_report(self) -> None:
+        """Раз в день после 21:00 (локальное время) шлёт итоги дня per user.
+
+        Дедуп — report_state.last_report_date. Сбой отправки НЕ двигает
+        state (ретрай следующим циклом); сбой построения отчёта — тоже
+        (не роняет цикл, лог и продолжаем).
+        """
+        now = datetime.now().astimezone()
+        if now.hour < 21:
+            return
+        today = now.date().isoformat()
+
+        from callprofiler.deliver.daily_report import build_daily_report
+        from callprofiler.deliver.telegram_sender import send_telegram_message
+        from callprofiler.insight.repository import get_report_state, set_report_state
+
+        conn = self.repo._get_conn()
+        for user in self.repo.get_all_users():
+            uid = user["user_id"]
+            chat_id = user.get("telegram_chat_id")
+            if not chat_id:
+                continue
+            if get_report_state(conn, uid) == today:
+                continue
+            try:
+                report = build_daily_report(conn, uid, today)
+            except Exception as exc:  # noqa: BLE001 — цикл не должен падать
+                logger.error("daily-report: построение упало user=%s: %s", uid, exc)
+                continue
+            if send_telegram_message(chat_id, report):
+                set_report_state(conn, uid, today)
+                logger.info("daily-report отправлен user=%s", uid)
+            else:
+                logger.warning(
+                    "daily-report: отправка не удалась user=%s, повтор след. цикл", uid
+                )
 
     # ── Внутренние методы ──────────────────────────────────────────────
 
