@@ -6,6 +6,20 @@
 
 ---
 
+### Added — B6: лексическая аккомодация (2026-07-17)
+- `insight/features/accommodation.py::compute_accommodation` — группирует сегменты по
+  `call_id`; на звонок множества контентных слов (`len≥4`, ё→е, минус ~40 стоп-слов) для
+  OWNER (A) и OTHER (B); звонки с `|A|<20` или `|B|<20` пропускаются. `align_contact=
+  |A∩B|/|B|`, `align_owner=|A∩B|/|A|`, value=медиана(align_contact−align_owner) по
+  учтённым звонкам (>0 = контакт лексически подстраивается под владельца). Ключ
+  `accommodation`, `Tier.AFFECTIVE`, `support_n`=число учтённых звонков.
+- `feature_store.py`: зарегистрирована в `_TEXT_FNS`. `labels.py`: («подстройка»,
+  «подстраивается под вашу речь», «вы подстраиваетесь под его речь»).
+- Тесты: `tests/insight/test_accommodation.py` (6) — OTHER-подстройка value>0/зеркало
+  value<0/короткие звонки отброшены/смешанный набор считает только годные/пустой вход/
+  когортный synth «подстраивающиеся» vs «доминирующие» разделяются >1σ.
+  Suite: 1238 passed, 2 skipped.
+
 ### Added — B5: баланс просьб, ось request_balance (2026-07-17)
 - `insight/features/linguistic.py::compute_request_balance` — (req_other − req_owner) /
   (req_other + req_owner) по regex-маркерам просьб (`прошу/можешь/сделай/скинь/...`, 20

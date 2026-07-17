@@ -94,7 +94,7 @@ LLM-уточнение имён — шов на боксе (офлайн не н
 |---|---|---|
 | **IMMUNE** | 1.0 | temporal (циркад/burstiness/tenure/recency), reciprocity (outgoing_ratio/mean_dur/calls_per_week/total), trajectory (cadence_slope/changepoints) |
 | ROBUST | 0.8 | ✓ **Фаза 2:** hedge/directive/question/lexical (`linguistic.py`), formality ты/вы (`formality.py`), we/i (`pronouns.py`). По речи КОНТАКТА (speaker≠OWNER, fallback все). Маркеры/фразбанк = данные. **B1:** tempo_cps/reply_latency_ms/tempo_accel (`tempo.py`) — из start_ms/end_ms сегментов, строго speaker=OTHER (без fallback), UNKNOWN не участвует. **B2:** specificity (`specificity.py`) — числа/даты/деньги/время на whitespace-токенах (НЕ `base.tokenize()` — тот вырезает цифры); entity-хиты НЕ считаются в v1 (decisions.md). **B5:** request_balance (`linguistic.py::compute_request_balance`) — (req_other−req_owner)/сумма по regex-маркерам просьб, ОБЕ стороны раздельно (не fallback-паттерн модуля), UNKNOWN пропускается целиком, гейт сумма≥3 |
-| AFFECTIVE | 0.6 | ✓ **Фаза 3:** affective (`affective.py`: mean_risk/risk_volatility/max_risk/profanity_mean) + topical (`topical.py`: topic_diversity/topic_focus Herfindahl). Из `analyses` (risk/profanity/key_topics). **B4:** emo_anger/emo_anxiety/emo_joy/emo_contempt (`emotion_palette.py`) — лексиконная плотность (per-mille) на речи контакта, 4 лексикона в `age_style/lexicons/emo_*.txt` (переиспользует `age_style.lexicons.load_lexicon` + `lexical_age.lexicon_hits`, не новый загрузчик). `Tier.AFFECTIVE`, но роутится в `_TEXT_FNS` (читает `segments`, не `analyses`) — тир и группа-источник в `feature_store.py` независимы |
+| AFFECTIVE | 0.6 | ✓ **Фаза 3:** affective (`affective.py`: mean_risk/risk_volatility/max_risk/profanity_mean) + topical (`topical.py`: topic_diversity/topic_focus Herfindahl). Из `analyses` (risk/profanity/key_topics). **B4:** emo_anger/emo_anxiety/emo_joy/emo_contempt (`emotion_palette.py`) — лексиконная плотность (per-mille) на речи контакта, 4 лексикона в `age_style/lexicons/emo_*.txt` (переиспользует `age_style.lexicons.load_lexicon` + `lexical_age.lexicon_hits`, не новый загрузчик). `Tier.AFFECTIVE`, но роутится в `_TEXT_FNS` (читает `segments`, не `analyses`) — тир и группа-источник в `feature_store.py` независимы. **B6:** accommodation (`accommodation.py`) — медиана per-call (align_contact−align_owner) множеств контентных слов (len≥4, минус ~40 стоп-слов), звонки с |A|<20 или |B|<20 пропущены; >0 = контакт лексически подстраивается под владельца |
 | FRAGILE | 0.4 | dominance (talk-ratio/turns) — **Фаза 4, гейт по доле UNKNOWN** |
 
 Каждая фича: `Feature(value, support_n, tier)` (`features/base.py`). Чистая функция над
@@ -359,7 +359,7 @@ src/callprofiler/insight/
   tiers.py                          # F8: Эббингауз-тиры (см. секцию выше)
   deep_extract.py                   # M8: map-reduce deep-extract (см. секцию выше)
   features/{base,temporal,reciprocity,trajectory,linguistic,formality,pronouns,affective,topical}.py
-  features/{tempo,specificity,emotion_palette}.py       # B1/B2/B4
+  features/{tempo,specificity,emotion_palette,accommodation}.py       # B1/B2/B4/B6
   age_style/lexicons/emo_{anger,anxiety,joy,contempt}.txt          # B4 данные
   synth/{corpus,archetypes,noise,phrasebank}.py
   # build_contact_features маршрутизирует META(calls)+TEXT(segments)+AFFECTIVE(analyses)

@@ -137,8 +137,10 @@ column — bugs.md 2026-07-02) · досье Ф0-Ф4 · русификация.
    **B5 баланс просьб** — `linguistic.py::compute_request_balance` (req_other−req_owner)/сумма,
    обе стороны раздельно, UNKNOWN не считается, гейт сумма≥3; отдельной досье-секции нет —
    питает A7 tension-правило 5.
-   Следующая по порядку — **34. B6 Аккомодация (oz5, T2)**.
-   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1232 passed/2 skipped.
+   **B6 лексическая аккомодация** — `insight/features/accommodation.py` (медиана per-call
+   align_contact−align_owner по множествам контентных слов, гейт |A|,|B|≥20).
+   Следующая по порядку — **35. B7 Финансовая экспозиция (oz5, T2)**.
+   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1238 passed/2 skipped.
 2. **Бокс (не блокирует исполнение):** pull → `owner_birth_year` в base.yaml → пересчёт возраста
    (`age-estimate --user me` + `age-style --user me`, TABLE/RULES v2) → спот-чек 10 контактов →
    LLM-окно: `age-estimate --user me --llm`.

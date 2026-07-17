@@ -15,6 +15,7 @@ from .features.topical import compute_topical
 from .features.tempo import compute_tempo
 from .features.specificity import compute_specificity
 from .features.emotion_palette import compute_emotion_palette
+from .features.accommodation import compute_accommodation
 
 TIER_WEIGHTS = {
     Tier.IMMUNE: 1.0,
@@ -28,6 +29,7 @@ _IMMUNE_FNS = _META_FNS  # alias for backward compat
 _TEXT_FNS = (
     compute_linguistic, compute_formality, compute_pronouns, compute_tempo,
     compute_specificity, compute_emotion_palette, compute_request_balance,
+    compute_accommodation,
 )
 _AFFECTIVE_FNS = (compute_affective, compute_topical)
 
