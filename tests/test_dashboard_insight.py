@@ -89,6 +89,31 @@ class TestInsightReader:
         assert pca["points"] == [] and pca["clusters"] == [] and pca["k"] == 0
         assert net["nodes"]  # derived from call metadata, independent of fit
 
+    def test_lifeline_reads_bio_arcs(self, tmp_path):
+        """D2: две арки -> get_lifeline отдаёт 2 записи, отсортированные по importance."""
+        from callprofiler.biography.schema import apply_biography_schema
+
+        db = _build_db(tmp_path, fit=False)
+        # DashboardDBReader opens query_only=ON — seed через отдельный r/w-коннект.
+        writer = sqlite3.connect(str(db))
+        apply_biography_schema(writer)
+        writer.execute(
+            "INSERT INTO bio_arcs(user_id, title, arc_type, status, start_date, end_date, importance) "
+            "VALUES ('me','Переезд','life_event','resolved','2024-01-01','2024-03-01',80)"
+        )
+        writer.execute(
+            "INSERT INTO bio_arcs(user_id, title, arc_type, status, start_date, importance) "
+            "VALUES ('me','Проект X','project','ongoing','2025-06-01',60)"
+        )
+        writer.commit()
+        writer.close()
+
+        reader = DashboardDBReader(str(db))
+        arcs = reader.get_lifeline("me")
+        reader.close()
+        assert len(arcs) == 2
+        assert arcs[0]["importance"] >= arcs[1]["importance"]
+
     def test_reads_guard_missing_archetype_tables(self, tmp_path):
         """contact_archetypes table absent entirely → guarded, never raises."""
         db = tmp_path / "raw.db"
@@ -112,11 +137,13 @@ class TestInsightReader:
         net = reader.get_insight_network("me")    # _archetype_map guarded → cluster None
         circ = reader.get_insight_circadian("me")
         ecg = reader.get_insight_ecg("me")
+        lifeline = reader.get_lifeline("me")  # no bio_arcs table -> [], not 500
         reader.close()
         assert pca["points"] == [] and pca["k"] == 0
         assert net["nodes"] and net["nodes"][0]["cluster"] is None
         assert circ["cells"][0] == [10, 0, 1]  # 2026-05-04 = Monday, hour 10
         assert ecg["series"][0]["period"] == "2026-05"
+        assert lifeline == []
 
 
 # ── Endpoint layer (mocked reader) ──────────────────────────────────────────
@@ -174,6 +201,18 @@ class TestInsightEndpoints:
         assert resp.status_code == 200
         assert resp.json()["series"][0]["period"] == "2026-05"
         server_mod._DB_READER.get_insight_ecg.assert_called_with("me", 7)
+
+    def test_lifeline_endpoint(self, client):
+        tc, server_mod = client
+        server_mod._DB_READER.get_lifeline.return_value = [
+            {"title": "A", "arc_type": "project", "status": "ongoing",
+             "start_date": "2025-01-01", "end_date": None, "importance": 70},
+            {"title": "B", "arc_type": "life_event", "status": "resolved",
+             "start_date": "2024-01-01", "end_date": "2024-02-01", "importance": 90},
+        ]
+        resp = tc.get("/api/insight/lifeline")
+        assert resp.status_code == 200
+        assert len(resp.json()["arcs"]) == 2
 
     def test_contacts_picker_endpoint(self, client):
         tc, server_mod = client

@@ -6,6 +6,22 @@
 
 ---
 
+### Added — D2: линия жизни в дашборде (2026-07-17)
+- `dashboard/db_reader.py::get_lifeline(user_id) -> list[dict]` — guarded `_has_table
+  ('bio_arcs')`, top-40 арок по importance (title/arc_type/status/start_date/end_date).
+  `GET /api/insight/lifeline` (рядом с pca/network/circadian/ecg/contacts).
+- `static/app.js`: 5-й вид на вкладке «Архетипы» — ECharts custom-серия (Gantt-стиль):
+  горизонтальные полосы по годам (x=время start→end, end=NULL → start+30д; y=индекс арки;
+  цвет по arc_type; высота бара — `api.size([0,1])`-пропорциональная, не фиксированная —
+  иначе перекрывались бы при >20 арках в 420px). `templates/index.html`: full-width панель
+  (НЕ в `.overview-grid` 2-колоночной сетке — горизонтальному таймлайну нужна вся ширина).
+  Пусто → «biography не запускалась».
+- Тесты: `tests/test_dashboard_insight.py` (+2) — 2 арки → 2 записи, сортировка по
+  importance (seed через ОТДЕЛЬНЫЙ r/w-коннект — `DashboardDBReader` открывает
+  `query_only=ON`, писать через `reader._conn` нельзя, поймано тестом до коммита) +
+  расширен guard-тест (нет bio_arcs → [], не 500) + endpoint-тест (2 арки в JSON).
+  Suite: 1280 passed, 2 skipped.
+
 ### Added — D1: «В этот день» — годовщины в дайджесте (2026-07-17)
 - `deliver/digest.py::on_this_day(conn, user_id, today=None) -> list[str]` — сцены
   `bio_scenes` с той же MM-DD в прошлые годы, `importance>70`; строка «N лет назад:

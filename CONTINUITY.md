@@ -156,8 +156,13 @@ column — bugs.md 2026-07-02) · досье Ф0-Ф4 · русификация.
    **D1 «В этот день»** — `digest.py::on_this_day` (bio_scenes годовщины, importance>70,
    RU-склонение год/года/лет); `build_digest` зовёт сам (не extra_sections); CLI
    `on-this-day --user X [--send]` для отдельного Task Scheduler.
-   Следующая по порядку — **40. D2 Линия жизни в дашборде (oz5, T1)**.
-   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1278 passed/2 skipped.
+   **D2 линия жизни** — `get_lifeline`/`/api/insight/lifeline`, 5-й вид вкладки «Архетипы»
+   (Gantt-стиль ECharts custom-серия из `bio_arcs`); тестом пойман нюанс —
+   `DashboardDBReader` read-only (`query_only=ON`), seed тестовых данных требует отдельный
+   r/w-коннект.
+   Следующая по порядку — **41. D3 Квартальный отчёт о социальной вселенной (oz5, T2,
+   LLM-окно)**.
+   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1280 passed/2 skipped.
 2. **Бокс (не блокирует исполнение):** pull → `owner_birth_year` в base.yaml → пересчёт возраста
    (`age-estimate --user me` + `age-style --user me`, TABLE/RULES v2) → спот-чек 10 контактов →
    LLM-окно: `age-estimate --user me --llm`.

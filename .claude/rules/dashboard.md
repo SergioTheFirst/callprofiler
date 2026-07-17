@@ -21,8 +21,8 @@ biography, менять нельзя). `get_entity_profile`/`get_character_profi
 `GET /api/health-report` (`doctor.run_checks` напрямую, threadpool, никакой записи в БД); 🔴-бейдж
 в шапке `#header-health-badge` при любом FAIL; кнопка «Обновить») · `calls` · `search` ·
 `entities` (**«Личности»**: «Зеркало» владельца (A3, collapsible, СВЕРХУ вкладки) → таблица людей
-`#people-table` с поиском + «Упомянутые персоны (граф)» + модалки) · `insight` («Архетипы», 4 вида,
-Ф7) · `system`.
+`#people-table` с поиском + «Упомянутые персоны (граф)» + модалки) · `insight` («Архетипы», 5 видов,
+Ф7 + D2 «Линия жизни» — Gantt из `bio_arcs`, `/api/insight/lifeline`) · `system`.
 SSE-тик обновляет активную вкладку (bugs.md 2026-06-05).
 
 **Досье-UI (Ф3):** клик по строке людей / точке PCA (`_cid` в data) / узлу эго-сети (`id='c{cid}'`)

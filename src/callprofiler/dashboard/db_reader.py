@@ -1585,6 +1585,24 @@ class DashboardDBReader:
         } for r in rows if r["period"]]
         return {"series": series, "contact_id": contact_id}
 
+    def get_lifeline(self, user_id: str) -> list[dict]:
+        """D2: жизненные арки (biography) для линии жизни. Нет bio_arcs -> []."""
+        self.connect()
+        if not self._has_table("bio_arcs"):
+            return []
+        rows = self._conn.execute(
+            """SELECT title, arc_type, status, start_date, end_date, importance
+                 FROM bio_arcs WHERE user_id = ? AND start_date IS NOT NULL
+                ORDER BY importance DESC LIMIT 40""",
+            (user_id,),
+        ).fetchall()
+        return [
+            {"title": r["title"], "arc_type": r["arc_type"], "status": r["status"],
+             "start_date": r["start_date"], "end_date": r["end_date"],
+             "importance": r["importance"]}
+            for r in rows
+        ]
+
     def get_call_detail(self, call_id: int, user_id: str) -> dict[str, Any] | None:
         """Full call detail: metadata + analysis + transcript segments + contact + promises."""
         self.connect()

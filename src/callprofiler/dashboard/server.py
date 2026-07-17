@@ -546,6 +546,13 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
             return JSONResponse(dbr.get_insight_ecg(_USER_ID, contact_id or None))
         return JSONResponse({"series": [], "contact_id": contact_id or None})
 
+    @fa.get("/api/insight/lifeline")
+    async def _insight_lifeline() -> JSONResponse:
+        dbr = _get_reader()
+        if dbr is not None and hasattr(dbr, "get_lifeline"):
+            return JSONResponse({"arcs": dbr.get_lifeline(_USER_ID)})
+        return JSONResponse({"arcs": []})
+
     @fa.get("/api/insight/contacts")
     async def _insight_contacts(limit: int = Query(60, ge=1, le=500)) -> JSONResponse:
         """Top contacts (by call volume) for the ECG/circadian picker."""

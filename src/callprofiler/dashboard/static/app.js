@@ -1619,6 +1619,7 @@
         fetch('/api/insight/pca').then(function(r) { return r.json(); }).then(renderPca).catch(function() {});
         fetch('/api/insight/network?limit=40').then(function(r) { return r.json(); }).then(renderNetwork).catch(function() {});
         fetch('/api/insight/circadian').then(function(r) { return r.json(); }).then(renderCircadian).catch(function() {});
+        fetch('/api/insight/lifeline').then(function(r) { return r.json(); }).then(renderLifeline).catch(function() {});
         loadEcgContacts();
     }
 
@@ -1794,6 +1795,63 @@
                 { name: 'риск', type: 'line', smooth: true, symbol: 'none', yAxisIndex: 1, data: risk,
                   connectNulls: true, lineStyle: { color: '#FF5C7A', width: 1.5, type: 'dashed' }, itemStyle: { color: '#FF5C7A' } }
             ]
+        }, true);
+    }
+
+    var LIFELINE_COLORS = {
+        problem: '#FF5C7A', project: '#00A8FF',
+        relationship: '#00D4C8', life_event: '#FFD166'
+    };
+
+    function renderLifeline(data) {
+        var chart = initChart('chart-lifeline');
+        if (!chart) return;
+        var arcs = data.arcs || [];
+        if (!arcs.length) { emptyChart(chart, 'biography не запускалась'); return; }
+
+        var items = [];
+        arcs.forEach(function(a, i) {
+            if (!a.start_date) return;
+            var start = new Date(a.start_date).getTime();
+            if (isNaN(start)) return;
+            var end = a.end_date ? new Date(a.end_date).getTime() : (start + 30 * 86400000);
+            if (isNaN(end) || end < start) end = start + 30 * 86400000;
+            items.push({
+                value: [start, end, items.length],
+                name: a.title || '?', _status: a.status || '', _type: a.arc_type || '',
+                itemStyle: { color: LIFELINE_COLORS[a.arc_type] || '#8B95A5' }
+            });
+        });
+        if (!items.length) { emptyChart(chart, 'biography не запускалась'); return; }
+
+        chart.setOption({
+            tooltip: { formatter: function(o) {
+                var d = o.data || {};
+                return '<b>' + escapeHtml(d.name) + '</b><br/>' + escapeHtml(d._status) +
+                       (d._type ? ' · ' + escapeHtml(d._type) : '');
+            } },
+            grid: { top: 16, right: 24, bottom: 30, left: 16 },
+            xAxis: { type: 'time', axisLabel: { color: '#64748b', fontSize: 9 },
+                     splitLine: { lineStyle: { color: '#16202e' } } },
+            yAxis: { type: 'value', show: false, inverse: true, min: -1, max: items.length },
+            series: [{
+                type: 'custom',
+                renderItem: function(params, api) {
+                    var y = api.value(2);
+                    var start = api.coord([api.value(0), y]);
+                    var end = api.coord([api.value(1), y]);
+                    var rowH = (api.size ? api.size([0, 1])[1] : 16) || 16;
+                    var h = Math.max(4, Math.min(18, Math.abs(rowH) * 0.6));
+                    return {
+                        type: 'rect',
+                        shape: { x: start[0], y: start[1] - h / 2,
+                                 width: Math.max(2, end[0] - start[0]), height: h },
+                        style: api.style()
+                    };
+                },
+                encode: { x: [0, 1], y: 2 },
+                data: items
+            }]
         }, true);
     }
 
