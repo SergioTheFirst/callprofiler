@@ -754,6 +754,7 @@ class DashboardDBReader:
             "age": None,
             "age_style": None,
             "age_fused": None,
+            "emotion_palette": None,
             "patterns": [],
             "temporal": None,
             "social": None,
@@ -932,6 +933,23 @@ class DashboardDBReader:
                     dossier["age_fused"] = fused
             except Exception as exc:  # noqa: BLE001 — fusion слой опционален
                 log.debug("dossier: age fusion недоступна: %s", exc)
+
+        if self._has_table("contact_features"):
+            rows = self._conn.execute(
+                """SELECT feature_name, value, support_n FROM contact_features
+                    WHERE contact_id = ? AND user_id = ?
+                      AND feature_name IN
+                          ('emo_anger','emo_anxiety','emo_joy','emo_contempt')""",
+                (contact_id, user_id),
+            ).fetchall()
+            if rows:
+                from callprofiler.insight.labels import FEATURE_LABELS
+                dossier["emotion_palette"] = [
+                    {"code": r["feature_name"],
+                     "label": FEATURE_LABELS.get(r["feature_name"], (r["feature_name"],))[0],
+                     "value": r["value"], "support_n": r["support_n"]}
+                    for r in rows
+                ]
 
         entity_id = None
         if self._has_table("entity_contact_map"):

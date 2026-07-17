@@ -1262,6 +1262,19 @@
             }).join(''));
         }
 
+        // B4: эмоциональная палитра — 4 мини-бара плотности лексиконов
+        if (d.emotion_palette && d.emotion_palette.length) {
+            var epHtml = d.emotion_palette.map(function(e) {
+                var pct = Math.min(100, Math.round((e.value || 0) / 20 * 100));
+                return '<div style="display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:3px">' +
+                    '<span style="width:70px;color:var(--text-muted)">' + escapeHtml(e.label) + '</span>' +
+                    '<div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden">' +
+                    '<div style="width:' + pct + '%;height:100%;background:var(--accent)"></div></div>' +
+                    '<span style="width:30px;text-align:right;color:var(--text-secondary)">' + pct + '%</span></div>';
+            }).join('');
+            html += dossierSec('Эмоциональная палитра', epHtml);
+        }
+
         // A7: группа «Поведение» — паттерны, психотип, ритм, факты, противоречия, обещания
         html += dossierLayer('Поведение');
 

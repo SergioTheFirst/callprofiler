@@ -6,6 +6,25 @@
 
 ---
 
+### Added — B4: эмоциональная палитра, лексиконные фичи (2026-07-17)
+- `insight/features/emotion_palette.py::compute_emotion_palette` — 4 оси
+  (emo_anger/emo_anxiety/emo_joy/emo_contempt), плотность на 1000 токенов речи
+  контакта (`speaker != OWNER`, fallback все), `Tier.AFFECTIVE`, `support_n`=хиты.
+  Лексиконы — `age_style/lexicons/emo_{anger,anxiety,joy,contempt}.txt` (переиспользует
+  `age_style.lexicons.load_lexicon` + `lexical_age.lexicon_hits`, БЕЗ нового загрузчика —
+  спека называла путь `features/lexicons/`, но тот жёстко не читается имеющимся loader'ом).
+- `feature_store.py`: зарегистрирована в `_TEXT_FNS` (не `_AFFECTIVE_FNS` — источник данных
+  `segments`, не `analyses`, несмотря на `Tier.AFFECTIVE`).
+- `labels.py`: 4 label-триплета (гнев/тревога/позитив/презрение).
+- `dashboard/db_reader.py::get_person_dossier`: guarded read `contact_features` по 4
+  feature_name → `dossier["emotion_palette"]` (список `{code,label,value,support_n}`).
+- `dashboard/static/app.js`: секция «Эмоциональная палитра» (4 мини-бара, слой «Речь»,
+  после «Отличительное», перед слоем «Поведение»); ширина = `min(100, value/20*100)%`
+  (per-mille density не 0-1 ограничена — кап 20‰ выбран как визуальный масштаб, не мера).
+- Тесты: `tests/insight/test_emotion_palette.py` (12, planted-фразы на все 4 оси, exact-match
+  маркер `=псих` блокирует false-positive на «психологией», support_n=хиты не токены).
+  Suite: 1225 passed, 2 skipped.
+
 ### Added — F3: `ask` через Telegram-бот (2026-07-17)
 - `ask.py`: `llm_available(llm_url, timeout=2.0)` — проба `/health` (паттерн M1/doctor.py,
   ConnectionError = норма вне LLM-окна, не ошибка) + `ask_log.answered` колонка (аддитивный

@@ -130,8 +130,12 @@ column — bugs.md 2026-07-02) · досье Ф0-Ф4 · русификация.
    **B2 специфичность vs вода** — `insight/features/specificity.py` (числа/даты/деньги/время на
    whitespace-токенах); BS-index v2 подтверждённо НЕ делается; entity-хиты не считаются в v1
    (decisions.md новая запись).
-   Следующая по порядку — **32. B4 Эмоциональная палитра (oz5, T1)**.
-   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1213 passed/2 skipped.
+   **B4 эмоциональная палитра** — `insight/features/emotion_palette.py` (emo_anger/anxiety/joy/
+   contempt, лексиконная плотность на речи контакта), лексиконы в `age_style/lexicons/emo_*.txt`
+   (переиспользован существующий loader, НЕ спека-путь `features/lexicons/`); досье-секция
+   «Эмоциональная палитра» (4 мини-бара, слой «Речь»).
+   Следующая по порядку — **33. B5 Баланс просьб (oz5, T1)**.
+   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1225 passed/2 skipped.
 2. **Бокс (не блокирует исполнение):** pull → `owner_birth_year` в base.yaml → пересчёт возраста
    (`age-estimate --user me` + `age-style --user me`, TABLE/RULES v2) → спот-чек 10 контактов →
    LLM-окно: `age-estimate --user me --llm`.
