@@ -342,6 +342,26 @@ cap 95, source='marker+style'; (2) дизъюнкт → маркер побеж�
 
 ---
 
+## Финансовая экспозиция (B7, `finance.py`) — display-only, читает `events` напрямую
+
+Единственный insight-модуль этой секции, который сам ходит в БД (`conn` в сигнатуре) —
+остальные фичи чистые функции над `segments`/`calls`/`analyses`, эта — над `events`
+(`event_type IN ('promise','debt')`, `status='open'`), т.к. агрегирует ЧЕРЕЗ звонки, а не
+внутри одного. `extract_amounts(text)` — regex по цифрам (словесные числа "сорок тысяч"
+НЕ ловятся, только цифры), множители тыс/к/млн, валюты RUB/USD/EUR по маркеру
+(руб/₽/р, доллар/$/бакс, евро/€). `finance_exposure(conn,user_id,contact_id)` — на
+событие берётся МАКСИМУМ сумм из payload+quote (не сумма — оба текста часто пересказывают
+один факт), поперёк событий — `low`=крупнейшая разовая, `high`=сумма разовых максимумов.
+`exposure_phrase`/`format_amount_range` — «на нём завязано ~40–90 тыс ₽ + ~2 тыс $».
+Досье: секция «Финансовая экспозиция» в слое «Место в сети» (`db_reader.get_person_dossier`
+→ `dossier["finance"]`, guarded try/except, None → нет секции) + до 3 quote+дата событий-
+оснований. Digest: `_amount_suffix` в `deliver/digest.py` дописывает сумму ТОЛЬКО к overdue-
+строкам (гейт по наличию `days_overdue` в item), считает от what+quote САМОГО item, не
+агрегат по контакту — переиспользует `extract_amounts`/`format_amount_range`, не
+`finance_exposure` (тот аггрегирует по контакту, не по одному item).
+
+---
+
 ## Офлайн-разработка (нет БД на дев-ПК)
 
 `synth/corpus.py SyntheticCorpus.build()` — schema-accurate temp SQLite из `db/schema.sql` +
@@ -358,6 +378,7 @@ src/callprofiler/insight/
   age_markers.py  age_estimate.py   # возраст: маркеры/якоря/LLM (см. секцию выше)
   tiers.py                          # F8: Эббингауз-тиры (см. секцию выше)
   deep_extract.py                   # M8: map-reduce deep-extract (см. секцию выше)
+  finance.py                        # B7: финансовая экспозиция (см. секцию выше)
   features/{base,temporal,reciprocity,trajectory,linguistic,formality,pronouns,affective,topical}.py
   features/{tempo,specificity,emotion_palette,accommodation}.py       # B1/B2/B4/B6
   age_style/lexicons/emo_{anger,anxiety,joy,contempt}.txt          # B4 данные

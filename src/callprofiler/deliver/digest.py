@@ -162,10 +162,28 @@ def _truncate(text: str, n: int = _MAX_ITEM_CHARS) -> str:
     return text if len(text) <= n else text[: n - 1].rstrip() + "…"
 
 
+def _amount_suffix(item: dict) -> str:
+    """B7: сумма из what+quote САМОГО item (не агрегат по контакту) — «(~40 тыс ₽)»."""
+    from callprofiler.insight.finance import extract_amounts, format_amount_range
+
+    text = f"{item.get('what') or ''} {item.get('quote') or ''}"
+    by_currency: dict[str, float] = {}
+    for value, currency in extract_amounts(text):
+        by_currency[currency] = max(by_currency.get(currency, 0.0), value)
+    if not by_currency:
+        return ""
+    parts = [format_amount_range(v, v, cur) for cur, v in by_currency.items()]
+    return "(" + " + ".join(parts) + ")"
+
+
 def _format_item(item: dict) -> list[str]:
     what = _truncate(item["what"], 160)
     mark = "✓ " if item.get("confirmed") else ""
     line = f"- {mark}**{item['contact_name']}**: {what} — обещано {item['call_date'] or '?'}, срок {item['deadline']}"
+    if "days_overdue" in item:
+        amount = _amount_suffix(item)
+        if amount:
+            line += f" {amount}"
     lines = [_truncate(line)]
     if item.get("quote"):
         lines.append(_truncate(f"  > «{item['quote']}»"))

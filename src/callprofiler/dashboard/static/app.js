@@ -1365,6 +1365,18 @@
             }).join(''));
         }
 
+        // B7: финансовая экспозиция — фраза + до 3 событий-оснований
+        if (d.finance && d.finance.phrase) {
+            var finHtml = '<div style="margin-bottom:6px">' + escapeHtml(d.finance.phrase) + '</div>';
+            if (d.finance.events && d.finance.events.length) {
+                finHtml += '<ul class="detail-promises">' + d.finance.events.map(function(e) {
+                    return '<li>' + (e.date ? '<span style="color:var(--text-muted)">' + escapeHtml(e.date) + '</span> — ' : '') +
+                        '«' + escapeHtml(e.quote || '') + '»</li>';
+                }).join('') + '</ul>';
+            }
+            html += dossierSec('Финансовая экспозиция', finHtml);
+        }
+
         // A7: группа «Динамика» — риск по годам, поворотные сцены
         html += dossierLayer('Динамика');
 

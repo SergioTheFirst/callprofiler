@@ -139,8 +139,12 @@ column — bugs.md 2026-07-02) · досье Ф0-Ф4 · русификация.
    питает A7 tension-правило 5.
    **B6 лексическая аккомодация** — `insight/features/accommodation.py` (медиана per-call
    align_contact−align_owner по множествам контентных слов, гейт |A|,|B|≥20).
-   Следующая по порядку — **35. B7 Финансовая экспозиция (oz5, T2)**.
-   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1238 passed/2 skipped.
+   **B7 финансовая экспозиция** — `insight/finance.py` (единственный insight-модуль, сам
+   ходящий в БД: `events` promise/debt → `{currency:[low,high]}`, max-не-сумма на событие);
+   досье-секция «Финансовая экспозиция» (слой «Место в сети»); digest overdue-строки
+   получают суффикс суммы из своего what+quote.
+   Следующая по порядку — **36. B8 Дрейф стиля по годам (oz5, T2, FRAGILE gated)**.
+   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1253 passed/2 skipped.
 2. **Бокс (не блокирует исполнение):** pull → `owner_birth_year` в base.yaml → пересчёт возраста
    (`age-estimate --user me` + `age-style --user me`, TABLE/RULES v2) → спот-чек 10 контактов →
    LLM-окно: `age-estimate --user me --llm`.

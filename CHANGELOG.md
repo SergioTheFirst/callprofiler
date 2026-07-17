@@ -6,6 +6,24 @@
 
 ---
 
+### Added — B7: финансовая экспозиция (2026-07-17)
+- `insight/finance.py` (новый модуль, единственный в insight/features-семье, который сам
+  ходит в БД): `extract_amounts(text)` — regex по цифрам+множителям(тыс/к/млн)+валютам
+  (RUB/USD/EUR), словесные числа НЕ ловятся (зафиксировано тестом). `finance_exposure(conn,
+  user_id, contact_id)` — открытые `events` (promise/debt), на событие берётся МАКСИМУМ сумм
+  из payload+quote (не сумма — часто пересказывают один факт двумя текстами), поперёк
+  событий: `low`=крупнейшая разовая, `high`=сумма разовых максимумов; нет сумм → None.
+  `exposure_phrase`/`format_amount_range` — «на нём завязано ~40–90 тыс ₽».
+- `dashboard/db_reader.py::get_person_dossier`: `dossier["finance"]` (guarded try/except) +
+  до 3 quote+дата событий-оснований; `static/app.js`: секция «Финансовая экспозиция» в слое
+  «Место в сети» (после «Связи»).
+- `deliver/digest.py::_amount_suffix`: overdue-строки (гейт по `"days_overdue" in item`)
+  дописывают сумму из СВОЕГО what+quote (не агрегат по контакту) — переиспользует
+  `extract_amounts`/`format_amount_range`, не `finance_exposure`.
+- Тесты: `tests/insight/test_finance.py` (13 — таблица extract_amounts включая «2к $»,
+  дубль-события не задваивают high, None без событий/при закрытых) + `tests/test_digest.py`
+  (+2 — overdue получает суффикс, upcoming нет). Suite: 1253 passed, 2 skipped.
+
 ### Added — B6: лексическая аккомодация (2026-07-17)
 - `insight/features/accommodation.py::compute_accommodation` — группирует сегменты по
   `call_id`; на звонок множества контентных слов (`len≥4`, ё→е, минус ~40 стоп-слов) для

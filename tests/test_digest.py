@@ -161,3 +161,31 @@ def test_digest_item_truncated_to_300_chars(tmp_path):
     for line in report.splitlines():
         assert len(line) <= 300
     repo.close()
+
+
+def test_overdue_line_gets_amount_suffix(tmp_path):
+    """B7: overdue-строки получают сумму из СВОИХ what+quote."""
+    repo, conn = _db(tmp_path)
+    cid = _contact(conn)
+    call_id = _call(conn, cid)
+    _event(conn, "me", cid, call_id, "OTHER", "прислать 40 тыс руб", "2026-07-01",
+           quote="перекину 40 тыс руб завтра")
+    conn.commit()
+
+    report = build_digest(conn, "me", today=TODAY)
+    assert "~40 тыс ₽" in report
+    repo.close()
+
+
+def test_upcoming_line_has_no_amount_suffix(tmp_path):
+    """B7: сумма дописывается ТОЛЬКО к overdue — не-просроченным строкам нет."""
+    repo, conn = _db(tmp_path)
+    cid = _contact(conn)
+    call_id = _call(conn, cid)
+    _event(conn, "me", cid, call_id, "OWNER", "перевести 40 тыс руб", "2026-07-25",
+           quote="переведу 40 тыс руб")
+    conn.commit()
+
+    report = build_digest(conn, "me", today=TODAY)
+    assert "~40 тыс ₽" not in report
+    repo.close()

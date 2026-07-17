@@ -759,6 +759,7 @@ class DashboardDBReader:
             "temporal": None,
             "social": None,
             "network": None,
+            "finance": None,
             "temperament": None,
             "motivation": None,
             "facts": [],
@@ -950,6 +951,27 @@ class DashboardDBReader:
                      "value": r["value"], "support_n": r["support_n"]}
                     for r in rows
                 ]
+
+        try:
+            from callprofiler.insight.finance import finance_exposure, exposure_phrase
+            exp = finance_exposure(self._conn, user_id, contact_id)
+        except Exception as exc:  # noqa: BLE001 — display-only слой опционален
+            log.debug("dossier: finance_exposure недоступна: %s", exc)
+            exp = None
+        if exp:
+            rows = self._conn.execute(
+                """SELECT e.source_quote AS quote, date(c.call_datetime) AS call_date
+                     FROM events e JOIN calls c ON c.call_id = e.call_id
+                    WHERE e.user_id = ? AND e.contact_id = ?
+                      AND e.event_type IN ('promise', 'debt') AND e.status = 'open'
+                      AND e.source_quote IS NOT NULL
+                    ORDER BY c.call_datetime DESC LIMIT 3""",
+                (user_id, contact_id),
+            ).fetchall()
+            dossier["finance"] = {
+                "phrase": exposure_phrase(exp),
+                "events": [{"quote": r["quote"], "date": r["call_date"]} for r in rows],
+            }
 
         entity_id = None
         if self._has_table("entity_contact_map"):
