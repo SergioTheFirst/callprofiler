@@ -6,6 +6,28 @@
 
 ---
 
+### Added — D3: квартальный отчёт о социальной вселенной (2026-07-17)
+- `insight/quarterly.py::gather_aggregates(conn,user_id,period) -> dict` — ТОЛЬКО
+  агрегаты (риз-ры/фолл-ры звонков к prev-кварталу, risk_shifts |Δ|≥15, new_people
+  PERSON-entities, unresolved через `digest.overdue_items`, dormant через
+  `dormancy.dormant_valuable`, опц. `reliability_shifts` guarded
+  `_has_table('promise_outcomes')`) — никаких транскриптов в LLM.
+  `build_report(conn,user_id,period,*,force=False,reports_dir=None) -> dict` — кэш по
+  `(user_id,period,prompt_version)` в новой `insight_reports`; LLM-сбой НЕ глотается —
+  `RuntimeError` (в отличие от age_estimate.py graceful-None: квартальный отчёт —
+  разовое явное действие юзера, тихий провал хуже явной ошибки). Пишет
+  `C:\calls\reports\{user}-{period}.md` (переопределяемо `reports_dir` для тестов).
+- `configs/prompts/quarterly_v001.txt` — промпт `qreport-v1`.
+- CLI: `quarterly-report --user X --quarter YYYY-Qn [--force]` — `RuntimeError` → exit 2.
+- Тесты: `tests/insight/test_quarterly.py` (6) — risers/fallers знак, пустые данные не
+  падают, mock-LLM сохраняет в БД+файл, повторный вызов без `--force` НЕ зовёт HTTP,
+  `--force` зовёт заново, LLM down → `RuntimeError`.
+- **Находка при разборе (не решение — пропуск):** задача B3 («Поведенческая надёжность
+  обещаний») из портфеля НИКОГДА не была реализована — прогон перескочил B2→B4. Таблицы
+  `promise_outcomes` нет нигде в кодовой базе. Зафиксировано в `.claude/rules/decisions.md`,
+  ставится следующей задачей перед финализацией портфеля.
+  Suite: 1286 passed, 2 skipped.
+
 ### Added — D2: линия жизни в дашборде (2026-07-17)
 - `dashboard/db_reader.py::get_lifeline(user_id) -> list[dict]` — guarded `_has_table
   ('bio_arcs')`, top-40 арок по importance (title/arc_type/status/start_date/end_date).

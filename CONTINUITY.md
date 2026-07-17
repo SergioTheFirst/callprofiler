@@ -160,9 +160,17 @@ column — bugs.md 2026-07-02) · досье Ф0-Ф4 · русификация.
    (Gantt-стиль ECharts custom-серия из `bio_arcs`); тестом пойман нюанс —
    `DashboardDBReader` read-only (`query_only=ON`), seed тестовых данных требует отдельный
    r/w-коннект.
-   Следующая по порядку — **41. D3 Квартальный отчёт о социальной вселенной (oz5, T2,
-   LLM-окно)**.
-   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1280 passed/2 skipped.
+   **D3 квартальный отчёт** — `insight/quarterly.py` (gather_aggregates только числа/имена/даты,
+   build_report кэш по user_id+period+prompt_version в `insight_reports`, LLM-сбой →
+   `RuntimeError` не глотается, `quarterly-report` CLI). **Портфель D (D1-D3) завершён.**
+   ⚠ **Находка при разборе D3, НЕ решение:** задача **B3 «Поведенческая надёжность обещаний»**
+   (oz5 T2, killer-сигнал по спеке) никогда не была реализована — прогон перескочил B2→B4.
+   `promise_outcomes` нет нигде в коде. Зафиксировано в decisions.md. **Следующая задача —
+   B3**, ПЕРЕД финализацией портфеля (гейт oz5 требует: «расхождение → доделать, не
+   рационализировать»). После B3 — чеклист «Финализация» (`ozalupennieStrategic5.md`
+   строки 902-914): сверка коммитов A1-A6/B1-B8/C1,C3/D1-D3 · kill-criteria параграф в
+   dashboard.md · State-обновление (бокс-очередь LLM-пассов) · финальный pytest+push.
+   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1286 passed/2 skipped.
 2. **Бокс (не блокирует исполнение):** pull → `owner_birth_year` в base.yaml → пересчёт возраста
    (`age-estimate --user me` + `age-style --user me`, TABLE/RULES v2) → спот-чек 10 контактов →
    LLM-окно: `age-estimate --user me --llm`.

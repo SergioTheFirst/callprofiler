@@ -52,6 +52,24 @@ def cmd_mentions_build(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_quarterly_report(args: argparse.Namespace) -> int:
+    setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = load_config_and_repo(args.config)
+    conn = repo._get_conn()
+    from callprofiler.insight.quarterly import build_report
+    try:
+        result = build_report(conn, args.user_id, args.quarter,
+                              force=getattr(args, "force", False),
+                              llm_url=cfg.models.llm_url)
+    except RuntimeError as exc:
+        log.error("quarterly-report: %s", exc)
+        return 2
+    mode = "из кэша" if result.get("cached") else "сгенерирован"
+    path = f" -> {result['path']}" if result.get("path") else ""
+    print(f"quarterly-report ({mode}) user={args.user_id} period={args.quarter}{path}")
+    return 0
+
+
 def cmd_age_estimate(args: argparse.Namespace) -> int:
     setup_logging(verbose=getattr(args, "verbose", False))
     cfg, repo = load_config_and_repo(args.config)

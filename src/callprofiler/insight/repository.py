@@ -198,6 +198,17 @@ CREATE TABLE IF NOT EXISTS mention_edges (
     sample_quote   TEXT,
     PRIMARY KEY (user_id, src_contact_id, dst_contact_id)
 );
+
+-- D3: квартальный LLM-отчёт о социальной вселенной, кэш по (user,period,версия промпта).
+CREATE TABLE IF NOT EXISTS insight_reports (
+    user_id        TEXT NOT NULL,
+    period         TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    prompt_hash    TEXT NOT NULL,
+    body_md        TEXT NOT NULL,
+    created_at     TEXT DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, period, prompt_version)
+);
 """
 
 # Колонки, добавленные после первого релиза схемы. ALTER, не recreate (db.md).

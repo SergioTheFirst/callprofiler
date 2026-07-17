@@ -69,7 +69,7 @@ from callprofiler.cli.commands.graph import (  # noqa: E402
 # ---- insight commands ----
 from callprofiler.cli.commands.insight import (  # noqa: E402
     cmd_features_build, cmd_archetypes_fit, cmd_person_archetype, cmd_person_link,
-    cmd_mentions_build,
+    cmd_mentions_build, cmd_quarterly_report,
     cmd_age_estimate, cmd_age_style, cmd_spotcheck_sample, cmd_calibrate_risk,
     cmd_mirror_build, cmd_tiers_recompute, cmd_deep_extract,
 )
@@ -566,6 +566,22 @@ def _build_parser() -> argparse.ArgumentParser:
         "--user", dest="user_id", required=True, metavar="USER_ID",
         help="Идентификатор пользователя",
     )
+    p_qreport = sub.add_parser(
+        "quarterly-report",
+        help="D3: квартальный LLM-отчёт о социальной вселенной (только агрегаты в промпте)",
+    )
+    p_qreport.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_qreport.add_argument(
+        "--quarter", dest="quarter", required=True, metavar="YYYY-Qn",
+        help="Квартал, например 2026-Q2",
+    )
+    p_qreport.add_argument(
+        "--force", action="store_true",
+        help="Игнорировать кэш insight_reports и пересчитать",
+    )
     p_person_arch = sub.add_parser(
         "person-archetype",
         help="Insight: карточка архетипа контакта",
@@ -877,6 +893,7 @@ def main() -> None:
         "archetypes-fit": cmd_archetypes_fit,
         "person-link": cmd_person_link,
         "mentions-build": cmd_mentions_build,
+        "quarterly-report": cmd_quarterly_report,
         "person-archetype": cmd_person_archetype,
         "age-estimate": cmd_age_estimate,
         "age-style": cmd_age_style,

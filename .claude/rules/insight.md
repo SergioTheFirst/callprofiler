@@ -411,6 +411,26 @@ max(60, 3×median_gap)`, median по разностям дат СОБСТВЕН�
 
 ---
 
+## Квартальный отчёт о социальной вселенной (D3, `quarterly.py`) — LLM-окно
+
+`gather_aggregates(conn,user_id,period)` — ТОЛЬКО агрегаты (числа/имена/даты), НИКАКИХ
+транскриптов в LLM (STRATEGIC_PLAN D3): risers/fallers (|Δ звонков| квартал vs предыдущий,
+top-8), risk-сдвиги (|Δ avg risk|≥15), новые PERSON-entities квартала (top-8, guarded
+`_has_table('entities')`), незакрытое (реюз `digest.overdue_items`), спящие ценные (реюз C3
+`dormant_valuable`), **kept_ratio-крайности (B3) — «при наличии»**: guarded
+`_has_table('promise_outcomes')`, отсутствует до реализации B3 (см. decisions.md — B3
+пропущена при исполнении портфеля, доделывается отдельной задачей).
+`build_report(conn,user_id,period,force=False)` — кэш по `(user_id,period,prompt_version)`
+в `insight_reports` (PK совпадает с ключом кэша — второй вызов без `--force` не зовёт HTTP
+вообще, до сборки агрегатов). Промпт `configs/prompts/quarterly_v001.txt`
+(`PROMPT_VERSION_QREPORT`), данные клипаются до 7000 симв. Сбой LLM → `RuntimeError`
+(НЕ silent-skip как в `age_estimate.py` — здесь единственный явный вызов пользователя,
+тихий пропуск был бы хуже ошибки), CLI `quarterly-report` ловит → exit 2.
+Файл-копия отчёта — `C:\calls\reports\{user}-{period}.md` (`reports_dir=` параметр
+переопределяет для тестов — дев-машина без реального `C:\calls`).
+
+---
+
 ## Офлайн-разработка (нет БД на дев-ПК)
 
 `synth/corpus.py SyntheticCorpus.build()` — schema-accurate temp SQLite из `db/schema.sql` +
@@ -430,6 +450,7 @@ src/callprofiler/insight/
   finance.py                        # B7: финансовая экспозиция (см. секцию выше)
   dormancy.py                       # C3: спящие ценные связи (см. секцию выше)
   mentions.py                       # C1: граф упоминаний (см. секцию выше)
+  quarterly.py                      # D3: квартальный LLM-отчёт (см. секцию выше)
   features/{base,temporal,reciprocity,trajectory,linguistic,formality,pronouns,affective,topical}.py
   features/{tempo,specificity,emotion_palette,accommodation}.py       # B1/B2/B4/B6
   age_style/lexicons/emo_{anger,anxiety,joy,contempt}.txt          # B4 данные
