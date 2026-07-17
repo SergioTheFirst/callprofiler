@@ -124,6 +124,7 @@ class FileWatcher:
         при повторном запуске «0 new» оставлял бы незаконченные звонки висеть.
         Возвращает число новых зарегистрированных файлов.
         """
+        self._write_heartbeat()
         self._update_terminal_counter()  # baseline ДО обработки → delta = обработанные сейчас
         new_ids = self.scan_all_users()
         # process_pending обрабатывает и только что зарегистрированные, и зависшие
@@ -148,6 +149,8 @@ class FileWatcher:
 
         while True:
             try:
+                self._write_heartbeat()  # F6: пульс — раз в цикл
+
                 new_ids = self.scan_all_users()
 
                 if new_ids:
@@ -171,6 +174,8 @@ class FileWatcher:
 
                 # F5: вечерний отчёт (инвариант 25 — один из ровно двух плановых пушей)
                 self._maybe_send_daily_report()
+                # F6: doctor-отчёт (второй и последний плановый пуш)
+                self._maybe_send_doctor_report()
 
             except KeyboardInterrupt:
                 logger.info("Остановка по Ctrl+C")
@@ -332,6 +337,54 @@ class FileWatcher:
                 age.get("estimated", 0), age.get("skipped_fresh", 0),
                 style.get("estimated", 0), style.get("skipped_fresh", 0),
             )
+
+    # ── Heartbeat + doctor (F6) ──────────────────────────────────────────
+
+    def _write_heartbeat(self) -> None:
+        """Пульс — mtime достаточно, атомарность не нужна (doctor.py::_check_heartbeat)."""
+        try:
+            hb = Path(self.config.data_dir) / "watcher.heartbeat"
+            hb.write_text(datetime.now().isoformat(), encoding="utf-8")
+        except OSError as exc:
+            logger.warning("Не удалось записать watcher.heartbeat: %s", exc)
+
+    def _maybe_send_doctor_report(self) -> None:
+        """Раз в день после 9:00 (локальное время) шлёт doctor-отчёт per user.
+
+        Тот же дедуп-паттерн, что F5 (report_state), отдельная колонка
+        last_doctor_date — оба плановых пуша независимы (могут случиться
+        в один цикл, но не дублируются день-в-день).
+        """
+        now = datetime.now().astimezone()
+        if now.hour < 9:
+            return
+        today = now.date().isoformat()
+
+        from callprofiler.deliver.telegram_sender import send_telegram_message
+        from callprofiler.doctor import build_doctor_message, run_checks
+        from callprofiler.insight.repository import get_doctor_state, set_doctor_state
+
+        conn = self.repo._get_conn()
+        for user in self.repo.get_all_users():
+            uid = user["user_id"]
+            chat_id = user.get("telegram_chat_id")
+            if not chat_id:
+                continue
+            if get_doctor_state(conn, uid) == today:
+                continue
+            try:
+                checks = run_checks(self.config, conn=conn)
+                message = build_doctor_message(checks)
+            except Exception as exc:  # noqa: BLE001 — цикл не должен падать
+                logger.error("doctor-report: построение упало user=%s: %s", uid, exc)
+                continue
+            if send_telegram_message(chat_id, message):
+                set_doctor_state(conn, uid, today)
+                logger.info("doctor-report отправлен user=%s", uid)
+            else:
+                logger.warning(
+                    "doctor-report: отправка не удалась user=%s, повтор след. цикл", uid
+                )
 
     # ── Вечерний отчёт (F5) ─────────────────────────────────────────────
 

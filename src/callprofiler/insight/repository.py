@@ -163,6 +163,7 @@ CREATE TABLE IF NOT EXISTS report_state (
 # Имена таблиц/колонок — литералы кода, не пользовательский ввод (безопасно в f-string).
 _MIGRATIONS = {
     "contact_archetypes": {"pca_x": "REAL", "pca_y": "REAL"},
+    "report_state": {"last_doctor_date": "TEXT"},  # F6: доктор — второй плановый пуш (инвариант 25)
 }
 
 
@@ -222,6 +223,25 @@ def set_report_state(conn: sqlite3.Connection, user_id: str, date_str: str) -> N
     conn.execute(
         "INSERT INTO report_state(user_id, last_report_date) VALUES (?,?) "
         "ON CONFLICT(user_id) DO UPDATE SET last_report_date=excluded.last_report_date",
+        (user_id, date_str),
+    )
+    conn.commit()
+
+
+def get_doctor_state(conn: sqlite3.Connection, user_id: str) -> str | None:
+    """F6: дата последнего отправленного doctor-отчёта (или None)."""
+    apply_insight_schema(conn)
+    row = conn.execute(
+        "SELECT last_doctor_date FROM report_state WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    return row["last_doctor_date"] if row else None
+
+
+def set_doctor_state(conn: sqlite3.Connection, user_id: str, date_str: str) -> None:
+    apply_insight_schema(conn)
+    conn.execute(
+        "INSERT INTO report_state(user_id, last_doctor_date) VALUES (?,?) "
+        "ON CONFLICT(user_id) DO UPDATE SET last_doctor_date=excluded.last_doctor_date",
         (user_id, date_str),
     )
     conn.commit()

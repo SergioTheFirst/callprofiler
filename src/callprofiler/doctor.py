@@ -12,10 +12,16 @@ from __future__ import annotations
 
 import importlib
 import os
+import shutil
 import subprocess
+import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+# Терминальные статусы звонка (pipeline.md) — не-терминальные старше 6ч = застряли.
+_TERMINAL_STATUSES = ("done", "transcribed", "error")
 
 # Критичные колонки по таблицам (M1 §3.1 п.1 db-schema).
 _REQUIRED_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -229,6 +235,124 @@ def _check_llm(config: Any) -> Check:
         return Check("llm", "WARN", f"llm-проба не удалась: {exc}")
 
 
+def _check_heartbeat(config: Any) -> Check:
+    """F6: watcher-пульс — файл трогается каждый цикл run_loop."""
+    data_dir = getattr(config, "data_dir", "") or ""
+    if not data_dir:
+        return Check("heartbeat", "SKIP", "data_dir не задан")
+    hb = Path(data_dir) / "watcher.heartbeat"
+    if not hb.exists():
+        return Check("heartbeat", "WARN", "watcher не запускался (нет watcher.heartbeat)")
+    interval = int(getattr(getattr(config, "pipeline", None), "watch_interval_sec", 30) or 30)
+    age = time.time() - hb.stat().st_mtime
+    if age > 3 * interval:
+        return Check("heartbeat", "FAIL", f"watcher завис/упал — пульс {int(age)}с назад")
+    return Check("heartbeat", "OK", f"пульс {int(age)}с назад")
+
+
+def _check_queue_stuck(conn) -> Check:
+    """F6: звонки, застрявшие в не-терминальном статусе >6ч."""
+    if conn is None:
+        return Check("queue-stuck", "SKIP", "нет соединения с БД")
+    placeholders = ",".join("?" * len(_TERMINAL_STATUSES))
+    rows = conn.execute(
+        f"SELECT call_id FROM calls WHERE status NOT IN ({placeholders}) "
+        "AND datetime(created_at) < datetime('now','-6 hours') ORDER BY created_at",
+        _TERMINAL_STATUSES,
+    ).fetchall()
+    if rows:
+        ids = ",".join(str(r["call_id"]) for r in rows[:5])
+        more = f" (+{len(rows) - 5})" if len(rows) > 5 else ""
+        return Check("queue-stuck", "FAIL", f"застряли >6ч ({len(rows)}): call_id={ids}{more}")
+    return Check("queue-stuck", "OK", "нет застрявших >6ч")
+
+
+def _check_error_burst(conn) -> Check:
+    """F6: всплеск ошибок за 24ч (>=3 звонков И >20% от всех за окно)."""
+    if conn is None:
+        return Check("error-burst", "SKIP", "нет соединения с БД")
+    row = conn.execute(
+        "SELECT COUNT(*) AS total, "
+        "SUM(CASE WHEN status='error' THEN 1 ELSE 0 END) AS errors "
+        "FROM calls WHERE datetime(created_at) >= datetime('now','-24 hours')"
+    ).fetchone()
+    total = row["total"] or 0
+    errors = row["errors"] or 0
+    if total > 0 and errors >= 3 and errors / total > 0.20:
+        return Check("error-burst", "WARN",
+                      f"{errors}/{total} звонков за 24ч в error ({round(100 * errors / total)}%)")
+    return Check("error-burst", "OK", f"{errors}/{total} в error за 24ч")
+
+
+def _check_disk(config: Any) -> Check:
+    """F6: свободное место на data_dir."""
+    data_dir = getattr(config, "data_dir", "") or ""
+    if not data_dir or not Path(data_dir).exists():
+        return Check("disk", "SKIP", "data_dir недоступен")
+    free_gb = shutil.disk_usage(data_dir).free / (1024 ** 3)
+    if free_gb < 5:
+        return Check("disk", "FAIL", f"свободно {free_gb:.1f} GB (порог 5 GB)")
+    return Check("disk", "OK", f"свободно {free_gb:.1f} GB")
+
+
+def _check_reminders_stale(conn) -> Check:
+    """F6: подтверждённые (F2) напоминания, просроченные >24ч — бот мог не тикать."""
+    if conn is None:
+        return Check("reminders-stale", "SKIP", "нет соединения с БД")
+    has_table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='reminders'"
+    ).fetchone()
+    if not has_table:
+        return Check("reminders-stale", "SKIP", "таблица reminders отсутствует (F2 не запускалась)")
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM reminders WHERE enabled=1 AND sent_at IS NULL "
+        "AND datetime(due_at) < datetime('now','-24 hours')"
+    ).fetchone()
+    n = row["n"] or 0
+    if n > 0:
+        return Check("reminders-stale", "WARN", f"{n} просроченных >24ч напоминаний — бот не тикает?")
+    return Check("reminders-stale", "OK", "нет протухших напоминаний")
+
+
+def _check_input_silence(config: Any, conn) -> Check:
+    """F6: и свежайший файл в incoming, и свежайший звонок в БД старше 72ч — возможно WireGuard/FolderSync лёг."""
+    if conn is None:
+        return Check("input-silence", "SKIP", "нет соединения с БД")
+
+    row = conn.execute("SELECT MAX(COALESCE(call_datetime, created_at)) AS latest FROM calls").fetchone()
+    latest_call = row["latest"] if row else None
+    call_age_h = None
+    if latest_call:
+        try:
+            call_age_h = (datetime.now() - datetime.fromisoformat(str(latest_call)[:19])).total_seconds() / 3600
+        except ValueError:
+            call_age_h = None
+
+    latest_file_ts = None
+    for user in conn.execute("SELECT incoming_dir FROM users").fetchall():
+        d = Path(user["incoming_dir"] or "")
+        if not d.exists():
+            continue
+        for p in d.rglob("*"):
+            if p.is_file():
+                mtime = p.stat().st_mtime
+                if latest_file_ts is None or mtime > latest_file_ts:
+                    latest_file_ts = mtime
+    file_age_h = (time.time() - latest_file_ts) / 3600 if latest_file_ts is not None else None
+
+    if (call_age_h is None or call_age_h > 72) and (file_age_h is None or file_age_h > 72):
+        return Check("input-silence", "WARN",
+                      "вход молчит >72ч: проверь WireGuard-туннель и FolderSync на телефоне (§8)")
+    return Check("input-silence", "OK", "вход активен")
+
+
+def build_doctor_message(checks: list[Check]) -> str:
+    """F6: заголовок 🟢/🔴 + полный отчёт — для Telegram (--send / плановый прогон)."""
+    fails = [c for c in checks if c.status == "FAIL"]
+    header = f"🔴 Есть проблемы ({len(fails)} FAIL)" if fails else "🟢 Осмотр пройден"
+    return header + "\n\n" + format_report(checks)
+
+
 def run_checks(config: Any, conn=None) -> list[Check]:
     """Прогнать все преполётные чеки. conn=None -> db-* блоки SKIP."""
     return [
@@ -244,6 +368,12 @@ def run_checks(config: Any, conn=None) -> list[Check]:
         _safe("db-schema", lambda: _check_db_schema(conn)),
         _safe("db-wal", lambda: _check_db_wal(conn)),
         _safe("llm", lambda: _check_llm(config)),
+        _safe("heartbeat", lambda: _check_heartbeat(config)),
+        _safe("queue-stuck", lambda: _check_queue_stuck(conn)),
+        _safe("error-burst", lambda: _check_error_burst(conn)),
+        _safe("disk", lambda: _check_disk(config)),
+        _safe("reminders-stale", lambda: _check_reminders_stale(conn)),
+        _safe("input-silence", lambda: _check_input_silence(config, conn)),
     ]
 
 

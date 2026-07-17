@@ -102,8 +102,13 @@ column — bugs.md 2026-07-02) · досье Ф0-Ф4 · русификация.
    **F5 вечерний отчёт дня** — daily_report.py (5 секций, reuse digest A1/F1/F2), telegram_sender.py
    (новый голый sync HTTP-sender — TelegramNotifier не годится вне bot-процесса, self.app=None),
    watcher._maybe_send_daily_report (21:00-триггер, report_state дедуп), CLI daily-report.
-   Следующая по порядку — **25. F6 Heartbeat + плановый doctor → Telegram 🟢/🔴 (Fable §3.6, T2)**.
-   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1113 passed/2 skipped.
+   **F6 heartbeat + плановый doctor** — watcher._write_heartbeat (каждый цикл), doctor.py +6 чеков
+   (heartbeat/queue-stuck/error-burst/disk/reminders-stale/input-silence), build_doctor_message
+   (🟢/🔴 заголовок), watcher._maybe_send_doctor_report (9:00-триггер, report_state.last_doctor_date
+   — независимый столбец той же таблицы что F5), CLI `doctor --send`. Оба плановых пуша инварианта
+   25 теперь реализованы (F5 вечер + F6 doctor) — новый пуш-на-событие впредь = нарушение.
+   Следующая по порядку — **26. F7 Панель «Здоровье системы» в дашборде (Fable §3.7, T1)**.
+   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1131 passed/2 skipped.
 2. **Бокс (не блокирует исполнение):** pull → `owner_birth_year` в base.yaml → пересчёт возраста
    (`age-estimate --user me` + `age-style --user me`, TABLE/RULES v2) → спот-чек 10 контактов →
    LLM-окно: `age-estimate --user me --llm`.

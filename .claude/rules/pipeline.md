@@ -21,6 +21,11 @@
    (голый HTTP POST sendMessage — НЕ TelegramNotifier.send_summary, тот no-op вне bot-процесса,
    self.app там None) → state продвигается ТОЛЬКО при успехе; сбой build/send НЕ роняет цикл
 ```
+Каждый цикл ТАКЖЕ: `_write_heartbeat()` (в начале, до scan — F6, `data_dir/watcher.heartbeat`,
+mtime-пульс) и `_maybe_send_doctor_report()` (F6, второй и последний из плановых пушей —
+инвариант 25: local hour>=9 И `report_state.last_doctor_date != today` → `doctor.run_checks` +
+`build_doctor_message` (🟢/🔴 заголовок) → send через тот же telegram_sender; независимый
+дедуп-столбец от F5, могут сработать в один цикл).
 scan: MD5-дедуп (`get_call_by_md5`). Новый → ingest = КОПИЯ в архив
 `users/{uid}/audio/originals/YYYY/MM` (на ВХОДЕ, до обработки). Файл-ещё-пишется →
 ждать (`file_settle_sec`). Битый архив у существующего → восстановить из incoming + reset.

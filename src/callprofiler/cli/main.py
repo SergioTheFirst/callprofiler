@@ -673,6 +673,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--user", dest="user_id", required=False, default=None, metavar="USER_ID",
         help="Не используется напрямую — чеки покрывают всех users в БД",
     )
+    p_doctor.add_argument(
+        "--send", action="store_true",
+        help="F6: отправить отчёт (🟢/🔴 + чеки) в Telegram всем users с telegram_chat_id",
+    )
 
     # ── canary-analyze ─────────────────────────────────────────────
     p_canary = sub.add_parser(
