@@ -13,6 +13,7 @@ telegram_bot.py — Telegram-бот для доставки саммари и к
 from __future__ import annotations
 
 import asyncio
+import html as html_lib
 import logging
 import os
 import re
@@ -39,6 +40,9 @@ _FV_VERDICT_LETTERS = {"c": "confirmed", "r": "rejected"}
 _FV_KINDS = ("promise", "event", "deep_fact")
 _PENDING_REMINDER_TTL_SEC = 300
 _REMINDER_TICK_SEC = 60
+_ASK_MAX_QUESTION_CHARS = 500
+_ASK_MAX_REPLY_CHARS = 4096
+_ASK_ANSWER_BUDGET_CHARS = 3500  # запас под HTML-цитаты — не резать финальный текст по тегам
 
 _REMASK_RE = re.compile(r"^remask\|([a-z_]+)\|(.+)$")
 _REMDONE_RE = re.compile(r"^remdone\|([a-z_]+)\|(.+)$")
@@ -66,15 +70,18 @@ class TelegramNotifier:
         notifier.run()  # Запустить polling в отдельном потоке
     """
 
-    def __init__(self, repo: Repository, token: str | None = None) -> None:
+    def __init__(self, repo: Repository, token: str | None = None,
+                 llm_url: str = "http://127.0.0.1:8080/v1/chat/completions") -> None:
         """Инициализировать Telegram-бот.
 
         Параметры:
-            repo   — Repository для доступа к данным
-            token  — токен бота (если None, берётся из TELEGRAM_BOT_TOKEN)
+            repo     — Repository для доступа к данным
+            token    — токен бота (если None, берётся из TELEGRAM_BOT_TOKEN)
+            llm_url  — эндпоинт llama-server (F3 ask-путь; тот же дефолт, что LLMClient)
         """
         self.token = token or os.environ.get("TELEGRAM_BOT_TOKEN")
         self.repo = repo
+        self.llm_url = llm_url
         self.app = None
         # F2: chat_id -> {user_id,item_kind,item_key,text,expires_at} пока бот ждёт
         # дату после «🔔 Напомнить». TTL 5 мин, упрощение сознательное (spec F2 §2).
@@ -287,7 +294,8 @@ class TelegramNotifier:
             f"/status — состояние очереди обработки\n\n"
             f"<b>💬 Как это работает:</b>\n"
             f"После каждого нового звонка вы получите саммари с кнопками [✅ OK] или [❌ Неточно] "
-            f"для обратной связи."
+            f"для обратной связи.\n"
+            f"Просто напишите вопрос своим текстом — отвечу цитатами из архива звонков."
         )
 
         await update.message.reply_text(msg, parse_mode="HTML")
@@ -658,27 +666,28 @@ class TelegramNotifier:
         await query.edit_message_text(text="Когда напомнить? (завтра / в пятницу / 15.07)")
 
     async def handle_plain_text(self, update, context) -> None:
-        """Текст вне команд (F2): сейчас разбирает ТОЛЬКО «жду дату» после «🔔
-        Напомнить». Иначе — молча игнор (F3 добавит ask-путь СЮДА ЖЕ веткой
-        else, после проверки pending — не заменять эту функцию, дополнять).
-
-        Security (defense-in-depth, review 2026-07-17): _pending_reminders
-        сегодня заполняется ТОЛЬКО из handle_remind_ask (который сам гейтит
-        _get_user_id) — но re-check здесь на случай будущего бага, который
-        занесёт в словарь chat_id без allowlist-проверки."""
+        """Текст вне команд: «жду дату» после «🔔 Напомнить» (F2), иначе — ask-путь
+        к архиву (F3, реюз A2 `ask.py` целиком, бот только транспорт). Не-allowlisted
+        chat_id (_get_user_id -> None) — игнор до любой ветки."""
         user_id = self._get_user_id(update)
         if user_id is None:
             return
         chat_id = update.effective_user.id if update.effective_user else None
         if chat_id is None:
             return
-        pending = self._pending_reminders.get(chat_id)
-        if pending is None or pending["user_id"] != user_id:
-            return
-        if datetime.now() > pending["expires_at"]:
-            del self._pending_reminders[chat_id]
-            return
 
+        pending = self._pending_reminders.get(chat_id)
+        if pending is not None and pending["user_id"] == user_id:
+            if datetime.now() > pending["expires_at"]:
+                del self._pending_reminders[chat_id]
+            else:
+                await self._handle_reminder_date_reply(update, chat_id, pending)
+                return
+
+        await self._handle_ask(update, user_id)
+
+    async def _handle_reminder_date_reply(self, update, chat_id: int, pending: dict) -> None:
+        """F2: разобрать ответ на «Когда напомнить?» и создать reminder."""
         due = parse_due_ru(update.message.text, datetime.now())
         if due is None:
             await update.message.reply_text("Не понял дату, напиши как DD.MM")
@@ -695,6 +704,59 @@ class TelegramNotifier:
         await update.message.reply_text(
             f"🔔 Напомню {due.strftime('%d.%m %H:%M')}: {pending['text']}"
         )
+
+    async def _handle_ask(self, update, user_id: str) -> None:
+        """F3: свободный текст -> ask-путь A2 (`ask.answer_question`/`ask.retrieve`).
+        LLM спит (GPU sequential, обычное состояние вне LLM-окна) -> честный
+        FTS-ответ прямыми цитатами вместо синтеза, без обмана пользователя."""
+        question = (update.message.text or "").strip()[:_ASK_MAX_QUESTION_CHARS]
+        if not question:
+            return
+
+        from callprofiler import ask as ask_mod
+
+        conn = self.repo._get_conn()
+        if ask_mod.llm_available(self.llm_url):
+            try:
+                result = ask_mod.answer_question(conn, user_id, question, llm_url=self.llm_url)
+                text = self._format_ask_answer(result)
+            except Exception as exc:
+                logger.error("Ошибка ask-пути: %s", exc)
+                text = "❌ Не получилось ответить, попробуй позже."
+        else:
+            fragments = ask_mod.retrieve(conn, user_id, question, k=5)
+            text = self._format_ask_degraded(fragments)
+
+        await update.message.reply_text(text, parse_mode="HTML")
+
+    @staticmethod
+    def _format_ask_answer(result: dict) -> str:
+        answer = html_lib.escape(result["answer"][:_ASK_ANSWER_BUDGET_CHARS])
+        lines = [answer]
+        if result["citations"]:
+            lines.append("")
+            lines.append("<b>Источники:</b>")
+            for c in result["citations"]:
+                lines.append(
+                    f"[{c['n']}] <b>{html_lib.escape(str(c['contact']))}</b> "
+                    f"<i>{html_lib.escape(str(c['date']))}</i>"
+                )
+        return "\n".join(lines)[:_ASK_MAX_REPLY_CHARS]
+
+    @staticmethod
+    def _format_ask_degraded(fragments: list[dict]) -> str:
+        if not fragments:
+            return "В архиве не найдено релевантных фрагментов."
+        lines = ["<b>LLM спит — прямые цитаты по запросу:</b>", ""]
+        for f in fragments[:5]:
+            quote = html_lib.escape(f["text"][:300])
+            lines.append(
+                f"<b>{html_lib.escape(str(f['contact_name']))}</b> "
+                f"<i>{html_lib.escape(str(f['date']))}</i>"
+            )
+            lines.append(f"<code>{quote}</code>")
+            lines.append("")
+        return "\n".join(lines).strip()[:_ASK_MAX_REPLY_CHARS]
 
     async def handle_reminder_done(self, update, context) -> None:
         """«✅ Сделано» на сработавшем напоминании — закрыть обещание/факт (F2)."""

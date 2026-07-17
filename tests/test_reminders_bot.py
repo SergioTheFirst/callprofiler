@@ -7,7 +7,7 @@ import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -114,10 +114,11 @@ def test_handle_remind_ask_malformed_callback(temp_repo):
 
 # ── handle_plain_text ────────────────────────────────────────────────────
 
-def test_handle_plain_text_no_pending_does_nothing(temp_repo):
+def test_handle_plain_text_non_allowlisted_chat_id_ignored(temp_repo):
+    """F3 spec: не-allowlisted chat_id -> игнор до любой ветки (pending ИЛИ ask)."""
     from callprofiler.deliver.telegram_bot import TelegramNotifier
 
-    notifier = TelegramNotifier(temp_repo, token=None)
+    notifier = TelegramNotifier(temp_repo, token=None)  # _get_user_id не мокнут -> None
 
     update = FakeUpdate(text="завтра", chat_id=555)
     asyncio.run(notifier.handle_plain_text(update, context=None))
@@ -164,7 +165,9 @@ def test_handle_plain_text_invalid_date_keeps_pending(temp_repo):
     update.message.reply_text.assert_awaited_once_with("Не понял дату, напиши как DD.MM")
 
 
-def test_handle_plain_text_expired_pending_ignored(temp_repo):
+def test_handle_plain_text_expired_pending_falls_through_to_ask_not_reminder(temp_repo):
+    """Истёкший pending НЕ создаёт reminder (TTL 5 мин, F2) — управление уходит в
+    ask-путь (F3), не в «молчаливый игнор», это и есть новое поведение F3."""
     from callprofiler.deliver.telegram_bot import TelegramNotifier
 
     notifier = TelegramNotifier(temp_repo, token=None)
@@ -174,11 +177,13 @@ def test_handle_plain_text_expired_pending_ignored(temp_repo):
         "expires_at": datetime.now() - timedelta(seconds=1),
     }
 
-    update = FakeUpdate(text="завтра", chat_id=555)
-    asyncio.run(notifier.handle_plain_text(update, context=None))
+    with patch("callprofiler.ask.llm_available", return_value=False):
+        update = FakeUpdate(text="завтра", chat_id=555)
+        asyncio.run(notifier.handle_plain_text(update, context=None))
 
     assert 555 not in notifier._pending_reminders
-    update.message.reply_text.assert_not_awaited()
+    n = temp_repo._get_conn().execute("SELECT COUNT(*) FROM reminders").fetchone()[0]
+    assert n == 0  # истёкший pending не должен был создать reminder
 
 
 # ── handle_reminder_done / handle_reminder_snooze ─────────────────────────

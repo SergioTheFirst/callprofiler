@@ -37,7 +37,7 @@ _STOPWORDS = {
 
 
 def apply_ask_schema(conn: sqlite3.Connection) -> None:
-    """Idempotent — CREATE TABLE IF NOT EXISTS."""
+    """Idempotent — CREATE TABLE IF NOT EXISTS + ALTER аддитивно (db.md)."""
     conn.execute(
         """CREATE TABLE IF NOT EXISTS ask_log (
             id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,7 +50,27 @@ def apply_ask_schema(conn: sqlite3.Connection) -> None:
             created_at     TEXT DEFAULT CURRENT_TIMESTAMP
         )"""
     )
+    # F3: answered — 1 если ответ содержал >=1 цитату (F13 переиспользует эту
+    # колонку для метрик качества). Аддитивно — ask_log уже существовала с A2.
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(ask_log)").fetchall()}
+    if "answered" not in cols:
+        conn.execute("ALTER TABLE ask_log ADD COLUMN answered INTEGER")
     conn.commit()
+
+
+def llm_available(llm_url: str, timeout: float = 2.0) -> bool:
+    """Проба /health (паттерн M1, doctor.py) — llama-server спит (GPU sequential)
+    это НОРМА вне LLM-окна, не ошибка."""
+    base = llm_url.split("/v1/")[0] if "/v1/" in llm_url else llm_url
+    if not base:
+        return False
+    try:
+        resp = requests.get(base.rstrip("/") + "/health", timeout=timeout)
+        return resp.status_code == 200
+    except requests.exceptions.ConnectionError:
+        return False
+    except Exception:  # noqa: BLE001 — проба не должна падать, только сказать "нет"
+        return False
 
 
 def _tokenize(question: str) -> list[str]:
@@ -133,10 +153,10 @@ def _save_cache(
 ) -> None:
     conn.execute(
         """INSERT OR IGNORE INTO ask_log
-           (user_id, question, prompt_hash, answer, citations_json, prompt_version)
-           VALUES (?,?,?,?,?,?)""",
+           (user_id, question, prompt_hash, answer, citations_json, prompt_version, answered)
+           VALUES (?,?,?,?,?,?,?)""",
         (user_id, question, prompt_hash, answer, json.dumps(citations, ensure_ascii=False),
-         PROMPT_VERSION_ASK),
+         PROMPT_VERSION_ASK, 1 if citations else 0),
     )
     conn.commit()
 

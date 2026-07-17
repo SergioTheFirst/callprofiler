@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from callprofiler.ask import answer_question, retrieve
+from callprofiler.ask import answer_question, llm_available, retrieve
 from callprofiler.db.repository import Repository
 
 
@@ -126,6 +126,52 @@ def test_answer_question_second_call_hits_cache(tmp_path):
     assert r2["answer"] == r1["answer"]
     assert mock_post.call_count == 1
     repo.close()
+
+
+def test_answer_question_marks_answered_when_cited(tmp_path):
+    """F3: ask_log.answered=1 при >=1 цитате — F13 переиспользует эту колонку."""
+    repo, conn = _db(tmp_path)
+    cid = _contact(conn)
+    _call_with_text(conn, cid, "мы решили покрасить гараж в синий цвет")
+    conn.commit()
+
+    with patch("requests.post", return_value=MockLLMResponse("Покрасили гараж [1].")):
+        answer_question(conn, "me", "что решили с гаражом?", llm_url="http://x/v1/chat/completions")
+
+    row = conn.execute("SELECT answered FROM ask_log WHERE user_id='me'").fetchone()
+    assert row["answered"] == 1
+    repo.close()
+
+
+def test_answer_question_marks_unanswered_when_no_citation(tmp_path):
+    repo, conn = _db(tmp_path)
+    cid = _contact(conn)
+    _call_with_text(conn, cid, "мы решили покрасить гараж в синий цвет")
+    conn.commit()
+
+    with patch("requests.post", return_value=MockLLMResponse("Не нашёл точного ответа.")):
+        answer_question(conn, "me", "что решили с гаражом?", llm_url="http://x/v1/chat/completions")
+
+    row = conn.execute("SELECT answered FROM ask_log WHERE user_id='me'").fetchone()
+    assert row["answered"] == 0
+    repo.close()
+
+
+def test_llm_available_true_on_200(tmp_path):
+    with patch("requests.get", return_value=MagicMock(status_code=200)):
+        assert llm_available("http://127.0.0.1:8080/v1/chat/completions") is True
+
+
+def test_llm_available_false_on_connection_error(tmp_path):
+    import requests as requests_mod
+
+    with patch("requests.get", side_effect=requests_mod.exceptions.ConnectionError):
+        assert llm_available("http://127.0.0.1:8080/v1/chat/completions") is False
+
+
+def test_llm_available_false_on_non_200(tmp_path):
+    with patch("requests.get", return_value=MagicMock(status_code=500)):
+        assert llm_available("http://127.0.0.1:8080/v1/chat/completions") is False
 
 
 def test_injection_guard_present_in_prompt(tmp_path):
