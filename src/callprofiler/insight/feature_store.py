@@ -13,6 +13,7 @@ from .features.pronouns import compute_pronouns
 from .features.affective import compute_affective
 from .features.topical import compute_topical
 from .features.tempo import compute_tempo
+from .features.specificity import compute_specificity
 
 TIER_WEIGHTS = {
     Tier.IMMUNE: 1.0,
@@ -23,7 +24,7 @@ TIER_WEIGHTS = {
 
 _META_FNS = (compute_temporal, compute_reciprocity, compute_trajectory)
 _IMMUNE_FNS = _META_FNS  # alias for backward compat
-_TEXT_FNS = (compute_linguistic, compute_formality, compute_pronouns, compute_tempo)
+_TEXT_FNS = (compute_linguistic, compute_formality, compute_pronouns, compute_tempo, compute_specificity)
 _AFFECTIVE_FNS = (compute_affective, compute_topical)
 
 

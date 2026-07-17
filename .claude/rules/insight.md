@@ -93,7 +93,7 @@ LLM-уточнение имён — шов на боксе (офлайн не н
 | Тир | w | Оси (MVP = только IMMUNE) |
 |---|---|---|
 | **IMMUNE** | 1.0 | temporal (циркад/burstiness/tenure/recency), reciprocity (outgoing_ratio/mean_dur/calls_per_week/total), trajectory (cadence_slope/changepoints) |
-| ROBUST | 0.8 | ✓ **Фаза 2:** hedge/directive/question/lexical (`linguistic.py`), formality ты/вы (`formality.py`), we/i (`pronouns.py`). По речи КОНТАКТА (speaker≠OWNER, fallback все). Маркеры/фразбанк = данные. **B1:** tempo_cps/reply_latency_ms/tempo_accel (`tempo.py`) — из start_ms/end_ms сегментов, строго speaker=OTHER (без fallback), UNKNOWN не участвует |
+| ROBUST | 0.8 | ✓ **Фаза 2:** hedge/directive/question/lexical (`linguistic.py`), formality ты/вы (`formality.py`), we/i (`pronouns.py`). По речи КОНТАКТА (speaker≠OWNER, fallback все). Маркеры/фразбанк = данные. **B1:** tempo_cps/reply_latency_ms/tempo_accel (`tempo.py`) — из start_ms/end_ms сегментов, строго speaker=OTHER (без fallback), UNKNOWN не участвует. **B2:** specificity (`specificity.py`) — числа/даты/деньги/время на whitespace-токенах (НЕ `base.tokenize()` — тот вырезает цифры); entity-хиты НЕ считаются в v1 (decisions.md) |
 | AFFECTIVE | 0.6 | ✓ **Фаза 3:** affective (`affective.py`: mean_risk/risk_volatility/max_risk/profanity_mean) + topical (`topical.py`: topic_diversity/topic_focus Herfindahl). Из `analyses` (risk/profanity/key_topics) |
 | FRAGILE | 0.4 | dominance (talk-ratio/turns) — **Фаза 4, гейт по доле UNKNOWN** |
 
