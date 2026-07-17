@@ -1377,6 +1377,25 @@
             html += dossierSec('Финансовая экспозиция', finHtml);
         }
 
+        // C1: граф упоминаний — «о нём говорят» + исходящие
+        if (d.mentions && (d.mentions.by.length || d.mentions.outgoing_count)) {
+            var mHtml = '';
+            if (d.mentions.by.length) {
+                mHtml += '<div style="margin-bottom:6px">о нём говорят: ' +
+                    d.mentions.by.map(function(m) { return escapeHtml(m.name); }).join(', ') + '</div>';
+                mHtml += '<ul class="detail-promises">' + d.mentions.by.map(function(m) {
+                    return '<li>' + escapeHtml(m.name) +
+                        (m.last_date ? ' <span style="color:var(--text-muted)">' + escapeHtml(m.last_date) + '</span>' : '') +
+                        (m.sample_quote ? ' — «' + escapeHtml(m.sample_quote) + '»' : '') + '</li>';
+                }).join('') + '</ul>';
+            }
+            if (d.mentions.outgoing_count) {
+                mHtml += '<div style="margin-top:6px;color:var(--text-muted)">сам упоминает ' +
+                    d.mentions.outgoing_count + ' ваших контактов</div>';
+            }
+            html += dossierSec('Через упоминания', mHtml);
+        }
+
         // A7: группа «Динамика» — риск по годам, поворотные сцены
         html += dossierLayer('Динамика');
 

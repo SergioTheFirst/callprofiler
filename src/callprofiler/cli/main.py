@@ -69,6 +69,7 @@ from callprofiler.cli.commands.graph import (  # noqa: E402
 # ---- insight commands ----
 from callprofiler.cli.commands.insight import (  # noqa: E402
     cmd_features_build, cmd_archetypes_fit, cmd_person_archetype, cmd_person_link,
+    cmd_mentions_build,
     cmd_age_estimate, cmd_age_style, cmd_spotcheck_sample, cmd_calibrate_risk,
     cmd_mirror_build, cmd_tiers_recompute, cmd_deep_extract,
 )
@@ -556,6 +557,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--dry-run", dest="dry_run", action="store_true",
         help="Посчитать связки без записи",
     )
+    p_mentions_build = sub.add_parser(
+        "mentions-build",
+        help="Insight: перестроить граф упоминаний contact->contact (mention_edges)",
+    )
+    p_mentions_build.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
     p_person_arch = sub.add_parser(
         "person-archetype",
         help="Insight: карточка архетипа контакта",
@@ -852,6 +861,7 @@ def main() -> None:
         "features-build": cmd_features_build,
         "archetypes-fit": cmd_archetypes_fit,
         "person-link": cmd_person_link,
+        "mentions-build": cmd_mentions_build,
         "person-archetype": cmd_person_archetype,
         "age-estimate": cmd_age_estimate,
         "age-style": cmd_age_style,

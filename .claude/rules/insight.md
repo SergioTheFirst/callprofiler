@@ -13,6 +13,17 @@
 **эмпирические архетипы** (обнаруженные, не заданные руками). НЕ оценка человека —
 паттерны для внимания (как `graph.md` про BS-index).
 
+## Граф упоминаний (C1)
+
+`mention_edges(user_id, src_contact_id, dst_contact_id, mention_count, last_date,
+sample_quote)` — DERIVED, полный rebuild (`mentions.py::build_mention_edges`, паттерн
+`entity_contact_map`): `events.entity_id` → `entity_contact_map`(confidence≥0.6, PERSON-only,
+owner исключён) даёт dst; `calls.contact_id` события — src; `dst==src` дроп. Строится в
+`graph-replay` СРАЗУ ПОСЛЕ `entity_contact_map` (зависит от свежих entity_id). CLI
+`mentions-build --user X`. Досье: `mentioned_by`/`outgoing_count` → «о нём говорят» (top-3)
++ «сам упоминает N ваших контактов» (пересечение dst-множеств между контактами — YAGNI v1,
+не делается).
+
 ## Пофактовое ✓/✗ подтверждение (F1)
 
 `fact_feedback(user_id, item_kind CHECK IN promise|event|deep_fact, item_key TEXT, verdict
@@ -418,6 +429,7 @@ src/callprofiler/insight/
   deep_extract.py                   # M8: map-reduce deep-extract (см. секцию выше)
   finance.py                        # B7: финансовая экспозиция (см. секцию выше)
   dormancy.py                       # C3: спящие ценные связи (см. секцию выше)
+  mentions.py                       # C1: граф упоминаний (см. секцию выше)
   features/{base,temporal,reciprocity,trajectory,linguistic,formality,pronouns,affective,topical}.py
   features/{tempo,specificity,emotion_palette,accommodation}.py       # B1/B2/B4/B6
   age_style/lexicons/emo_{anger,anxiety,joy,contempt}.txt          # B4 данные

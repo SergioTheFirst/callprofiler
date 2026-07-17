@@ -42,7 +42,9 @@ SSE-тик обновляет активную вкладку (bugs.md 2026-06-0
 
 **группа «Место в сети»:** личное → связи → **финансовая экспозиция** (B7, `d.finance`:
 фраза + до 3 quote+дата событий-оснований; `insight/finance.py::finance_exposure`, guarded
-try/except в `db_reader.py`, None → нет секции).
+try/except в `db_reader.py`, None → нет секции) → **через упоминания** (C1, `d.mentions`:
+«о нём говорят» top-3 + исходящий счётчик; `insight/mentions.py`, guarded `_has_table
+('mention_edges')`).
 
 **группа «Динамика»:** динамика по годам → **«Поворотные сцены»** (A7, 2026-07-17: `d.pivotal_scenes`,
 дата+synopsis≤300; guarded `_has_table('bio_scene_entities')`+`('bio_scenes')`; см. ниже — НЕ читает

@@ -42,6 +42,16 @@ def cmd_person_link(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_mentions_build(args: argparse.Namespace) -> int:
+    setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = load_config_and_repo(args.config)
+    conn = repo._get_conn()
+    from callprofiler.insight.mentions import build_mention_edges
+    stats = build_mention_edges(conn, args.user_id)
+    print(f"mentions-build: edges={stats['edges']} (user={args.user_id})")
+    return 0
+
+
 def cmd_age_estimate(args: argparse.Namespace) -> int:
     setup_logging(verbose=getattr(args, "verbose", False))
     cfg, repo = load_config_and_repo(args.config)

@@ -254,6 +254,14 @@ class GraphReplayer:
         except Exception as e:  # noqa: BLE001 — карта не должна ронять replay
             log.warning("[replay] entity_contact_map rebuild failed: %s", e)
 
+        # C1: mention_edges зависит от СВЕЖЕЙ entity_contact_map — строится после неё.
+        try:
+            from callprofiler.insight.mentions import build_mention_edges
+            mention_stats = build_mention_edges(conn, user_id)
+            log.info("[replay] mention_edges rebuilt: %s", mention_stats)
+        except Exception as e:  # noqa: BLE001 — граф упоминаний не должен ронять replay
+            log.warning("[replay] mention_edges rebuild failed: %s", e)
+
         return {
             "user_id": user_id,
             "calls_processed": calls_processed,

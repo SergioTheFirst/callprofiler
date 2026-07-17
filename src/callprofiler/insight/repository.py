@@ -186,6 +186,18 @@ CREATE TABLE IF NOT EXISTS deep_scans (
     created_at     TEXT DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, call_id, prompt_version)
 );
+
+-- C1: граф упоминаний contact->contact через entity_contact_map. DERIVED,
+-- полный rebuild per user (паттерн entity_contact_map) — не трогать вручную.
+CREATE TABLE IF NOT EXISTS mention_edges (
+    user_id        TEXT NOT NULL,
+    src_contact_id INTEGER NOT NULL,
+    dst_contact_id INTEGER NOT NULL,
+    mention_count  INTEGER NOT NULL,
+    last_date      TEXT,
+    sample_quote   TEXT,
+    PRIMARY KEY (user_id, src_contact_id, dst_contact_id)
+);
 """
 
 # Колонки, добавленные после первого релиза схемы. ALTER, не recreate (db.md).

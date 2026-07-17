@@ -760,6 +760,7 @@ class DashboardDBReader:
             "social": None,
             "network": None,
             "finance": None,
+            "mentions": None,
             "temperament": None,
             "motivation": None,
             "facts": [],
@@ -974,6 +975,16 @@ class DashboardDBReader:
                 "phrase": exposure_phrase(exp),
                 "events": [{"quote": r["quote"], "date": r["call_date"]} for r in rows],
             }
+
+        if self._has_table("mention_edges"):
+            try:
+                from callprofiler.insight.mentions import mentioned_by, outgoing_count
+                by = mentioned_by(self._conn, user_id, contact_id, top=3)
+                out_n = outgoing_count(self._conn, user_id, contact_id)
+                if by or out_n:
+                    dossier["mentions"] = {"by": by, "outgoing_count": out_n}
+            except Exception as exc:  # noqa: BLE001 — граф упоминаний опционален
+                log.debug("dossier: mentions недоступны: %s", exc)
 
         entity_id = None
         if self._has_table("entity_contact_map"):

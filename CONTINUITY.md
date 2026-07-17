@@ -149,9 +149,12 @@ column — bugs.md 2026-07-02) · досье Ф0-Ф4 · русификация.
    **C3 спящие ценные связи** — `insight/dormancy.py` (личный ритм: 3×median_gap, не общий
    порог); digest-секция «😴 Спящие ценные связи» через `cli/commands/deliver.py` (не
    digest.py — тот уже generic); досье-флаг `dormant` в шапке «Что делать».
-   Следующая по порядку — **38. C1 Граф упоминаний (oz5, T2)**. (C2 пропущена — T3-гейт,
-   `decisions.md`.)
-   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1264 passed/2 skipped.
+   **C1 граф упоминаний** — `mention_edges`/`insight/mentions.py` (DERIVED, паттерн
+   entity_contact_map; строится в graph-replay СРАЗУ ПОСЛЕ неё); CLI `mentions-build`; досье
+   «Через упоминания» (о нём говорят top-3 + исходящий счётчик; «общие люди» — YAGNI v1, не
+   делается). **Портфель C завершён** (C2 пропущена — T3-гейт, `decisions.md`).
+   Следующая по порядку — **39. D1 «В этот день» (oz5, T1)**.
+   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1273 passed/2 skipped.
 2. **Бокс (не блокирует исполнение):** pull → `owner_birth_year` в base.yaml → пересчёт возраста
    (`age-estimate --user me` + `age-style --user me`, TABLE/RULES v2) → спот-чек 10 контактов →
    LLM-окно: `age-estimate --user me --llm`.

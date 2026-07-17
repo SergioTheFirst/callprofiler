@@ -6,6 +6,26 @@
 
 ---
 
+### Added — C1: граф упоминаний contact→contact (2026-07-17)
+- `mention_edges` (`insight/repository.py` schema) + `insight/mentions.py::
+  build_mention_edges(conn, user_id) -> {"edges": n}` — DERIVED, полный rebuild (паттерн
+  `entity_contact_map`/person_link.py). Источник: `events.entity_id` (graph-схема) →
+  `entity_contact_map` (confidence≥0.6, PERSON-only, owner исключён — PRAGMA-guard как в
+  person_link.py) даёт dst-контакт; `calls.contact_id` события — src-контакт; `dst==src`
+  дропается (не считаем самоупоминания). Нет graph-схемы → `{"edges": 0}`, не ошибка.
+- Строится в `graph-replay` СРАЗУ ПОСЛЕ `entity_contact_map` (Step 9б — зависит от свежих
+  entity_id) + отдельный CLI `mentions-build --user X`.
+- `mentioned_by(conn,user_id,contact_id,top=3)` / `outgoing_count(...)` — читатели для досье.
+  `dashboard/db_reader.py`: `dossier["mentions"]` (guarded `_has_table`), секция «Через
+  упоминания» в слое «Место в сети» (после «Финансовая экспозиция»): (a) «о нём говорят»
+  top-3 с датой+цитатой, (b) «сам упоминает N ваших контактов». Пересечение
+  dst-множеств («общие люди») сознательно НЕ сделано — комбинаторика, YAGNI v1 (спека сама
+  это исключает).
+- Тесты: `tests/insight/test_mentions.py` (9) — двойное упоминание→ребро с count+цитатой/
+  confidence 0.5→нет ребра/идемпотентный rebuild/досье видит src-имя/outgoing считает
+  РАЗНЫЕ dst/self-упоминание дропается/non-PERSON исключён/owner-entity исключена/нет
+  graph-схемы→0 рёбер без ошибки. Suite: 1273 passed, 2 skipped.
+
 ### Added — C3: алерты затухания ценных связей (2026-07-17)
 - `insight/dormancy.py::dormant_valuable(conn, user_id, today=None, top=5) ->
   list[{contact_id,name,last_date,why}]` — второй insight-модуль (после B7 finance.py),
