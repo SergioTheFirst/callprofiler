@@ -768,6 +768,7 @@ class DashboardDBReader:
             "promises": {"open": base.get("open_promises") or []},
             "personal_facts": base.get("personal_facts") or [],
             "evolution": [],
+            "drift": [],
             "interpretation": None,
             "advice": base.get("advice"),
             "recent_calls": base.get("recent_calls") or [],
@@ -1118,6 +1119,14 @@ class DashboardDBReader:
                     ]
             except Exception as exc:  # noqa: BLE001 — bio-связь по имени необязательна
                 log.debug("dossier: поворотные сцены недоступны: %s", exc)
+
+        # B8: дрейф стиля по годам — live-вычисление (numpy/regex, без записи; один
+        # контакт дёшево), FRAGILE-gated внутри style_drift.
+        try:
+            from callprofiler.insight.age_style.drift import style_drift
+            dossier["drift"] = style_drift(self._conn, user_id, contact_id)
+        except Exception as exc:  # noqa: BLE001 — дрейф стиля опционален
+            log.debug("dossier: style_drift недоступен: %s", exc)
 
         # A7: 5-слойная презентационная группировка (маппинг существующих секций;
         # ключи с * появятся в Ф-B/Ф-C, рендер app.js для них уже guarded).

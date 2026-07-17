@@ -143,8 +143,11 @@ column — bugs.md 2026-07-02) · досье Ф0-Ф4 · русификация.
    ходящий в БД: `events` promise/debt → `{currency:[low,high]}`, max-не-сумма на событие);
    досье-секция «Финансовая экспозиция» (слой «Место в сети»); digest overdue-строки
    получают суффикс суммы из своего what+quote.
-   Следующая по порядку — **36. B8 Дрейф стиля по годам (oz5, T2, FRAGILE gated)**.
-   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1253 passed/2 skipped.
+   **B8 дрейф стиля по годам** — `insight/age_style/drift.py` (реюз slang_density/
+   mean_syllables_per_word/vy_ratio, polyfit deg1, FRAGILE-gated по UNKNOWN>40%); досье-ключ
+   `drift` был заранее зарезервирован в A7 `layers.dynamic`. **B-серия (B1-B8) завершена.**
+   Следующая по порядку — **37. C3 Алерты затухания ценных связей (oz5, T1)**.
+   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1258 passed/2 skipped.
 2. **Бокс (не блокирует исполнение):** pull → `owner_birth_year` в base.yaml → пересчёт возраста
    (`age-estimate --user me` + `age-style --user me`, TABLE/RULES v2) → спот-чек 10 контактов →
    LLM-окно: `age-estimate --user me --llm`.

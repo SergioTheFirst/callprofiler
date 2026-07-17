@@ -1390,6 +1390,13 @@
                 }).join('') + '</dl>');
         }
 
+        // B8: дрейф стиля по годам — до 2 осторожных фраз
+        if (d.drift && d.drift.length) {
+            html += dossierSec('Дрейф стиля', '<ul class="detail-promises">' +
+                d.drift.map(function(p) { return '<li>' + escapeHtml(p) + '</li>'; }).join('') +
+                '</ul>');
+        }
+
         // A7: Поворотные сцены (bio_scene_entities junction — reliable, top-importance)
         if (d.pivotal_scenes && d.pivotal_scenes.length) {
             html += dossierSec('Поворотные сцены', d.pivotal_scenes.map(function(s) {

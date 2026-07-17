@@ -46,7 +46,9 @@ try/except в `db_reader.py`, None → нет секции).
 
 **группа «Динамика»:** динамика по годам → **«Поворотные сцены»** (A7, 2026-07-17: `d.pivotal_scenes`,
 дата+synopsis≤300; guarded `_has_table('bio_scene_entities')`+`('bio_scenes')`; см. ниже — НЕ читает
-`bio_portraits.pivotal_scenes`).
+`bio_portraits.pivotal_scenes`) → **«Дрейф стиля»** (B8, `d.drift`: до 2 осторожных фраз,
+`insight/age_style/drift.py::style_drift`, live-вычисление numpy/regex в `db_reader.py`,
+FRAGILE-gated по доле UNKNOWN, guarded try/except).
 
 **«Напряжения»** (A7, вне 5-слойной сетки — по смыслу межслойная, сводит их): `d.tensions`, каждая
 строка фраза+2 evidence; `insight/tension.py::cross_layer_tensions()`, ровно 5 детерминированных

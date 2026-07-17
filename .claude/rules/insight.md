@@ -362,6 +362,27 @@ cap 95, source='marker+style'; (2) дизъюнкт → маркер побеж�
 
 ---
 
+## Дрейф стиля по годам (B8, `age_style/drift.py`) — FRAGILE, live-вычисление
+
+`style_drift(conn, user_id, contact_id, min_tokens_per_year=500, min_years=3) -> list[str]`
+— переиспользует ГОТОВЫЕ функции (не новый экстрактор): `slang_density`/`mean_syllables_
+per_word` (`features/{lexical_age,readability_age}.py`, берут `tokens: list[str]` — токены
+готовит сам `drift.py` через `features.base.tokenize`) + `compute_formality(segments).
+get("vy_ratio")` (та берёт `segments`, не токены — асимметрия сигнатур учтена явно).
+Группировка по году OTHER-сегментов (`strftime('%Y', c.call_datetime)`), год участвует
+только при ≥`min_tokens_per_year` OTHER-токенов. **Гейт FRAGILE:** доля UNKNOWN среди ВСЕХ
+сегментов контакта (не только рассматриваемых лет) >40% → `[]`. Меньше `min_years`
+качественных лет → `[]`. На метрику: `polyfit` deg1 по индексу года (не по календарному
+году — устойчиво к пропускам лет), `|Δ|/диапазон≥0.25` → фраза (slang↓/↑, syllables↑/↓,
+vy↑/↓, суффикс «(осторожная оценка по стилю)»); нулевой диапазон значения → метрика
+пропускается целиком (не даёт ложного тренда на константе). ≤2 фразы — по убыванию
+уверенности (`|Δ|/диапазон`) при конкуренции >2 кандидатов.
+Досье: `dossier["drift"]` (ключ был заранее зарезервирован в `layers.dynamic` при A7),
+live-вычисление в `db_reader.get_person_dossier` (guarded try/except, дёшево — один
+контакт), секция «Дрейф стиля» рядом с «Динамика риска по годам» в app.js.
+
+---
+
 ## Офлайн-разработка (нет БД на дев-ПК)
 
 `synth/corpus.py SyntheticCorpus.build()` — schema-accurate temp SQLite из `db/schema.sql` +
@@ -382,6 +403,7 @@ src/callprofiler/insight/
   features/{base,temporal,reciprocity,trajectory,linguistic,formality,pronouns,affective,topical}.py
   features/{tempo,specificity,emotion_palette,accommodation}.py       # B1/B2/B4/B6
   age_style/lexicons/emo_{anger,anxiety,joy,contempt}.txt          # B4 данные
+  age_style/drift.py                # B8: дрейф стиля по годам (см. секцию выше)
   synth/{corpus,archetypes,noise,phrasebank}.py
   # build_contact_features маршрутизирует META(calls)+TEXT(segments)+AFFECTIVE(analyses)
 cli/commands/insight.py        tests/insight/*

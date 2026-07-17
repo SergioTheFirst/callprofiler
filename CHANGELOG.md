@@ -6,6 +6,22 @@
 
 ---
 
+### Added — B8: дрейф стиля по годам, FRAGILE-gated (2026-07-17)
+- `insight/age_style/drift.py::style_drift(conn, user_id, contact_id, min_tokens_per_year=500,
+  min_years=3) -> list[str]` — переиспользует существующие `slang_density`/
+  `mean_syllables_per_word`/`compute_formality().vy_ratio` (не новый экстрактор). Группировка
+  OTHER-сегментов по году; год участвует при ≥min_tokens токенов. Гейт FRAGILE: доля UNKNOWN
+  среди ВСЕХ сегментов контакта >40% → `[]`. <min_years качественных лет → `[]`. `polyfit`
+  deg1 по индексу года, `|Δ|/диапазон≥0.25` → фраза (slang↓/↑, syllables↑/↓, vy↑/↓, суффикс
+  «(осторожная оценка по стилю)»); нулевой диапазон метрики пропускается (не ложный тренд на
+  константе). ≤2 фразы по убыванию уверенности.
+- `dashboard/db_reader.py`: `dossier["drift"]` — ключ был ЗАРАНЕЕ зарезервирован в
+  `layers.dynamic` при реализации A7 (найдено при чтении кода, не выдумано); live-вычисление,
+  guarded try/except. `static/app.js`: секция «Дрейф стиля» рядом с «Динамика риска по годам».
+- Тесты: `tests/insight/test_style_drift.py` (5) — детектит формализацию/<min_years→[]/
+  UNKNOWN>40%→[]/нет звонков→[]/стабильный стиль (нулевой диапазон)→[]. Suite: 1258 passed,
+  2 skipped. **B-серия (B1-B8) завершена.**
+
 ### Added — B7: финансовая экспозиция (2026-07-17)
 - `insight/finance.py` (новый модуль, единственный в insight/features-семье, который сам
   ходит в БД): `extract_amounts(text)` — regex по цифрам+множителям(тыс/к/млн)+валютам
