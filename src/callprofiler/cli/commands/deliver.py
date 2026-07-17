@@ -77,6 +77,36 @@ def cmd_daily_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_on_this_day(args: argparse.Namespace) -> int:
+    """on-this-day --user X [--send] — D1: годовщины (для ежедневного Task Scheduler)."""
+    setup_logging(verbose=getattr(args, "verbose", False))
+    cfg, repo = load_config_and_repo(args.config)
+    conn = repo._get_conn()
+
+    from callprofiler.deliver.digest import on_this_day
+
+    lines = on_this_day(conn, args.user_id)
+    if not lines:
+        print(f"on-this-day: сегодня годовщин нет (user={args.user_id})")
+        return 0
+    report = "# В этот день\n\n" + "\n".join(lines)
+
+    if getattr(args, "send", False):
+        from callprofiler.deliver.telegram_sender import send_telegram_message
+
+        user = repo.get_user(args.user_id)
+        chat_id = user.get("telegram_chat_id") if user else None
+        if not chat_id:
+            print(f"on-this-day: у пользователя {args.user_id} не задан telegram_chat_id")
+            return 1
+        ok = send_telegram_message(chat_id, report)
+        print(f"on-this-day: {'отправлено' if ok else 'ОШИБКА отправки'} (user={args.user_id})")
+        return 0 if ok else 1
+
+    print(report)
+    return 0
+
+
 def cmd_reminders_due(args: argparse.Namespace) -> int:
     """reminders-due --user X — печать ждущих/просроченных напоминаний (F2, без бота)."""
     setup_logging(verbose=getattr(args, "verbose", False))

@@ -81,6 +81,7 @@ from callprofiler.cli.commands.doctor import cmd_doctor  # noqa: E402
 from callprofiler.cli.commands.deliver import (  # noqa: E402
     cmd_daily_report,
     cmd_obligations_digest,
+    cmd_on_this_day,
     cmd_reminders_due,
 )
 
@@ -751,6 +752,20 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Отправить в Telegram (иначе — печать в stdout)",
     )
 
+    # ── on-this-day (D1) ─────────────────────────────────────────────
+    p_otd = sub.add_parser(
+        "on-this-day",
+        help="D1: годовщины — сцены той же даты в прошлые годы (importance>70)",
+    )
+    p_otd.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+    p_otd.add_argument(
+        "--send", action="store_true",
+        help="Отправить в Telegram (иначе — печать в stdout)",
+    )
+
     # ── ask ──────────────────────────────────────────────────────────
     p_ask = sub.add_parser(
         "ask",
@@ -878,6 +893,7 @@ def main() -> None:
         "canary-analyze": cmd_canary_analyze,
         "obligations-digest": cmd_obligations_digest,
         "daily-report": cmd_daily_report,
+        "on-this-day": cmd_on_this_day,
         "reminders-due": cmd_reminders_due,
         "ask": cmd_ask,
         "calibrate-risk": cmd_calibrate_risk,

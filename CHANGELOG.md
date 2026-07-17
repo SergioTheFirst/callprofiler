@@ -6,6 +6,19 @@
 
 ---
 
+### Added — D1: «В этот день» — годовщины в дайджесте (2026-07-17)
+- `deliver/digest.py::on_this_day(conn, user_id, today=None) -> list[str]` — сцены
+  `bio_scenes` с той же MM-DD в прошлые годы, `importance>70`; строка «N лет назад:
+  synopsis≤200 — «key_quote≤100»»; корректное русское склонение (год/года/лет).
+  Guarded `_has_table('bio_scenes')` — нет biography → `[]`, не исключение.
+- `build_digest` вызывает `on_this_day` САМ (секция «🗓 В этот день», не через
+  `extra_sections` — в отличие от M8/C3, этому не нужны доп. данные снаружи).
+- CLI `on-this-day --user X [--send]` — тот же рендер отдельной командой (`--send` через
+  `telegram_sender`, для ежедневного Task Scheduler независимо от F5).
+- Тесты: `tests/test_digest.py` (+5) — год назад→«1 год назад»/importance 50→нет/нет
+  bio_scenes→[]/5 лет→«5 лет назад» (склонение)/build_digest включает секцию.
+  Suite: 1278 passed, 2 skipped.
+
 ### Added — C1: граф упоминаний contact→contact (2026-07-17)
 - `mention_edges` (`insight/repository.py` schema) + `insight/mentions.py::
   build_mention_edges(conn, user_id) -> {"edges": n}` — DERIVED, полный rebuild (паттерн

@@ -153,8 +153,11 @@ column — bugs.md 2026-07-02) · досье Ф0-Ф4 · русификация.
    entity_contact_map; строится в graph-replay СРАЗУ ПОСЛЕ неё); CLI `mentions-build`; досье
    «Через упоминания» (о нём говорят top-3 + исходящий счётчик; «общие люди» — YAGNI v1, не
    делается). **Портфель C завершён** (C2 пропущена — T3-гейт, `decisions.md`).
-   Следующая по порядку — **39. D1 «В этот день» (oz5, T1)**.
-   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1273 passed/2 skipped.
+   **D1 «В этот день»** — `digest.py::on_this_day` (bio_scenes годовщины, importance>70,
+   RU-склонение год/года/лет); `build_digest` зовёт сам (не extra_sections); CLI
+   `on-this-day --user X [--send]` для отдельного Task Scheduler.
+   Следующая по порядку — **40. D2 Линия жизни в дашборде (oz5, T1)**.
+   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1278 passed/2 skipped.
 2. **Бокс (не блокирует исполнение):** pull → `owner_birth_year` в base.yaml → пересчёт возраста
    (`age-estimate --user me` + `age-style --user me`, TABLE/RULES v2) → спот-чек 10 контактов →
    LLM-окно: `age-estimate --user me --llm`.

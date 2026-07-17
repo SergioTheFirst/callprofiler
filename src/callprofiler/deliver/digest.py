@@ -29,6 +29,53 @@ def _parse_date(raw: str | None) -> date | None:
         return None
 
 
+def _has_table(conn, name: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+    ).fetchone()
+    return row is not None
+
+
+def _year_word(n: int) -> str:
+    if n % 10 == 1 and n % 100 != 11:
+        return "год"
+    if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
+        return "года"
+    return "лет"
+
+
+def on_this_day(conn, user_id: str, today: str | None = None) -> list[str]:
+    """D1: годовщины — сцены той же MM-DD в прошлые годы, importance>70.
+
+    БД без biography (нет bio_scenes) -> [], не исключение.
+    """
+    if not _has_table(conn, "bio_scenes"):
+        return []
+    ref = _parse_date(today) or date.today()
+    ref_iso = ref.isoformat()
+    rows = conn.execute(
+        """SELECT call_datetime, synopsis, key_quote FROM bio_scenes
+            WHERE user_id = ? AND importance > 70
+              AND strftime('%m-%d', call_datetime) = strftime('%m-%d', ?)
+              AND strftime('%Y', call_datetime) < strftime('%Y', ?)
+            ORDER BY call_datetime DESC""",
+        (user_id, ref_iso, ref_iso),
+    ).fetchall()
+
+    lines = []
+    for r in rows:
+        scene_date = _parse_date(r["call_datetime"])
+        if scene_date is None:
+            continue
+        n = ref.year - scene_date.year
+        line = f"{n} {_year_word(n)} назад: {_truncate(r['synopsis'] or '', 200)}"
+        quote = _truncate(r["key_quote"] or "", 100)
+        if quote:
+            line += f" — «{quote}»"
+        lines.append(line)
+    return lines
+
+
 def _side(who: str | None) -> str | None:
     if who == "OWNER":
         return "owner"
@@ -225,6 +272,11 @@ def build_digest(
             lines.extend(_format_item(item))
     else:
         lines.append("- нет")
+
+    onthisday_lines = on_this_day(conn, user_id, today)
+    if onthisday_lines:
+        lines.append("\n## 🗓 В этот день")
+        lines.extend(onthisday_lines)
 
     for title, section_lines in (extra_sections or []):
         if not section_lines:

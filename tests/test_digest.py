@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from callprofiler.db.repository import Repository
-from callprofiler.deliver.digest import build_digest, open_items, overdue_items
+from callprofiler.deliver.digest import build_digest, on_this_day, open_items, overdue_items
 
 TODAY = "2026-07-17"
 
@@ -188,4 +188,84 @@ def test_upcoming_line_has_no_amount_suffix(tmp_path):
 
     report = build_digest(conn, "me", today=TODAY)
     assert "~40 тыс ₽" not in report
+    repo.close()
+
+
+def _bio_scene(conn, call_id, importance, call_datetime, synopsis="Синопсис сцены",
+                key_quote=None, user_id="me"):
+    conn.execute(
+        "INSERT INTO bio_scenes(user_id, call_id, importance, call_datetime, synopsis, key_quote) "
+        "VALUES (?,?,?,?,?,?)",
+        (user_id, call_id, importance, call_datetime, synopsis, key_quote),
+    )
+
+
+def test_on_this_day_shows_anniversary_one_year_ago(tmp_path):
+    """D1: сцена ровно год назад, importance>70 -> строка «1 год назад»."""
+    from callprofiler.biography.schema import apply_biography_schema
+
+    repo, conn = _db(tmp_path)
+    apply_biography_schema(conn)
+    cid = _contact(conn)
+    call_id = _call(conn, cid, call_datetime="2025-07-17T10:00:00")
+    _bio_scene(conn, call_id, 80, "2025-07-17T10:00:00", synopsis="Важный разговор",
+               key_quote="я тебе перезвоню")
+    conn.commit()
+
+    lines = on_this_day(conn, "me", today=TODAY)
+    assert len(lines) == 1
+    assert lines[0].startswith("1 год назад:")
+    assert "Важный разговор" in lines[0]
+    assert "я тебе перезвоню" in lines[0]
+    repo.close()
+
+
+def test_on_this_day_low_importance_excluded(tmp_path):
+    from callprofiler.biography.schema import apply_biography_schema
+
+    repo, conn = _db(tmp_path)
+    apply_biography_schema(conn)
+    cid = _contact(conn)
+    call_id = _call(conn, cid, call_datetime="2025-07-17T10:00:00")
+    _bio_scene(conn, call_id, 50, "2025-07-17T10:00:00")
+    conn.commit()
+
+    assert on_this_day(conn, "me", today=TODAY) == []
+    repo.close()
+
+
+def test_on_this_day_without_bio_scenes_table_returns_empty(tmp_path):
+    repo, conn = _db(tmp_path)
+    assert on_this_day(conn, "me", today=TODAY) == []
+    repo.close()
+
+
+def test_on_this_day_plural_years(tmp_path):
+    from callprofiler.biography.schema import apply_biography_schema
+
+    repo, conn = _db(tmp_path)
+    apply_biography_schema(conn)
+    cid = _contact(conn)
+    call_id = _call(conn, cid, call_datetime="2021-07-17T10:00:00")  # 5 лет назад
+    _bio_scene(conn, call_id, 90, "2021-07-17T10:00:00")
+    conn.commit()
+
+    lines = on_this_day(conn, "me", today=TODAY)
+    assert lines[0].startswith("5 лет назад:")
+    repo.close()
+
+
+def test_build_digest_includes_on_this_day_section(tmp_path):
+    from callprofiler.biography.schema import apply_biography_schema
+
+    repo, conn = _db(tmp_path)
+    apply_biography_schema(conn)
+    cid = _contact(conn)
+    call_id = _call(conn, cid, call_datetime="2025-07-17T10:00:00")
+    _bio_scene(conn, call_id, 80, "2025-07-17T10:00:00", synopsis="Годовщина")
+    conn.commit()
+
+    report = build_digest(conn, "me", today=TODAY)
+    assert "🗓 В этот день" in report
+    assert "1 год назад" in report
     repo.close()
