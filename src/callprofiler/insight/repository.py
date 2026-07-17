@@ -174,6 +174,34 @@ def apply_insight_schema(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+_NOTE_MAX_CHARS = 2000  # держать в синхроне с dashboard/tools.py::_CONTACT_NOTE_MAX_CHARS
+
+
+def append_contact_note(conn: sqlite3.Connection, user_id: str, contact_id: int, line: str) -> None:
+    """Дописать строку в contact_notes (F4: caption-привязка голосовой заметки).
+
+    В отличие от dashboard/tools.py::set_contact_note (полная замена из UI),
+    здесь ДОПИСЫВАЕМ — при превышении cap старое обрезается С ГОЛОВЫ (хвост важнее).
+    """
+    apply_insight_schema(conn)
+    row = conn.execute(
+        "SELECT note FROM contact_notes WHERE contact_id = ? AND user_id = ?",
+        (contact_id, user_id),
+    ).fetchone()
+    old = (row["note"] if row else "") or ""
+    combined = f"{old}\n{line}" if old else line
+    combined = combined[-_NOTE_MAX_CHARS:]
+    conn.execute(
+        "INSERT INTO contact_notes(contact_id, user_id, note, updated_at) "
+        "VALUES (?,?,?,CURRENT_TIMESTAMP) "
+        "ON CONFLICT(contact_id) DO UPDATE SET note=excluded.note, "
+        "updated_at=CURRENT_TIMESTAMP "
+        "WHERE contact_notes.user_id = excluded.user_id",
+        (contact_id, user_id, combined),
+    )
+    conn.commit()
+
+
 def save_archetype_model(conn, user_id, *, version, k, silhouette, n_contacts,
                          feature_list, centroids, labels):
     cur = conn.execute(

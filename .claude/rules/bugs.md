@@ -80,6 +80,21 @@ None currently identified.
    - **Status:** IDEA/НЕПОДТВЕРЖДЕНО — проверить на боксе перед фиксом (`SELECT open_promises
      FROM contact_summaries LIMIT 5` и глазами).
 
+10. **orchestrator telegram-notify: `asyncio.get_event_loop().run_until_complete()` хрупок
+    к порядку вызовов** (2026-07-17, найдено тестом F4 `_finalize_note`)
+    - **Observation:** `send_summary`/`send_note_ready` вызываются из синхронного кода через
+      `asyncio.get_event_loop().run_until_complete(...)`. Если в ЭТОМ ЖЕ потоке где-то раньше
+      отработал `asyncio.run(...)` (он в конце явно обнуляет event loop потока), последующий
+      `get_event_loop()` кидает `RuntimeError: There is no current event loop`. В проде не
+      всплывает — watcher-поток либо ни разу не создавал loop (auto-create на первый вызов),
+      либо переиспользует свой же `run_until_complete`-loop повторно (не `asyncio.run`, тот не
+      закрывает loop). Всплыло только в full-suite тестах (другой тестовый файл раньше вызвал
+      `asyncio.run`), тест-фикс — явный `new_event_loop()`/`set_event_loop()` вокруг вызова.
+    - **Status:** IDEA — не трогать без причины; если когда-то появится ДРУГОЙ `asyncio.run(...)`
+      внутри самого watcher/orchestrator (не только в тестах), эта хрупкость станет реальным
+      прод-багом. Тогда — заменить на `asyncio.new_event_loop()` явно в orchestrator, а не
+      полагаться на ambient event loop.
+
 ---
 
 ## Bug Report Template

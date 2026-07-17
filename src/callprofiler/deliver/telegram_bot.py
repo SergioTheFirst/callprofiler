@@ -43,6 +43,10 @@ _REMINDER_TICK_SEC = 60
 _ASK_MAX_QUESTION_CHARS = 500
 _ASK_MAX_REPLY_CHARS = 4096
 _ASK_ANSWER_BUDGET_CHARS = 3500  # запас под HTML-цитаты — не резать финальный текст по тегам
+_VOICE_NOTE_MAX_BYTES = 50 * 1024 * 1024  # F4: cap на голосовую заметку
+_NOTE_TARGET_MAX_CHARS = 40
+_NOTE_READY_EXCERPT_CHARS = 200
+_VALID_NOTE_TARGET_RE = re.compile(r"[^\w\s\-]", re.UNICODE)
 
 _REMASK_RE = re.compile(r"^remask\|([a-z_]+)\|(.+)$")
 _REMDONE_RE = re.compile(r"^remdone\|([a-z_]+)\|(.+)$")
@@ -295,7 +299,9 @@ class TelegramNotifier:
             f"<b>💬 Как это работает:</b>\n"
             f"После каждого нового звонка вы получите саммари с кнопками [✅ OK] или [❌ Неточно] "
             f"для обратной связи.\n"
-            f"Просто напишите вопрос своим текстом — отвечу цитатами из архива звонков."
+            f"Просто напишите вопрос своим текстом — отвечу цитатами из архива звонков.\n"
+            f"Пришлите голосовое — расшифрую и сохраню в архив (можно с подписью @Имя, "
+            f"чтобы прикрепить к заметкам контакта)."
         )
 
         await update.message.reply_text(msg, parse_mode="HTML")
@@ -665,6 +671,109 @@ class TelegramNotifier:
         }
         await query.edit_message_text(text="Когда напомнить? (завтра / в пятницу / 15.07)")
 
+    @staticmethod
+    def _sanitize_note_target(raw: str) -> str:
+        """caption `@Имя` → безопасный кусок имени файла (F4).
+
+        Reuse той же идеи, что `_VALID_NAME_RE` в filename_parser.py: убрать всё,
+        кроме букв/цифр/пробела/дефиса, чтобы не сломать парсинг `__`-разделителя
+        и не создать файл с недопустимыми для Windows символами.
+        """
+        name = (raw or "").lstrip("@").strip()
+        name = _VALID_NOTE_TARGET_RE.sub("", name)
+        name = re.sub(r"\s+", "_", name.strip())
+        return name[:_NOTE_TARGET_MAX_CHARS]
+
+    async def handle_voice_note(self, update, context) -> None:
+        """Приём голосовой заметки владельца (F4): voice/audio-сообщение →
+        incoming_dir → штатный watcher подхватит на следующем цикле (та же
+        логика, что и любой сброшенный файл — orchestrator ветвится по
+        call_type='note', выставленному filename_parser'ом при ingest).
+
+        Не-allowlisted chat_id — молча игнорируем (как и остальные хендлеры).
+        Ничего не теряется молча: подтверждаем приём сразу же после успешной
+        атомарной записи на диск.
+        """
+        user_id = self._get_user_id(update)
+        if user_id is None:
+            return
+
+        media = update.message.voice or update.message.audio
+        if media is None:
+            return
+
+        file_size = getattr(media, "file_size", None)
+        if file_size is not None and file_size > _VOICE_NOTE_MAX_BYTES:
+            await update.message.reply_text("❌ Файл слишком большой (макс. 50 МБ).")
+            return
+
+        user = self.repo.get_user(user_id)
+        incoming_dir = user.get("incoming_dir") if user else None
+        if not incoming_dir:
+            logger.error("У пользователя %s не настроен incoming_dir", user_id)
+            await update.message.reply_text("❌ Не настроена папка приёма, обратитесь к администратору.")
+            return
+
+        caption = (update.message.caption or "").strip()
+        target = self._sanitize_note_target(caption) if caption.startswith("@") else ""
+
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        ext = ".ogg"
+        if update.message.audio is not None:
+            src_name = getattr(update.message.audio, "file_name", None) or ""
+            if "." in src_name:
+                ext = "." + src_name.rsplit(".", 1)[-1].lower()
+        stem = f"voicenote_{ts}" + (f"__{target}" if target else "")
+
+        try:
+            from pathlib import Path
+
+            dest_dir = Path(incoming_dir)
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest_path = dest_dir / f"{stem}{ext}"
+            tmp_path = dest_dir / f"{stem}{ext}.part"
+
+            tg_file = await media.get_file()
+            await tg_file.download_to_drive(custom_path=str(tmp_path))
+            os.replace(tmp_path, dest_path)
+        except Exception as exc:
+            logger.error("Не удалось сохранить голосовую заметку user_id=%s: %s", user_id, exc)
+            await update.message.reply_text("❌ Не получилось сохранить заметку, попробуйте ещё раз.")
+            return
+
+        await update.message.reply_text("🎙 Принял, обрабатываю.")
+
+    async def send_note_ready(
+        self, user_id: str, transcript_excerpt: str, bind_status: str | None = None
+    ) -> None:
+        """Уведомить о готовности голосовой заметки (F4, шаг 5).
+
+        В отличие от send_summary — нет analyses (заметки не анализируются),
+        поэтому своё независимое short-сообщение: первые символы транскрипта +
+        статус caption-привязки, если она была.
+        """
+        if not self.token:
+            return
+        user = self.repo.get_user(user_id)
+        if not user:
+            return
+        chat_id = user.get("telegram_chat_id")
+        if not chat_id:
+            return
+        if self.app is None:
+            logger.warning("App не инициализирован, note-уведомление не отправлено")
+            return
+
+        excerpt = (transcript_excerpt or "").strip()[:_NOTE_READY_EXCERPT_CHARS]
+        msg = f"🎙 Заметка готова:\n{html_lib.escape(excerpt) or '(пусто)'}"
+        if bind_status:
+            msg += f"\n{html_lib.escape(bind_status)}"
+
+        try:
+            await self.app.bot.send_message(chat_id=chat_id, text=msg, parse_mode="HTML")
+        except Exception as exc:
+            logger.error("Ошибка при отправке note-уведомления user_id=%s: %s", user_id, exc)
+
     async def handle_plain_text(self, update, context) -> None:
         """Текст вне команд: «жду дату» после «🔔 Напомнить» (F2), иначе — ask-путь
         к архиву (F3, реюз A2 `ask.py` целиком, бот только транспорт). Не-allowlisted
@@ -1004,6 +1113,10 @@ class TelegramNotifier:
                 )
                 self.app.add_handler(
                     CallbackQueryHandler(self.handle_reminder_snooze, pattern=r"^remsnooze\|")
+                )
+                # F4: голосовая заметка владельца → incoming_dir → штатный watcher.
+                self.app.add_handler(
+                    MessageHandler(filters.VOICE | filters.AUDIO, self.handle_voice_note)
                 )
                 # Простой текст (не команда) — сейчас только «жду дату» после
                 # «🔔 Напомнить» (handle_plain_text); F3 (ask) дополнит той же функцией.

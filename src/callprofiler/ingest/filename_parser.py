@@ -126,6 +126,14 @@ _FMT4_RE = re.compile(
     re.VERBOSE
 )
 
+# Формат voicenote (F4): голосовая заметка владельца из Telegram-бота.
+# voicenote_{YYYYMMDD}-{HHMMSS} или voicenote_{YYYYMMDD}-{HHMMSS}__{caption-target}
+_VOICENOTE_RE = re.compile(
+    r"""^voicenote_(\d{8})-(\d{6})   # дата-время создания заметки
+        (?:__(.+))?$""",             # опционально: @Имя из caption
+    re.VERBOSE
+)
+
 # Формат 5: {имя} {YYYY_MM_DD} {HH_MM_SS}
 # Примеры: Варлакаув Хрюн 2009_09_03 21_05_57
 #          Вив 2009_08_17 12_15_49
@@ -360,6 +368,36 @@ def _parse_fmt4(stem: str) -> CallMetadata | None:
     )
 
 
+def _parse_voicenote(stem: str) -> CallMetadata | None:
+    """Формат voicenote (F4): voicenote_YYYYMMDD-HHMMSS[__target].
+
+    phone="self:notes" — спец-маркер, единый контакт "Мои заметки" на юзера
+    (get_or_create_contact дедупит по phone_e164, см. ingester.py). target
+    (caption @Имя на upload) уносится в note_target_name — привязка к
+    существующему контакту происходит позже, после транскрибации
+    (orchestrator._maybe_bind_note_to_contact), т.к. только там известен текст.
+    """
+    m = _VOICENOTE_RE.match(stem)
+    if not m:
+        return None
+
+    date_s, time_s, target = m.groups()
+
+    try:
+        dt = datetime.strptime(date_s + time_s, "%Y%m%d%H%M%S")
+    except ValueError:
+        dt = None
+
+    return CallMetadata(
+        phone="self:notes",
+        call_datetime=dt,
+        direction="UNKNOWN",
+        contact_name="Мои заметки",
+        raw_filename=stem,
+        note_target_name=target,
+    )
+
+
 def _parse_fmt5(stem: str) -> CallMetadata | None:
     """Формат 5: {имя} {YYYY_MM_DD} {HH_MM_SS}"""
     m = _FMT5_RE.match(stem)
@@ -408,7 +446,7 @@ def parse_filename(filename: str) -> CallMetadata:
 
     # Пробовать парсеры в порядке приоритета
     # (более специфичные форматы раньше)
-    for parser in (_parse_fmt2, _parse_fmt3, _parse_fmt1, _parse_fmt4, _parse_fmt5):
+    for parser in (_parse_voicenote, _parse_fmt2, _parse_fmt3, _parse_fmt1, _parse_fmt4, _parse_fmt5):
         result = parser(stem)
         if result is not None:
             return result

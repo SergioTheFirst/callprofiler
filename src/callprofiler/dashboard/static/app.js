@@ -387,7 +387,12 @@
         state.callsDays = daysFilter;
         syncURL();
         var url = '/api/calls?limit=' + state.callsLimit + '&offset=' + offset;
-        if (statusFilter) url += '&status=' + encodeURIComponent(statusFilter);
+        // F4: "Заметки" — псевдо-статус в том же select, реально фильтрует по call_kind
+        if (statusFilter === '__note__') {
+            url += '&call_kind=note';
+        } else if (statusFilter) {
+            url += '&status=' + encodeURIComponent(statusFilter);
+        }
         if (daysFilter > 0) url += '&days=' + daysFilter;
         fetch(url)
             .then(function(r) { return r.json(); })
@@ -407,7 +412,8 @@
         }
         tbody.innerHTML = calls.map(function(c) {
             var created = c.created_at ? new Date(c.created_at).toLocaleString() : '--';
-            var contact = c.display_name || c.phone_e164 || '--';
+            var isNote = c.call_kind === 'note';
+            var contact = isNote ? '🎙 Заметка' : (c.display_name || c.phone_e164 || '--');
             var duration = c.duration_sec ? Math.floor(c.duration_sec / 60) + 'm ' + (c.duration_sec % 60) + 's' : '--';
             var status = c.status || '--';
             var rawRisk = c.risk_score != null ? c.risk_score : null;

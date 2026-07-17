@@ -133,6 +133,9 @@ class Ingester:
             raise RuntimeError(f"Не удалось скопировать оригинал: {exc}") from exc
 
         # 7. Создать запись call в БД
+        # F4: voicenote_* даёт phone="self:notes" (спец-контакт "Мои заметки") —
+        # это и есть маркер call_type='note' (диаризация/анализ пропускаются, orchestrator.py).
+        call_type = "note" if metadata.phone == "self:notes" else None
         try:
             call_id = self.repo.create_call(
                 user_id=user_id,
@@ -142,6 +145,7 @@ class Ingester:
                 source_filename=fpath.name,
                 source_md5=file_md5,
                 audio_path=dest_audio_path,
+                call_type=call_type,
             )
             logger.info(
                 "Зарегистрирован call_id=%d для %s (user_id=%s)",

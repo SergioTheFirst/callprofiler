@@ -94,7 +94,11 @@ class DashboardDBReader:
     def get_recent_calls(self, user_id: str, limit: int = 50) -> list[dict[str, Any]]:
         """Get recent calls with analysis data."""
         self.connect()
-        query = """
+        # F4: calls.call_type ('note'/NULL) — миграция, на старой БД её может не быть.
+        # Алиас call_kind обязателен: a.call_type (LLM-классификация диалога, analyses)
+        # и c.call_type (структурный тип звонка, calls) — РАЗНЫЕ поля с одинаковым именем.
+        kind_col = "c.call_type AS call_kind" if self._has_column("calls", "call_type") else "NULL AS call_kind"
+        query = f"""
         SELECT
             c.call_id,
             c.call_datetime,
@@ -105,6 +109,7 @@ class DashboardDBReader:
             c.updated_at,
             COALESCE(ct.display_name, c.source_filename) AS contact_label,
             a.call_type,
+            {kind_col},
             a.risk_score,
             a.summary
         FROM calls c
@@ -1224,10 +1229,12 @@ class DashboardDBReader:
         """Get paginated calls for the calls table."""
         self.connect()
         error_col = "c.error_message," if self._has_column("calls", "error_message") else ""
+        kind_col = "c.call_type AS call_kind," if self._has_column("calls", "call_type") else "NULL AS call_kind,"
         rows = self._conn.execute(
             f"""SELECT c.call_id, c.call_datetime, c.direction, c.duration_sec,
                       c.status, c.created_at, c.updated_at, c.source_filename,
                       {error_col}
+                      {kind_col}
                       COALESCE(ct.display_name, ct.phone_e164) AS contact_label,
                       ct.display_name, ct.phone_e164,
                       a.risk_score, a.summary, a.call_type
@@ -1525,9 +1532,14 @@ class DashboardDBReader:
         return row["audio_path"]
 
     def get_calls_filtered(self, user_id: str, limit: int = 50, offset: int = 0,
-                           status: str = "", days: int = 0) -> list[dict[str, Any]]:
-        """Get paginated calls with optional status/days filters."""
+                           status: str = "", days: int = 0,
+                           call_kind: str = "") -> list[dict[str, Any]]:
+        """Get paginated calls with optional status/days/call_kind filters.
+
+        call_kind (F4): 'note' — только голосовые заметки владельца.
+        """
         self.connect()
+        has_call_type = self._has_column("calls", "call_type")
         where = "WHERE c.user_id = ?"
         params: list[Any] = [user_id]
         if status:
@@ -1536,8 +1548,13 @@ class DashboardDBReader:
         if days > 0:
             where += " AND COALESCE(c.call_datetime, c.created_at) >= DATE('now', ? || ' days')"
             params.append(f"-{days}")
+        if call_kind and has_call_type:
+            where += " AND c.call_type = ?"
+            params.append(call_kind)
+        kind_col = "c.call_type AS call_kind," if has_call_type else "NULL AS call_kind,"
         query = f"""SELECT c.call_id, c.call_datetime, c.direction, c.duration_sec,
                             c.status, c.created_at, c.updated_at, c.source_filename,
+                            {kind_col}
                             COALESCE(ct.display_name, ct.phone_e164) AS contact_label,
                             ct.display_name, ct.phone_e164,
                             a.risk_score, a.summary, a.call_type

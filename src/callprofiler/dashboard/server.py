@@ -138,12 +138,13 @@ def _build_app(user_id: str = "test_user", config: Any = None) -> FastAPI:
 
     @fa.get("/api/calls")
     async def _calls(limit: int = Query(50, ge=1, le=500), offset: int = Query(0, ge=0),
-                     status: str = Query(""), days: int = Query(0, ge=0, le=365)) -> JSONResponse:
+                     status: str = Query(""), days: int = Query(0, ge=0, le=365),
+                     call_kind: str = Query("")) -> JSONResponse:
         if _CONFIG is None:
             return JSONResponse({"calls": [], "limit": limit, "offset": offset})
         reader = DashboardDBReader(_CONFIG.data_dir)
         rows = reader.get_calls_filtered(_USER_ID, limit=limit, offset=offset,
-                                         status=status, days=days)
+                                         status=status, days=days, call_kind=call_kind)
         return JSONResponse({"calls": rows, "limit": limit, "offset": offset})
 
     @fa.get("/api/calls/{call_id}")

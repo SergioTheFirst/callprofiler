@@ -9,11 +9,12 @@ from datetime import datetime
 
 @dataclass
 class CallMetadata:
-    phone: str | None           # E.164, например +79161234567
+    phone: str | None           # E.164, например +79161234567; "self:notes" для F4 voice-note
     call_datetime: datetime | None
     direction: str              # IN / OUT / UNKNOWN
     contact_name: str | None
     raw_filename: str
+    note_target_name: str | None = None  # F4: @Имя из caption голосовой заметки
 
 
 @dataclass

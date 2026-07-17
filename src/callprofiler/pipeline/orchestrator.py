@@ -179,11 +179,16 @@ class Orchestrator:
             )
 
             # ── Шаг 2: Transcribe ────────────────────────────
-            # Сначала диаризация (роли), потом ASR по turn'ам (текст по ролям)
+            # Сначала диаризация (роли), потом ASR по turn'ам (текст по ролям).
+            # F4 voice-note: один голос владельца — диаризация не нужна, turns=[].
+            is_note = call.get("call_type") == "note"
             user = self.repo.get_user(user_id)
             ref_audio = user.get("ref_audio", "") if user else ""
-            self.repo.update_call_status(call_id, "diarizing")
-            turns = self._diarize_turns(call_id, norm_path, ref_audio)
+            if is_note:
+                turns = []
+            else:
+                self.repo.update_call_status(call_id, "diarizing")
+                turns = self._diarize_turns(call_id, norm_path, ref_audio)
 
             self.repo.update_call_status(call_id, "transcribing")
             self.asr_runner.load()
@@ -194,12 +199,21 @@ class Orchestrator:
             logger.info(
                 "Транскрибирование: call_id=%d, %d сегментов", call_id, len(segments)
             )
+            if is_note:
+                for seg in segments:
+                    seg.speaker = "OWNER"
 
             # Сохранить транскрипт (БД = источник истины) + читабельный .txt
             self.repo.save_transcripts(call_id, segments)
             self._export_text(call, segments)
             self.repo.set_role_fragile(call_id, is_role_fragile(segments))
             self.repo.update_pipeline_stage(call_id, 2)
+
+            # F4: заметка — без анализа (промпт заточен под диалог), сразу done.
+            if is_note:
+                self._maybe_delete_normalized(norm_path)
+                self._finalize_note(call, segments)
+                return True
 
             # ── Шаг 4: Analyze ───────────────────────────────
             if not self.config.features.enable_llm_analysis:
@@ -343,7 +357,10 @@ class Orchestrator:
             # Pass A: диаризация → turn'ы. pyannote грузится ОДИН раз на батч
             # (_diarize_batch), а НЕ на каждый звонок — иначе на больших партиях
             # перезагрузка моделей съедает часы. Сбой → [] (роли UNKNOWN).
-            turns_map = self._diarize_batch(needs_transcribe, users_cache)
+            # F4: заметки (один голос) исключены из диаризации — turns_map.get(id, [])
+            # ниже естественно даёт [] для них, спикер выставляется явно OWNER.
+            diarize_targets = [c for c in needs_transcribe if c.get("call_type") != "note"]
+            turns_map = self._diarize_batch(diarize_targets, users_cache) if diarize_targets else {}
 
             # Pass B+C: ASR грузится ОДИН раз на батч, но текст каждого звонка
             # сразу сохраняется и его normalized .wav УДАЛЯЕТСЯ немедленно (а не
@@ -359,6 +376,9 @@ class Orchestrator:
                         segs = self._asr_transcribe(
                             call["_norm_path"], turns_map.get(call_id, [])
                         )
+                        if call.get("call_type") == "note":
+                            for seg in segs:
+                                seg.speaker = "OWNER"
                         segments_map[call_id] = segs
                         logger.info("Transcribe: call_id=%d, %d сегментов", call_id, len(segs))
                         self.repo.save_transcripts(call_id, segs)
@@ -376,6 +396,14 @@ class Orchestrator:
                 # GigaAM+pyannote сохраняется ВНУТРИ Фазы 2 (грузятся раз на
                 # батч, а не на каждый звонок) — выигрыш без риска для VRAM.
                 self._unload_models()
+
+        # ── Фаза 2.5: Завершить голосовые заметки (F4, без анализа/доставки) ──
+        # Ставим pipeline_stage=4 сразу — Фазы 3/4 ниже гейтятся по stage и
+        # естественно пропускают уже-финализированные заметки, ничего доп. не нужно.
+        for call in calls_data:
+            if call.get("call_type") == "note" and call.get("pipeline_stage", 0) == 2:
+                self._finalize_note(call, segments_map.get(call["call_id"], []))
+                call["pipeline_stage"] = 4
 
         # ── Фаза 3: Analyze (LLM) ────────────────────────────────────
         if not self.config.features.enable_llm_analysis:
@@ -512,6 +540,73 @@ class Orchestrator:
                 logger.debug("Удалён normalized wav (экономия диска): %s", norm_path)
         except Exception as exc:  # noqa: BLE001 — удаление не валит pipeline
             logger.warning("Не удалось удалить normalized %s: %s", norm_path, exc)
+
+    def _finalize_note(self, call: dict, segments: list[Segment]) -> None:
+        """Финализировать голосовую заметку владельца (F4): без LLM-анализа и
+        без обычной доставки (send_summary читает analyses, которых нет у
+        заметок) — свой notify с первыми символами транскрипта + опциональной
+        caption-привязкой к существующему контакту.
+        """
+        call_id = call["call_id"]
+        user_id = call["user_id"]
+        self.repo.update_pipeline_stage(call_id, 4)
+        self.repo.update_call_status(call_id, "done")
+        transcript_text = " ".join(s.text for s in segments if s.text).strip()
+        bind_status = self._maybe_bind_note_to_contact(user_id, call, transcript_text)
+        if self.telegram is not None:
+            try:
+                asyncio.get_event_loop().run_until_complete(
+                    self.telegram.send_note_ready(user_id, transcript_text, bind_status)
+                )
+            except Exception as exc:  # noqa: BLE001 — уведомление не валит pipeline
+                logger.error(
+                    "Не удалось уведомить о готовности заметки call_id=%d: %s",
+                    call_id, exc,
+                )
+        logger.info("✓ Заметка %d готова (call_type=note)", call_id)
+
+    def _maybe_bind_note_to_contact(
+        self, user_id: str, call: dict, transcript_text: str
+    ) -> str | None:
+        """Привязать заметку к контакту по caption `@Имя` (F4, шаг 4).
+
+        Caption уносится в имени файла (note_target_name, filename_parser.py) —
+        единственное место, где он ещё известен на момент финализации.
+        Возвращает строку статуса для уведомления владельцу, или None если
+        caption не было вовсе (обычная заметка без адресата).
+        """
+        try:
+            from callprofiler.ingest.filename_parser import parse_filename
+
+            meta = parse_filename(call.get("source_filename") or "")
+        except Exception:
+            return None
+
+        target = meta.note_target_name
+        if not target:
+            return None
+
+        if not transcript_text:
+            return f"⚠ Заметка не привязана к «{target}» — пустой транскрипт"
+
+        contact, ambiguous = self.repo.find_contact_by_name(user_id, target)
+        if ambiguous:
+            return f"⚠ «{target}» — несколько подходящих контактов, не привязано"
+        if contact is None:
+            return f"⚠ Контакт «{target}» не найден, заметка не привязана"
+
+        try:
+            from callprofiler.insight.repository import append_contact_note
+
+            conn = self.repo._get_conn()
+            dt_label = call.get("call_datetime") or ""
+            line = f"[{dt_label}] {transcript_text[:500]}"
+            append_contact_note(conn, user_id, contact["contact_id"], line)
+            label = contact.get("display_name") or contact.get("phone_e164") or target
+            return f"📎 Привязано к контакту «{label}»"
+        except Exception as exc:  # noqa: BLE001 — привязка не валит финализацию заметки
+            logger.warning("Не удалось привязать заметку к контакту %s: %s", target, exc)
+            return f"⚠ Ошибка привязки к «{target}»"
 
     def _unload_models(self) -> None:
         """Выгрузить pyannote + GigaAM из VRAM. Идемпотентно.

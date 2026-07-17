@@ -35,6 +35,11 @@ scan: MD5-дедуп (`get_call_by_md5`). Новый → ingest = КОПИЯ в 
 **Терминальные статусы:** `done` (полный путь), `transcribed` (Stage-1, LLM off), `error`.
 `get_stalled_calls` реклаймит `status NOT IN (new,done,error,transcribed)`.
 
+**Голосовые заметки (F4, `calls.call_type='note'`):** Telegram voice/audio → `voicenote_*`
+в incoming_dir → штатный ingest/watcher. Диаризация ПРОПУСКАЕТСЯ (turns=[]), сегменты
+speaker=OWNER явно; analyze НЕ зовётся никогда (не от флага) — сразу stage=4/status=`done`
+после транскрипта, свой notify (`send_note_ready`, не `send_summary` — нет `analyses`).
+
 **Файлы/удаление:**
 - mp3 источник: incoming → удаляется в `cleanup_sources` ТОЛЬКО при stage>=2 (`remove_source_on_success`); копия в `originals/YYYY/MM` остаётся = источник истины.
 - normalized wav: имя = `{call_id}__{safe(источник)}.wav` (`norm_wav_path`). call_id префиксом — уникальность (нет коллизий аудио при одинаковых basename) + парсинг в `cleanup_normalized` (`stem.split("__")[0]`, back-compat со старым `{call_id}.wav`).

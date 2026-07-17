@@ -121,6 +121,7 @@ class Repository:
         calls_cols = [
             ("pipeline_stage", "INTEGER NOT NULL DEFAULT 0"),
             ("role_fragile", "INTEGER NOT NULL DEFAULT 0"),
+            ("call_type", "TEXT"),
         ]
         existing_calls = {
             row[1] for row in conn.execute("PRAGMA table_info(calls)").fetchall()
@@ -236,6 +237,50 @@ class Repository:
         )
         conn.commit()
         return cur.lastrowid
+
+    def find_contact_by_name(
+        self, user_id: str, name: str
+    ) -> tuple[dict | None, bool]:
+        """Найти контакт по имени (F4, caption-привязка голосовой заметки).
+
+        Порядок: точное совпадение display_name/guessed_name, иначе
+        case-insensitive префикс (Python .lower() — корректно для кириллицы,
+        в отличие от SQL LIKE, чья регистронезависимость ASCII-only).
+        Несколько совпадений на любом шаге = ambiguous, не выбираем никого.
+
+        Возвращает (contact_or_None, ambiguous).
+        """
+        target = (name or "").strip()
+        if not target:
+            return None, False
+
+        rows = [
+            dict(r)
+            for r in self._get_conn()
+            .execute("SELECT * FROM contacts WHERE user_id = ?", (user_id,))
+            .fetchall()
+        ]
+
+        exact = [
+            r for r in rows
+            if r.get("display_name") == target or r.get("guessed_name") == target
+        ]
+        if len(exact) == 1:
+            return exact[0], False
+        if len(exact) > 1:
+            return None, True
+
+        target_lower = target.lower()
+        prefix = [
+            r for r in rows
+            if (r.get("display_name") or "").lower().startswith(target_lower)
+            or (r.get("guessed_name") or "").lower().startswith(target_lower)
+        ]
+        if len(prefix) == 1:
+            return prefix[0], False
+        if len(prefix) > 1:
+            return None, True
+        return None, False
 
     def get_contact(self, user_id: str, contact_id: int) -> dict | None:
         row = (
@@ -391,6 +436,7 @@ class Repository:
         source_filename: str,
         source_md5: str,
         audio_path: str,
+        call_type: str | None = None,
     ) -> int:
         conn = self._get_conn()
         dt_value = (
@@ -401,8 +447,8 @@ class Repository:
         try:
             cur = conn.execute(
                 """INSERT INTO calls (user_id, contact_id, direction, call_datetime,
-                   source_filename, source_md5, audio_path)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                   source_filename, source_md5, audio_path, call_type)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     user_id,
                     contact_id,
@@ -411,6 +457,7 @@ class Repository:
                     source_filename,
                     source_md5,
                     audio_path,
+                    call_type,
                 ),
             )
             conn.commit()

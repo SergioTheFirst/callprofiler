@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS calls (
     status         TEXT NOT NULL DEFAULT 'new',
     pipeline_stage INTEGER NOT NULL DEFAULT 0,
     role_fragile   INTEGER NOT NULL DEFAULT 0,
+    call_type      TEXT,          -- NULL для обычных звонков, 'note' для голосовых заметок (F4)
     retry_count    INTEGER NOT NULL DEFAULT 0,
     error_message  TEXT,
     created_at     TEXT NOT NULL DEFAULT (datetime('now')),
