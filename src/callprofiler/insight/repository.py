@@ -134,6 +134,23 @@ CREATE TABLE IF NOT EXISTS fact_feedback (
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, item_kind, item_key)
 );
+
+-- Напоминания по подтверждённым обещаниям (F2) — только по явному действию
+-- владельца (инвариант 18), self-disabling после 5 ошибок отправки подряд.
+CREATE TABLE IF NOT EXISTS reminders (
+    reminder_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id             TEXT NOT NULL,
+    item_kind           TEXT NOT NULL,
+    item_key            TEXT NOT NULL,
+    text                TEXT NOT NULL,
+    due_at              TEXT NOT NULL,
+    chat_id             INTEGER NOT NULL,
+    sent_at             TEXT,
+    enabled             INTEGER NOT NULL DEFAULT 1,
+    consecutive_errors  INTEGER NOT NULL DEFAULT 0,
+    created_at          TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(user_id, enabled, sent_at, due_at);
 """
 
 # Колонки, добавленные после первого релиза схемы. ALTER, не recreate (db.md).

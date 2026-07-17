@@ -12,10 +12,23 @@ telegram_bot.py — Telegram-бот для доставки саммари и к
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import re
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
+
+from callprofiler.deliver.reminders import (
+    MAX_CONSECUTIVE_ERRORS,
+    close_item,
+    create_reminder,
+    due_reminders,
+    mark_error,
+    mark_sent,
+    parse_due_ru,
+    snooze_reminder,
+)
 
 if TYPE_CHECKING:
     from callprofiler.db.repository import Repository
@@ -24,6 +37,12 @@ logger = logging.getLogger(__name__)
 
 _FV_VERDICT_LETTERS = {"c": "confirmed", "r": "rejected"}
 _FV_KINDS = ("promise", "event", "deep_fact")
+_PENDING_REMINDER_TTL_SEC = 300
+_REMINDER_TICK_SEC = 60
+
+_REMASK_RE = re.compile(r"^remask\|([a-z_]+)\|(.+)$")
+_REMDONE_RE = re.compile(r"^remdone\|([a-z_]+)\|(.+)$")
+_REMSNOOZE_RE = re.compile(r"^remsnooze\|(\d+)$")
 
 
 def parse_fv_callback(data: str) -> tuple[str, str, str] | None:
@@ -57,6 +76,9 @@ class TelegramNotifier:
         self.token = token or os.environ.get("TELEGRAM_BOT_TOKEN")
         self.repo = repo
         self.app = None
+        # F2: chat_id -> {user_id,item_kind,item_key,text,expires_at} пока бот ждёт
+        # дату после «🔔 Напомнить». TTL 5 мин, упрощение сознательное (spec F2 §2).
+        self._pending_reminders: dict[int, dict] = {}
 
         if not self.token:
             logger.warning(
@@ -577,6 +599,196 @@ class TelegramNotifier:
         msg, keyboard = self._render_promises_view(user_id)
         await query.edit_message_text(text=msg, parse_mode="HTML", reply_markup=keyboard)
 
+        if verdict == "confirmed":
+            # F2: предложить напоминание. Только по явному тапу владельца дальше
+            # (инвариант 18) — эта кнопка НЕ создаёт reminder сама, лишь спрашивает.
+            promise_text = self._promise_text_for(user_id, item_kind, item_key)
+            if promise_text:
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+                remind_kb = InlineKeyboardMarkup([[InlineKeyboardButton(
+                    "🔔 Напомнить", callback_data=f"remask|{item_kind}|{item_key}")]])
+                await query.message.reply_text(
+                    f"✓ Подтверждено: {promise_text}", reply_markup=remind_kb)
+
+    def _promise_text_for(self, user_id: str, item_kind: str, item_key: str) -> str | None:
+        """Человеко-читаемый текст обещания для кнопки-предложения/reminders.text (F2).
+        None — не удалось найти/описать (напр. deep_fact — таблицы ещё нет, M8)."""
+        if item_kind == "event":
+            for p in self.repo.get_open_events(user_id, event_type="promise"):
+                if str(p.get("id")) == str(item_key):
+                    return f"[{p.get('who', '?')}] {p.get('payload', '?')}"
+            return None
+        if item_kind == "promise":
+            conn = self.repo._get_conn()
+            row = conn.execute(
+                "SELECT who, what FROM promises WHERE promise_id = ? AND user_id = ?",
+                (item_key, user_id),
+            ).fetchone()
+            return f"[{row[0]}] {row[1]}" if row else None
+        return None
+
+    async def handle_remind_ask(self, update, context) -> None:
+        """«🔔 Напомнить» -> спросить дату (F2). Следующее текстовое сообщение
+        этого chat_id разбирается parse_due_ru (handle_plain_text)."""
+        query = update.callback_query
+        await query.answer()
+
+        m = _REMASK_RE.match(query.data or "")
+        if not m:
+            await query.edit_message_text(text="⏳ Устарело")
+            return
+        item_kind, item_key = m.group(1), m.group(2)
+
+        user_id = self._get_user_id(update)
+        if user_id is None:
+            await query.edit_message_text(text="❌ Не найден ваш user_id")
+            return
+
+        text = self._promise_text_for(user_id, item_kind, item_key)
+        if text is None:
+            await query.edit_message_text(text="❌ Не нашёл этот пункт")
+            return
+
+        chat_id = update.effective_user.id
+        self._pending_reminders[chat_id] = {
+            "user_id": user_id, "item_kind": item_kind, "item_key": item_key, "text": text,
+            "expires_at": datetime.now() + timedelta(seconds=_PENDING_REMINDER_TTL_SEC),
+        }
+        await query.edit_message_text(text="Когда напомнить? (завтра / в пятницу / 15.07)")
+
+    async def handle_plain_text(self, update, context) -> None:
+        """Текст вне команд (F2): сейчас разбирает ТОЛЬКО «жду дату» после «🔔
+        Напомнить». Иначе — молча игнор (F3 добавит ask-путь СЮДА ЖЕ веткой
+        else, после проверки pending — не заменять эту функцию, дополнять).
+
+        Security (defense-in-depth, review 2026-07-17): _pending_reminders
+        сегодня заполняется ТОЛЬКО из handle_remind_ask (который сам гейтит
+        _get_user_id) — но re-check здесь на случай будущего бага, который
+        занесёт в словарь chat_id без allowlist-проверки."""
+        user_id = self._get_user_id(update)
+        if user_id is None:
+            return
+        chat_id = update.effective_user.id if update.effective_user else None
+        if chat_id is None:
+            return
+        pending = self._pending_reminders.get(chat_id)
+        if pending is None or pending["user_id"] != user_id:
+            return
+        if datetime.now() > pending["expires_at"]:
+            del self._pending_reminders[chat_id]
+            return
+
+        due = parse_due_ru(update.message.text, datetime.now())
+        if due is None:
+            await update.message.reply_text("Не понял дату, напиши как DD.MM")
+            return
+
+        from callprofiler.insight.repository import apply_insight_schema
+
+        conn = self.repo._get_conn()
+        apply_insight_schema(conn)
+        create_reminder(conn, pending["user_id"], item_kind=pending["item_kind"],
+                         item_key=pending["item_key"], text=pending["text"],
+                         due_at=due, chat_id=chat_id)
+        del self._pending_reminders[chat_id]
+        await update.message.reply_text(
+            f"🔔 Напомню {due.strftime('%d.%m %H:%M')}: {pending['text']}"
+        )
+
+    async def handle_reminder_done(self, update, context) -> None:
+        """«✅ Сделано» на сработавшем напоминании — закрыть обещание/факт (F2)."""
+        query = update.callback_query
+        await query.answer()
+
+        m = _REMDONE_RE.match(query.data or "")
+        if not m:
+            await query.edit_message_text(text="⏳ Устарело")
+            return
+        item_kind, item_key = m.group(1), m.group(2)
+
+        user_id = self._get_user_id(update)
+        if user_id is None:
+            await query.edit_message_text(text="❌ Не найден ваш user_id")
+            return
+
+        try:
+            close_item(self.repo, user_id, item_kind, item_key)
+        except Exception as exc:
+            logger.error("Ошибка закрытия item по напоминанию %s: %s", query.data, exc)
+
+        await query.edit_message_text(text="✅ Отмечено выполненным")
+
+    async def handle_reminder_snooze(self, update, context) -> None:
+        """«🕐 Завтра» на сработавшем напоминании — перенести due_at на день (F2).
+
+        Security (2026-07-17, найдено security-review до коммита, CRITICAL):
+        без _get_user_id-гейта чужой reminder_id можно было перенести — снуз
+        обязан быть user-scoped, как и все остальные callback-хендлеры."""
+        query = update.callback_query
+        await query.answer()
+
+        m = _REMSNOOZE_RE.match(query.data or "")
+        if not m:
+            await query.edit_message_text(text="⏳ Устарело")
+            return
+
+        user_id = self._get_user_id(update)
+        if user_id is None:
+            await query.edit_message_text(text="❌ Не найден ваш user_id")
+            return
+
+        conn = self.repo._get_conn()
+        snooze_reminder(conn, int(m.group(1)), user_id)
+        await query.edit_message_text(text="🕐 Напомню завтра")
+
+    async def _reminder_tick_loop(self) -> None:
+        """Фоновый тикер (60с, F2 §3): due_reminders -> отправка + mark_sent/
+        mark_error. Ничего не ПЛАНИРУЕТ сама — только досылает уже созданные
+        владельцем reminders (инвариант 18 не нарушается)."""
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+        from callprofiler.insight.repository import apply_insight_schema
+
+        conn = self.repo._get_conn()
+        apply_insight_schema(conn)
+        while True:
+            try:
+                for r in due_reminders(conn, datetime.now()):
+                    kb = InlineKeyboardMarkup([[
+                        InlineKeyboardButton(
+                            "✅ Сделано",
+                            callback_data=f"remdone|{r['item_kind']}|{r['item_key']}"),
+                        InlineKeyboardButton(
+                            "🕐 Завтра", callback_data=f"remsnooze|{r['reminder_id']}"),
+                    ]])
+                    try:
+                        await self.app.bot.send_message(
+                            chat_id=r["chat_id"], text=f"🔔 Напоминание: {r['text']}",
+                            reply_markup=kb,
+                        )
+                        mark_sent(conn, r["reminder_id"])
+                    except Exception as exc:
+                        logger.error("Ошибка отправки напоминания %d: %s",
+                                     r["reminder_id"], exc)
+                        disabled = mark_error(conn, r["reminder_id"])
+                        if disabled:
+                            try:
+                                await self.app.bot.send_message(
+                                    chat_id=r["chat_id"],
+                                    text=f"⚠ Напоминание отключено после "
+                                         f"{MAX_CONSECUTIVE_ERRORS} неудачных попыток: "
+                                         f"{r['text']}",
+                                )
+                            except Exception:
+                                pass
+            except Exception as exc:
+                logger.error("Ошибка тика напоминаний: %s", exc)
+            await asyncio.sleep(_REMINDER_TICK_SEC)
+
+    async def _on_post_init(self, application) -> None:
+        application.create_task(self._reminder_tick_loop())
+
     async def cmd_status(self, update, context) -> None:
         """/status — состояние очереди и БД."""
         user_id = self._get_user_id(update)
@@ -671,7 +883,7 @@ class TelegramNotifier:
         # Лениво загрузить Telegram классы только при запуске
         try:
             from telegram.ext import (
-                Application, CommandHandler, CallbackQueryHandler
+                Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
             )
         except (ImportError, Exception):
             logger.error(
@@ -687,7 +899,10 @@ class TelegramNotifier:
                 logger.info("Запуск Telegram-бота (long polling, token: %s...)",
                            self.token[:10])
 
-                self.app = Application.builder().token(self.token).build()
+                self.app = (
+                    Application.builder().token(self.token)
+                    .post_init(self._on_post_init).build()
+                )
 
                 # Обработчики команд (добавляем /start)
                 self.app.add_handler(
@@ -717,6 +932,21 @@ class TelegramNotifier:
                 )
                 self.app.add_handler(
                     CallbackQueryHandler(self.handle_fact_verdict, pattern=r"^fv\|")
+                )
+                # F2: предложение напомнить + тикер-кнопки на сработавшем напоминании.
+                self.app.add_handler(
+                    CallbackQueryHandler(self.handle_remind_ask, pattern=r"^remask\|")
+                )
+                self.app.add_handler(
+                    CallbackQueryHandler(self.handle_reminder_done, pattern=r"^remdone\|")
+                )
+                self.app.add_handler(
+                    CallbackQueryHandler(self.handle_reminder_snooze, pattern=r"^remsnooze\|")
+                )
+                # Простой текст (не команда) — сейчас только «жду дату» после
+                # «🔔 Напомнить» (handle_plain_text); F3 (ask) дополнит той же функцией.
+                self.app.add_handler(
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_plain_text)
                 )
 
                 logger.info("✓ Telegram-бот запущен и слушает команды")

@@ -24,6 +24,20 @@ CHECK IN confirmed|rejected, source, created_at)` — составной PK `(us
 db_reader.py `_apply_fact_verdicts` — оба выбрасывают до передачи наверх, не просто прячут в UI).
 Повторный тап = UPSERT (последнее решение — источник истины, история не копится).
 
+## Напоминания по подтверждённым обещаниям (F2)
+
+`reminders(reminder_id, user_id, item_kind, item_key, text, due_at, chat_id, sent_at,
+enabled, consecutive_errors)` — только по явному тапу «🔔 Напомнить» + владелец сам
+называет дату (инвариант 18, `deliver/reminders.py`). `parse_due_ru` — ДЕТЕРМИНИРОВАННЫЙ
+RU-парсер (сегодня/завтра/послезавтра/день недели-ближайший будущий/через N дней/DD.MM[.YYYY]
++ опц. время), никакого LLM. Self-disabling: `consecutive_errors>=5 → enabled=0` + один
+алерт владельцу. Тикер — plain `asyncio`-таск через `Application.post_init` (НЕ
+`job_queue` — тот требует доп. пакет `python-telegram-bot[job-queue]`/APScheduler,
+не установлен и не нужен ради 60с-интервала). **Все callback-хендлеры, трогающие
+конкретный `reminder_id`/`item_key`, обязаны гейтиться `_get_user_id`** (snooze без
+этого гейта был CRITICAL — чужой reminder_id переносился без проверки, security-review
+2026-07-17 до коммита; `snooze_reminder()` теперь и на уровне SQL требует `user_id`).
+
 ## Role-fragile звонки (шум-доктрина, инлайн-задача №7 — OzaluplivanieFable.md §4.2)
 
 `calls.role_fragile` (INTEGER, миграция аддитивна — `db/repository.py::_migrate`, схема

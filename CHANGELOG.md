@@ -8,6 +8,47 @@
 
 ## [Unreleased]
 
+### Added — F2: напоминания по подтверждённым обещаниям (2026-07-17)
+- `insight/repository.py`: таблица `reminders` (`reminder_id, user_id, item_kind, item_key,
+  text, due_at, chat_id, sent_at, enabled, consecutive_errors`).
+- `deliver/reminders.py` (new): `parse_due_ru` — детерминированный RU-парсер РОВНО форм
+  сегодня/завтра/послезавтра/«в <день недели>» (ближайший БУДУЩИЙ — сегодняшний день
+  недели не считается, тест `test_weekday_today_means_next_week_not_today`)/через N дней/
+  DD.MM(.YYYY) + опц. хвост " в HH[:MM]" (умолчание 10:00); не распозналось → None,
+  никаких догадок. + `create_reminder`/`due_reminders`/`mark_sent`/`mark_error`
+  (self-disabling `consecutive_errors>=5`)/`snooze_reminder`/`close_item`.
+- **Бот:** после `confirmed`-вердикта (F1, ЛЮБОЙ item_kind — не только promise/deep_fact
+  как в тексте спеки: /promises сегодня даёт ТОЛЬКО kind=event, ограничение спеки
+  сделало бы фичу нерабочей для её же собственного примера из цели задачи, автономная
+  интерпретация) — предложение «🔔 Напомнить» → `handle_remind_ask` спрашивает дату →
+  `handle_plain_text` (новый MessageHandler, TEXT&~COMMAND) парсит `parse_due_ru`,
+  ошибка парсинга оставляет pending-состояние (можно повторить), TTL 5 мин, состояние
+  in-memory `dict chat_id→pending` (упрощение по спеке, F2 §2). Тикер — `asyncio.
+  create_task` через `Application.post_init` каждые 60с (НЕ `job_queue` — избежан новый
+  пакет-зависимость APScheduler ради 60-секундного цикла, см. insight.md). Сработавшее
+  напоминание — кнопки «✅ Сделано» (`close_item` — events/promises, deep_fact no-op) /
+  «🕐 Завтра» (`snooze_reminder`).
+- CLI `reminders-due --user X` (`cli/commands/deliver.py`+`cli/main.py`) — ждущие/просроченные
+  без бота, тот же паттерн что `obligations-digest`.
+- **Security-review (subagent, sonnet) до финализации — 1 CRITICAL исправлен:**
+  `handle_reminder_snooze` не проверял `_get_user_id` И `snooze_reminder()` не фильтровал
+  по `user_id` в SQL → угаданный/чужой `reminder_id` переносился без авторизации. Fix —
+  оба уровня: bot-гейт (как во всех остальных callback-хендлерах) + `WHERE user_id=?` в
+  самом `snooze_reminder`. Также добавлен defense-in-depth re-check `user_id` в
+  `handle_plain_text` (MEDIUM, единственный хендлер без явного `_get_user_id` до фикса).
+  «Stale connection» (HIGH) — не принято как есть: `Repository._get_conn()` кэширует ОДНО
+  `check_same_thread=False`+WAL соединение на весь процесс НАМЕРЕННО (тот же паттерн everywhere
+  in this codebase, dashboard/db_reader и др.) — «переподключение» на каждом тике вернуло бы
+  тот же объект, не фикс. Устойчивость к сбоям чтения уже покрыта per-reminder self-disabling
+  (mark_error→enabled=0→алерт); отдельный эскалирующий алерт на сбой САМОГО due_reminders() —
+  за рамками спеки F2, не реализовано.
+- Tests: `tests/test_reminders.py` (37: парсер все формы + мусор + переход месяц/год + naive-tz,
+  due-выборка по времени/статусу/user_id, consecutive_errors→disable, snooze, close_item×3,
+  включая regression-тест на CVE выше) + `tests/test_reminders_bot.py` (13: remind_ask/
+  plain_text/reminder_done/reminder_snooze + regression на CVE на уровне бота + предложение
+  кнопки после confirmed/её отсутствие после rejected). `.claude/rules/insight.md` +1 блок.
+  1068 passed/2 skipped.
+
 ### Added — F1: пофактовое ✓/✗ подтверждение владельцем (2026-07-17)
 - `insight/repository.py`: таблица `fact_feedback` (PK `user_id,item_kind,item_key` — user_id
   часть ключа, кросс-юзерная коллизия структурно невозможна) + `set_fact_verdict`/`get_verdicts`/

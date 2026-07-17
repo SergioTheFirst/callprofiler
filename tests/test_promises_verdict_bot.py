@@ -55,6 +55,7 @@ class FakeQuery:
         self.data = data
         self.answer = AsyncMock()
         self.edit_message_text = AsyncMock()
+        self.message = FakeMessage()
 
 
 class FakeUpdate:

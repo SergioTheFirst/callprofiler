@@ -65,7 +65,7 @@ column — bugs.md 2026-07-02) · досье Ф0-Ф4 · русификация.
    0.1 → 0.2 → M1 → … → 19a(F28) → … → 56a-56d → …). Каждая задача: pytest зелёный →
    CHANGELOG → commit+push. 59a (canary смены LLM) — НЕ исполнять автономно.
    **В процессе (автономный прогон начат 2026-07-16, юзер авторизовал полную автономию
-   2026-07-17 — не останавливаться, не спрашивать):** сделаны 1-20 (0.1 гейт · 0.2 feedback-петля
+   2026-07-17 — не останавливаться, не спрашивать):** сделаны 1-21 (0.1 гейт · 0.2 feedback-петля
    · M1 doctor · 0.3 spotcheck-sample · M2 аудио-плеер · 0.4 role-UNKNOWN% · role-fragile флаг
    (инлайн №7) · M3 llm_cache · M4 json_mode+canary-analyze · A1 obligations-digest — БЕЗ
    Telegram-пуша, см. decisions.md · A2 `ask` по архиву + инъекция-гард §4.1 · A4 risk_thresholds
@@ -83,11 +83,15 @@ column — bugs.md 2026-07-02) · досье Ф0-Ф4 · русификация.
    (insight/repository.py), bot `/promises` с per-item кнопками + `handle_fact_verdict`,
    dashboard `/api/tools/fact-verdict` (2 промис-поверхности: event-JSON досье + live
    promises-таблица граф-модалки), digest.py rejected-фильтр/confirmed-метка. Security-reviewed,
-   0 CRITICAL/HIGH. Побочная находка (не фикшена) — bugs.md идея #9 (payload/what naming).
-   ⚠ `insight/mirror.py` (A3) будет расширен ПОЗЖЕ задачей F30 (56b, зеркальная динамика) —
-   при её исполнении дополнять файл, не переписывать.
-   Следующая по порядку — **21. F2 напоминания по подтверждённым обещаниям (Fable §2, T2)**.
-   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1019 passed/2 skipped.
+   0 CRITICAL/HIGH. Побочная находка (не фикшена) — bugs.md идея #9 (payload/what naming) ·
+   **F2 напоминания по подтверждённым обещаниям** — `deliver/reminders.py` (RU-парсер дат,
+   self-disabling), bot «🔔 Напомнить»/date-capture/тикер-asyncio (НЕ job_queue),
+   `reminders-due` CLI. Security-reviewed — **1 CRITICAL исправлен** (snooze без
+   user_id-гейта — чужой reminder_id переносился; фикс на уровне бота И SQL, regression-тесты
+   на обоих уровнях). ⚠ `insight/mirror.py` (A3) будет расширен ПОЗЖЕ задачей F30 (56b,
+   зеркальная динамика) — при её исполнении дополнять файл, не переписывать.
+   Следующая по порядку — **22. F3 `ask` через Telegram-бот (Fable §2, T1)**.
+   Детали каждой готовой задачи — CHANGELOG.md (запись по задаче, не здесь). 1068 passed/2 skipped.
 2. **Бокс (не блокирует исполнение):** pull → `owner_birth_year` в base.yaml → пересчёт возраста
    (`age-estimate --user me` + `age-style --user me`, TABLE/RULES v2) → спот-чек 10 контактов →
    LLM-окно: `age-estimate --user me --llm`.

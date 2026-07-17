@@ -77,7 +77,7 @@ from callprofiler.cli.commands.insight import (  # noqa: E402
 from callprofiler.cli.commands.doctor import cmd_doctor  # noqa: E402
 
 # ---- deliver commands (A1) ----
-from callprofiler.cli.commands.deliver import cmd_obligations_digest  # noqa: E402
+from callprofiler.cli.commands.deliver import cmd_obligations_digest, cmd_reminders_due  # noqa: E402
 
 # ---- ask command (A2) ----
 from callprofiler.cli.commands.ask import cmd_ask  # noqa: E402
@@ -706,6 +706,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Путь к выходному .md файлу (по умолчанию — вывод в консоль)",
     )
 
+    # ── reminders-due (F2) ───────────────────────────────────────────
+    p_remdue = sub.add_parser(
+        "reminders-due",
+        help="F2: печать ждущих/просроченных напоминаний (ручной прогон без бота)",
+    )
+    p_remdue.add_argument(
+        "--user", dest="user_id", required=True, metavar="USER_ID",
+        help="Идентификатор пользователя",
+    )
+
     # ── ask ──────────────────────────────────────────────────────────
     p_ask = sub.add_parser(
         "ask",
@@ -795,6 +805,7 @@ def main() -> None:
         "doctor": cmd_doctor,
         "canary-analyze": cmd_canary_analyze,
         "obligations-digest": cmd_obligations_digest,
+        "reminders-due": cmd_reminders_due,
         "ask": cmd_ask,
         "calibrate-risk": cmd_calibrate_risk,
         "mirror-build": cmd_mirror_build,
