@@ -69,8 +69,26 @@ v2 + fusion, 810 passed; 2026-07-03) · age_style Ф0-Ф5 (2026-07-01/02) · STR
 ozalupennieStrategic5.md (2026-07-02) · бокс-прогон стартовал, 2 краша закрыты (psutil, no such
 column — bugs.md 2026-07-02) · досье Ф0-Ф4 · русификация.
 
+✅ **`opsus5.md` — сводный план исполнения (2026-07-25), НОВАЯ входная точка.** Supersedes
+`OzaluplivanieFable2.md`/`OzaluplivanieFable.md`/`ozalup2.md`/`NeErrorsGR.md` как рабочий список:
+36 самодостаточных задач, тела внутри файла (в старые планы ходить не нужно). Состав: часть I —
+13 дефектов (все якоря сверены по коду 2026-07-25: `payload`/`what` в summary_builder:421-459,
+`get_event_loop` без fallback orchestrator:558, BSCalibrator на risk summary_builder:80,
+`except: pass` orchestrator:621/625, doctor:253-317 без user_id, admin.py:249 глобальный COUNT,
+data_extractor.py:35/266 без user_id, risk-литералы db_reader:311/452 + app.js:963/1136,
+мёртвый event_bus, LLMClient._verify_connection тратит токены, общий коннект
+`check_same_thread=False`, dashboard bind, 512-байт усечение карточки); часть II — F28 единый
+возраст; III — F22/F23/F11/F9; IV — реестр психосигналов и производители (F14-F20, F29-F31);
+V — F10 стабильность/портрет/F25/F27; VI — F12 vault, F13 метрики, финализация + бокс-очередь.
+Отличия от прежних планов: единый источник risk-порогов на все 3 поверхности вместо трёх шкал ·
+`call_ids=` в производителях сигналов с рождения (не ретрофит) · стабильность считается ОДИН раз
+после всех производителей · портрет собирается сразу секционным с критиком и петлёй (v1-итерация
+не создаётся) · имена модулей без коллизий с `insight/features/*`.
+
 **Next:**
-1. **Исполнение `OzaluplivanieFable2.md`** (Sonnet, порядок = Fable §2 + вставки Fable2 §2:
+1. **Исполнение `opsus5.md` по номерам задач 1→36** (Sonnet). Каждая задача: pytest зелёный →
+   CHANGELOG → карта `.claude/rules/*` (где указано) → commit+push.
+2. *(историческая справка)* Прежняя входная точка — `OzaluplivanieFable2.md` (порядок Fable §2:
    0.1 → 0.2 → M1 → … → 19a(F28) → … → 56a-56d → …). Каждая задача: pytest зелёный →
    CHANGELOG → commit+push. 59a (canary смены LLM) — НЕ исполнять автономно.
    **В процессе (автономный прогон начат 2026-07-16, юзер авторизовал полную автономию

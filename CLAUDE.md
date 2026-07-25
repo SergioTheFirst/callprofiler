@@ -49,9 +49,9 @@ import torch; _o=torch.load; torch.load=lambda *a,**k:_o(*a,**{**k,'weights_only
 | Тир | Модель | Effort | Типы работ (этот проект) |
 |-----|--------|--------|--------------------------|
 | **T0** | Haiku 4.5 | low | Q&A по картам `.claude/rules/*`; формат/rename/docstring/опечатки; 1-файловый патч по готовому образцу; CHANGELOG/CONTINUITY/память; grep/лог-триаж; чтение вывода pytest |
-| **T1** | Opus `/fast` | medium | рутина по известному паттерну: CLI-команда по образцу, тесты к готовому фиксу, багфикс с репро и известным классом (bugs.md), рефакторинг внутри модуля без смены контрактов, дашборд JS/read-only эндпоинты, .bat/env-скрипты, ревью одного диффа |
+| **T1** | sonnet | max | рутина по известному паттерну: CLI-команда по образцу, тесты к готовому фиксу, багфикс с репро и известным классом (bugs.md), рефакторинг внутри модуля без смены контрактов, дашборд JS/read-only эндпоинты, .bat/env-скрипты, ревью одного диффа |
 | **T2** | Opus | high | новая фича в 1-2 модулях; баг без репро / heisenbug (WAL, SSE, ASR/diarization quirks); смена контрактов между слоями; SQL-схема/миграция; правка LLM-промптов (`PROMPT_VERSION` bump = инвалидация кэша); insight: новые фичи-тиры/метрики; дизайн synth ground-truth |
-| **T3** | **Fable 5** | **max** | архитектурно-стратегическое: новый workstream; всё трогающее Hard Constraints — GPU/VRAM-порядок, пути удаления данных (wav/mp3/purge/reset), терминальные статусы и resume/reclaim-семантика; дизайн multi-day прогонов 16k+ (resilience/idempotency); ревизия CONSTITUTION/ARCHITECTURE; неоднозначная спека; genuinely novel |
+| **T3** | **Opus** | **max** | архитектурно-стратегическое: новый workstream; всё трогающее Hard Constraints — GPU/VRAM-порядок, пути удаления данных (wav/mp3/purge/reset), терминальные статусы и resume/reclaim-семантика; дизайн multi-day прогонов 16k+ (resilience/idempotency); ревизия CONSTITUTION/ARCHITECTURE; неоднозначная спека; genuinely novel |
 
 **Жёсткие гейты (экономить ЗДЕСЬ запрещено — история: OOM 2026-06-06, data-loss watcher 2026-06-03):**
 - **→ T3:** GPU sequencing / VRAM-бюджет · удаление/перемещение файлов данных · терминальные

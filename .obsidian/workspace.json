@@ -4,17 +4,17 @@
     "type": "split",
     "children": [
       {
-        "id": "89634572a5abe957",
+        "id": "f1a1f7a3f154644a",
         "type": "tabs",
         "children": [
           {
-            "id": "3f3cc43e6b9310cb",
+            "id": "b461eb4e6ce90637",
             "type": "leaf",
             "state": {
-              "type": "graph",
+              "type": "empty",
               "state": {},
-              "icon": "lucide-git-fork",
-              "title": "Граф"
+              "icon": "lucide-file",
+              "title": "Новая вкладка"
             }
           }
         ]
@@ -176,8 +176,11 @@
       "bases:Создать новую базу": false
     }
   },
-  "active": "3f3cc43e6b9310cb",
+  "active": "b461eb4e6ce90637",
   "lastOpenFiles": [
+    "ber.md",
+    "Без названия.canvas",
+    "Без названия.base",
     "src/callprofiler/analyze/profanity_detector.py",
     "configs/features.yaml",
     "biography-run.bat",
@@ -199,8 +202,6 @@
     "src/callprofiler/bulk/__pycache__",
     "tests/__pycache__/test_loader.cpython-310-pytest-8.4.2.pyc",
     "src/callprofiler/ingest/__pycache__/ingester.cpython-310.pyc",
-    "tests/__pycache__/test_integration.cpython-310-pytest-8.4.2.pyc",
-    "src/callprofiler/deliver/__pycache__/__init__.cpython-310.pyc",
-    "src/callprofiler/deliver/__pycache__/card_generator.cpython-310.pyc"
+    "tests/__pycache__/test_integration.cpython-310-pytest-8.4.2.pyc"
   ]
 }
