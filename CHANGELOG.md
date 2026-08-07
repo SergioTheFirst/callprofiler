@@ -6,6 +6,25 @@
 
 ---
 
+### Research — диаризация: остаёмся на pyannote 3.1 (2026-08-07)
+- Задача `/gaol`: выбрать самую точную диаризацию под Win 10 + RTX 3060 12GB.
+  Вердикт: лучшая реально запускаемая — `pyannote/speaker-diarization-community-1`
+  (переименованная 4.0, gated CC-BY-4.0, офлайн, HF-токен есть).
+- DER (auto, без forgiveness collar, full-auto — строже официальной), 3.1 → community-1:
+  AliMeeting ch1 24.5→20.3, CALLHOME (тел.) 28.5→26.7, DIHARD3 21.4→20.2, AMI IHM 18.8→17.0,
+  MSDWild 25.4→22.8, VoxConverse 11.2=11.2, REPERE 7.9→8.9 (хуже 3.1).
+- Отклонено: NeMo diarization (Linux/Python 3.12+/torch 2.7+; здесь Python 3.10+torch 2.6,
+  NeMo 2.7.0 — последний с msdd); pyannoteAI Precision-2 (DIHARD 14.7, CALLHOME 16.6) и
+  Live-1/streaming — только облако → запрещено Статьёй 4; WhisperX — запрещён конституцией.
+- **Решение юзера (2026-08-07): «Оставить 3.1, ничего не менять»** — модель
+  `pyannote/speaker-diarization-3.1` остаётся; миграцию не делаем.
+- Факт, зафиксированный при проверке: установлен pyannote-audio **4.0.4** + torch 2.6.0+cu124;
+  CONSTITUTION.md (стр. 305-306 «3.3.2, только use_auth_token») устарел — runner уже на API 4.x
+  (`token=`, распаковка DiarizeOutput, set_telemetry_metrics(False), аудио в память — обход
+  torchcodec, DLL на Windows не грузятся).
+- Фолбэки (если качество 3.1 не устроит): чистый ECAPA-TDNN вместо `pyannote/embedding`
+  (CONSTITUTION стр. 350/360); план Б при DER >15%.
+
 ### Added — B3: поведенческая надёжность обещаний (2026-07-17)
 - `insight/promise_outcomes.py::run_promise_outcomes(conn,user_id,*,use_llm=False,
   llm_url=None,llm_limit=200) -> dict` — исход КАЖДОГО обещания (UNION `promises`+

@@ -20,7 +20,7 @@ CallProfiler — локальная мультипользовательская
 записей телефонных разговоров:
 
 ```
-аудиофайл → normalize → whisper → pyannote → LLM → SQLite → Telegram / caller card
+аудиофайл → normalize → pyannote (диаризация) → GigaAM (ASR по репликам [me]/[s2]) → LLM → SQLite → Telegram / caller card
 ```
 
 Целевая машина: Windows 11 + RTX 3060 12GB + системный Python 3.10+ (без venv).
@@ -46,7 +46,10 @@ callprofiler/
 │   ├── config.py            ← dataclass Config + load_config()
 │   ├── models.py            ← CallMetadata, Segment, Analysis
 │   ├── audio/normalizer.py        ← ffmpeg + LUFS нормализация
-│   ├── transcribe/whisper_runner.py ← faster-whisper large-v3 (GPU)
+│   ├── transcribe/
+│   │   ├── asr_runner.py          ← Protocol ASRRunner (whisper|gigaam)
+│   │   ├── gigaam_runner.py       ← GigaAM-v3-RNNT, локальная HF-модель (GPU, основная)
+│   │   └── whisper_runner.py      ← faster-whisper large-v3 (GPU, fallback при asr_backend: whisper)
 │   ├── diarize/
 │   │   ├── pyannote_runner.py     ← pyannote 3.3.2 + ref embedding (GPU)
 │   │   └── role_assigner.py       ← overlap-mapping сегмент→спикер
@@ -104,7 +107,7 @@ callprofiler/
 - **Изоляция `user_id` во всех запросах к БД** (CONSTITUTION 2.5).
   Запрос без `WHERE user_id = ?` к таблицам `contacts/calls/analyses/promises` — баг.
 - **GPU-дисциплина** (CONSTITUTION 2.4):
-  Whisper + pyannote держатся в VRAM вместе; перед LLM-запросами обе выгружаются.
+  GigaAM + pyannote держатся в VRAM вместе; перед LLM-запросами обе выгружаются.
   Не загружай три GPU-модели одновременно.
 - **Ошибки не проглатываются** (CONSTITUTION 6.4).
   Каждый шаг pipeline в try/except → `update_call_status('error', error_message)` →
@@ -186,7 +189,7 @@ python -m callprofiler digest serhio --days 7
 
 | Слой         | Решение                              | Обоснование                  |
 |--------------|--------------------------------------|------------------------------|
-| ASR          | `faster-whisper` large-v3            | Лучшее качество русского     |
+| ASR          | `GigaAM-v3-RNNT` (локальная HF-модель, GPU); fallback: `faster-whisper` large-v3 | Русский из коробки, быстрее на RTX 3060 |
 | Диаризация   | `pyannote.audio` 3.3.2 + ref embed   | Работает, замерено           |
 | LLM          | `llama.cpp` (OpenAI API совместимый) | Локальность, контроль памяти |
 | БД           | `sqlite3` + FTS5 (без ORM)           | Один ПК, простота            |
@@ -275,7 +278,7 @@ Skill должен быть:
 - SQL-запрос к `contacts/calls/analyses/promises` без `WHERE user_id = ?`.
 - `except: pass` или `except Exception: pass` без логгера.
 - Модификация файла в `audio/originals/`.
-- Загрузка Whisper и LLM одновременно в VRAM.
+- Загрузка GigaAM (или Whisper-fallback) и LLM одновременно в VRAM.
 - Новые миграции БД прямым `ALTER TABLE` в обход `Repository._migrate()`.
 - Вывод через `print()` вместо `logger` в production-модулях.
 - Добавление Docker / Redis / PostgreSQL / LangChain / WhisperX / ECAPA.

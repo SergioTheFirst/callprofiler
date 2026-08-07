@@ -22,6 +22,14 @@
 
 **State (2026-08-07):**
 
+✅ **Диаризация: решение — остаёмся на pyannote 3.1** (задача `/gaol`, T1, без субагентов).
+Исследован лучший вариант под бокс (Win 10, RTX 3060 12GB, Python 3.10+torch 2.6):
+`pyannote/speaker-diarization-community-1` (4.0) выигрывает DER на 6 из 7 датасетов
+(AliMeeting 20.3 vs 24.5, CALLHOME 26.7 vs 28.5, DIHARD3 20.2 vs 21.4, AMI IHM 17.0 vs 18.8,
+MSDWild 22.8 vs 25.4, REPERE хуже 8.9 vs 7.9). NeMo — несовместим (Python 3.12+/torch 2.7+/
+Linux), pyannoteAI Precision-2/Live-1 — только облако (Статья 4), WhisperX запрещён.
+**Юзер: «Оставить 3.1, ничего не менять».** Подробности: CHANGELOG 2026-08-07.
+
 ✅ **Интерактивная схема архитектуры v5** (`ARCHITECTURE_SCHEMA.html`, T1, без субагентов).
 Статичная устаревшая схема (пути D:\calls, биография «8 проходов») переписана на месте:
 самодостаточная SVG-диаграмма (инлайн CSS/JS) по `ARCHITECTURE_v5.md` — 6 слоёв, 21 узел
