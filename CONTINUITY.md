@@ -6,7 +6,7 @@
 **Goal (incl. success criteria):**
 - Рабочий локальный pipeline `C:\calls\in` → текст (GigaAM v3) → БД → LLM-анализ (Qwen) → дашборд/Telegram.
 - **Доктрина дашборда (юзер, 2026-06-11): 2 функции** — ход обработки + полный психопортрет личности
-  («нажал имя — знаешь всё»: risk, BS-index, архетип, возраст (fusion), паттерны, факты).
+  («нажал имя — знаешь всё»: risk, BS-index, архетип, возраст (fusion: маркеры+kin+стиль), паттерны, факты).
 
 **Workflow (durable):**
 - Claude **коммитит и пушит в `main` БЕЗ пер-действенного согласования** (2026-06-04).
@@ -20,7 +20,47 @@
 - `data_dir = C:\calls\data`. Лог: `C:\calls\callprofiler.log`.
 - **GPU sequential (Hard Constraint):** ASR+pyannote и LLM НИКОГДА одновременно (12GB RTX 3060).
 
-**State (2026-07-17):**
+**State (2026-08-07):**
+
+✅ **Интерактивная схема архитектуры v5** (`ARCHITECTURE_SCHEMA.html`, T1, без субагентов).
+Статичная устаревшая схема (пути D:\calls, биография «8 проходов») переписана на месте:
+самодостаточная SVG-диаграмма (инлайн CSS/JS) по `ARCHITECTURE_v5.md` — 6 слоёв, 21 узел
+(тултипы, клик → описание + его потоки), 24 ребра, 7 потоков данных в панели справа
+(pipeline, bulk-load/enrich, граф/BS-index, возраст Ф0–Ф3, биография 11 фаз, дашборд/SSE,
+CLI); выбор потока подсвечивает весь маршрут. JS провалидирован (`node --check`), найдены и
+исправлены 2 дефекта (дубль "e" в id рёбер; `f.edges` отсутствовал — считаем из EDGES).
+Коммит: `main` (доктрина: коммит+push без согласования).
+
+**Прежние сессии (сжато):** Age Ensemble v2 (2026-07-03, 810 passed) · age_style Ф0-Ф5 +
+marker-vs-style фикс (2026-07-01/02) · STRATEGIC_PLAN_v5 + ozalupennieStrategic5.md
+(2026-07-02) · прогон на боксе стартовал, 2 краша закрыты (psutil, no such column — bugs.md
+2026-07-02) · русификация характеристики · досье Ф0-Ф4.
+
+**Next:**
+1. **Бокс:** pull → задать `owner_birth_year` в base.yaml (иначе реляционные якоря и часть kin
+   мертвы) → полный пересчёт возраста: `age-estimate --user me` + `age-style --user me`
+   (TABLE/RULES v2 = кэш-строки перезапишутся) — или кнопкой из досье.
+2. Спот-чек 10 знакомых контактов: fused-возраст в интервале? топ-вклады осмысленны? kin-сигналы
+   не мусорят? (таблицы v2 — экспертные приоры, ждать грубую точность, vozrast.md §13).
+3. В LLM-окне: `age-estimate --user me --llm` (LLM-пасс поверх, memoized).
+4. Продолжить прогон бокса (make-characteristics/дашборд) + визуально проверить блок возраста
+   (fused-строка, кнопка, hints).
+5. После стабилизации: `ozalupennieStrategic5.md` (Ф0 → Ф-A → …).
+- ОТЛОЖЕНО: калибровка вероятностных таблиц на реальных данных (§15); kin_child словесные
+  числительные («сыну тридцать» — сейчас только цифры); per-conversation ось B (темпер. байес,
+  contact_age_evidence); age_band как ось кластеризации; Ф4-dominance; Stage-2 биография.
+
+**Open questions (UNCONFIRMED):**
+- Сохраняет ли GigaAM филлеры («типа/значит») в транскрипте — от этого зависит ось discourse
+  (проверить на боксе: плотность хитов discourse в реальных строках contact_age_style).
+- Валидность tempo на реальных таймстампах (fixed-window сегменты vs pyannote-turn'ы).
+- VRAM-footprint Qwen 9B Q8_0. Калибровка `bs_thresholds`.
+
+**Working set:**
+- `ARCHITECTURE_SCHEMA.html` (интерактивная схема v5) · `ARCHITECTURE_v5.md` ·
+  `docs/superpowers/plans/2026-07-03-age-ensemble-v2.md` · `fixager.md` (исполнен) ·
+  `.claude/rules/insight.md` · `vozrast.md`
+**State (2026-07-17) — прежняя сессия (remote, сохранено при merge):**
 
 ✅ **Портфель `ozalupennieStrategic5.md` (A1-A7/B1-B8/C1,C3/D1-D3) исполнен** — каждая строка
 имеет коммит (сверено по `git log`, 2026-07-17); C2 — единственный задокументированный пропуск
