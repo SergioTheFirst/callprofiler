@@ -1,7 +1,8 @@
 # CallProfiler: доказательная спецификация доведения до production-ready
 
 **Статус:** specification only.  
-**Дата аудита:** 2026-08-08. **Ревизия 2 (2026-08-08):** независимая перепроверка утверждений по фактическому коду — см. 16.4.  
+**Дата аудита:** 2026-08-08. **Ревизия 2 (2026-08-08):** независимая перепроверка утверждений по фактическому коду — см. 16.4. **Ревизия 3 (2026-08-08):** сверка с актуальным `main` `6361c6c` — см. 16.5.  
+**Базовая точка:** `main` = `6361c6c`. Первичный аудит выполнен на `742a94c`; между ними 3 коммита, `src/`, `configs/` и `tests/` **не менялись** (diff: `AGENTS.md`, `CONTINUITY.md`, `CHANGELOG.md`, `ARCHITECTURE_SCHEMA.html`, удаление stray-лога), поэтому все code-level выводы §5 действуют дословно. Изменились контрактные документы — это учтено в C-01/C-03/C-05 и R-02.  
 **Область:** локальная многопользовательская постобработка звонков на Windows 11, RTX 3060 12 GB, SQLite, GigaAM/Whisper, pyannote, локальный `llama.cpp`, локальный dashboard и опциональная доставка в Telegram.  
 **Единственный результат текущей работы:** этот документ. Он не является реализацией, миграцией или разрешением менять `CONSTITUTION.md`.
 
@@ -73,11 +74,11 @@ incoming file / dashboard upload / Telegram voice note
 
 | ID | Конфликт | Наблюдаемое состояние | Требуемое решение |
 |---|---|---|---|
-| C-01 | Основной ASR | `CONSTITUTION.md` статьи 3/5/9 называют Whisper primary; `configs/base.yaml` и документация — GigaAM primary. | Один canonical контракт; историческое правило обновляется отдельным измеренным решением. До него код не «подгонять» молча. |
+| C-01 | Основной ASR | `CONSTITUTION.md` статьи 3/5/9 называют Whisper primary; `configs/base.yaml`, код и — с `6361c6c` — `AGENTS.md` называют GigaAM primary (Whisper остаётся fallback при `asr_backend: whisper`). Конфликт сузился до «Конституция против всего остального». | Один canonical контракт: зафиксировать GigaAM primary + Whisper fallback ревизией Конституции. Код не «подгонять» молча. |
 | C-02 | Размер caller card | Конституция говорит не более 500 символов; код и тесты — 512 UTF-8 bytes. | Выбрать одно проверяемое ограничение. Для Android-файла рекомендуется 512 bytes, но это требует явной ревизии Конституции. |
-| C-03 | pyannote версия | Конституция фиксирует 3.3.2 и `use_auth_token`; код содержит совместимость 3.x/4.x, план предлагает Community-1. | Смена только после DER/role benchmark и проверки лицензии/offline artifact. |
+| C-03 | pyannote: **модель ≠ runtime-библиотека** | Три разных сущности были смешаны. **(a) Модель — решено, вопрос закрыт:** `pyannote/speaker-diarization-3.1` остаётся (решение владельца 2026-08-07 по измеренному DER, `CHANGELOG.md`/`CONTINUITY.md` в `6361c6c`); Community-1 выигрывал 5 из 7 датасетов, проигрывал REPERE, но владелец выбрал «ничего не менять». **(b) Runtime-библиотека — расхождение с реальностью:** фактически установлена `pyannote-audio 4.0.4` + torch 2.6.0+cu124, runner уже на API 4.x (`token=`, распаковка `DiarizeOutput`, `set_telemetry_metrics(False)`, аудио только в память — обход torchcodec). **(c) Документы устарели:** `CONSTITUTION.md` (стр. 305-306) и `AGENTS.md` (дерево модулей + таблица решений) всё ещё называют `3.3.2` и «только `use_auth_token`». | Модельный выбор **не переоткрывать**. Остаётся один технический пункт: ревизией Конституции (и правкой `AGENTS.md`) зафиксировать пару «модель `speaker-diarization-3.1` + runtime `pyannote-audio 4.0.4`», поддерживаемый способ загрузки (`token=` с fallback на `use_auth_token=`), offline/local-ограничения (gated-артефакт, HF-токен, отсутствие сетевой загрузки в production) и владельческий план Б (чистый ECAPA-TDNN вместо `pyannote/embedding`; пересмотр при DER > 15% на собственном корпусе). |
 | C-04 | «Полностью локально» и Telegram | Аудио/ASR/LLM локальны, но Telegram отправляет данные наружу. | В privacy contract явно определить Telegram как opt-in transport, какие поля разрешены и что raw transcript/audio не уходит по умолчанию. |
-| C-05 | Ветка/релиз | `AGENTS.md` требует ветку `claude/clone-callprofiler-repo-hL5dQ`; `opsus5.md` заканчивает `push origin main`. | В production-плане запрещён direct push в main; политика определяется репозиторием/владельцем. |
+| C-05 | Ветка/релиз | Прямое противоречие двух действующих документов: `AGENTS.md` (`6361c6c`, строки 128 и 183-184) требует все изменения на ветке `claude/clone-callprofiler-repo-hL5dQ` и запрещает пушить в другие ветки; `CLAUDE.md`/`CONTINUITY.md` дают постоянное разрешение владельца коммитить и пушить прямо в `main` («Push to main only. No feature branches», 2026-06-04), и фактические коммиты владельца идут в `main`. | Это **решение владельца, а не вывод спецификации**. Требуется одна однозначная release/branch policy до начала реализации; спецификация не предписывает, какая именно. Что бы ни было выбрано — противоречащий документ правится тем же решением, и релизный gate (T-25) ссылается на выбранную политику, а не на неявное правило. |
 
 Checkpoint **CP-0 (contract freeze)** не пройден, пока C-01…C-05 не решены письменно.
 
@@ -89,7 +90,7 @@ Checkpoint **CP-0 (contract freeze)** не пройден, пока C-01…C-05 
 |---|---|---|
 | GigaAM v3 E2E CTC/RNNT умеют punctuation/text normalization | Подтверждено E3 | Официальный GigaAM README. Short `transcribe` ограничен примерно 25 секундами; есть `transcribe_longform`. |
 | Word timestamps доступны | Подтверждено E3 | Официальный API содержит `word_timestamps=True`; интеграция в текущий custom AutoModel путь всё равно материальна и требует тестов. |
-| Community-1 улучшает ряд DER benchmark и имеет exclusive diarization | Подтверждено E3 | Model card; есть и наборы без улучшения/с регрессией, поэтому не universal win. |
+| Community-1 улучшает ряд DER benchmark и имеет exclusive diarization | Подтверждено E3, **но вопрос закрыт владельцем** | Model card; есть наборы без улучшения/с регрессией → не universal win. Собственный замер владельца (`CHANGELOG.md` 2026-08-07, auto-DER без forgiveness collar): community-1 лучше на AliMeeting 20.3/24.5, CALLHOME 26.7/28.5, DIHARD3 20.2/21.4, AMI IHM 17.0/18.8, MSDWild 22.8/25.4; равно на VoxConverse 11.2; хуже на REPERE 8.9/7.9. **Решение владельца 2026-08-07: «оставить 3.1, ничего не менять».** Пересмотр — только по его же условию (DER > 15% на собственном корпусе). |
 | JSON grammar может снизить долю синтаксически невалидного JSON | Подтверждено с оговорками E3/E4 | `llama.cpp` grammar/JSON schema; exact server build и поддерживаемые schema keywords проверяются canary. |
 | Нужны acceptance benchmark и измеримое качество | Подтверждено | Это обязательный гейт перед заменой моделей. |
 
@@ -101,7 +102,7 @@ Checkpoint **CP-0 (contract freeze)** не пройден, пока C-01…C-05 
 | DS-02 | VAD-сегменты «почти всегда» короче 25 сек | Не доказано; монологи бывают длиннее. | Любой VAD path обязан дополнительно split длинные сегменты с overlap/merge policy. |
 | DS-03 | Пунктуация исправит FTS «склеенные слова» | Причинная связь некорректна: отсутствие пунктуации обычно не удаляет пробелы. | Измерять отдельно readability, semantic extraction и FTS precision/recall. |
 | DS-04 | Переход на word timestamps — низкий риск | В текущем коде custom remote model internals; меняются API, alignment и segment assembly. | Отдельный adapter, pinned artifact, golden alignment tests и rollback. |
-| DS-05 | Community-1 сам убирает ограничение «ровно 2 speakers» | Model API позволяет диапазон, но текущий код явно задаёт `min_speakers=max_speakers=2`. | Изменение runner policy + benchmark 1/2/3 speaker and overlap; модель сама код не исправит. |
+| DS-05 | Community-1 сам убирает ограничение «ровно 2 speakers» | Model API позволяет диапазон, но текущий код явно задаёт `min_speakers=max_speakers=2` (`pyannote_runner.py:290`). Смена модели этого не меняет — и она в любом случае отклонена владельцем (C-03). | Это **code policy, а не выбор модели**, и она остаётся открытой на текущей 3.1: изменение runner policy + benchmark 1/2/3 speaker и overlap. |
 | DS-06 | Grammar гарантирует 100% валидный результат, retry/parser больше не нужны | Overclaim: schema features могут не поддерживаться/быть пропущены; grammar гарантирует лишь язык вывода, не семантику, цитаты и полноту. | Grammar + runtime validator + semantic evidence validator + bounded retry/repair + quarantine. |
 | DS-07 | Изменение grammar касается только клиента | Меняются compatibility contract, deployment fingerprint, schema generation, monitoring и fallback. | Canary на exact `llama-server`; cache key включает grammar/schema/build. |
 | DS-08 | NeMo можно отвергнуть по широким требованиям Linux/Python/Torch | Утверждение не обосновано первичным источником и не нужно. | NeMo уже вне scope по Конституции; не строить решение на сомнительной справке. |
@@ -133,7 +134,7 @@ Checkpoint **CP-0 (contract freeze)** не пройден, пока C-01…C-05 
 | 16, backup | Критично | Использовать SQLite backup API, manifest+SHA-256, atomic publish, `quick_check`, retention и restore rehearsal. |
 | 17, grounding audit | Критично, но read-filter мало | Grounding проверяется до записи/публикации; provenance становится schema-level контрактом. |
 | 18, sufficiency | Принцип верен | Пороги должны быть data-driven; `insufficient` — нормальный результат. |
-| 36, push main | Противоречит repo policy и текущему scope | Релизный checkpoint/owner approval, без direct push. |
+| 36, push main | Конфликтует с `AGENTS.md`, но не с «repo policy вообще» — политика противоречива сама себе (C-05) | Релизный checkpoint и owner approval нужны в любом случае; вопрос «ветка или прямой push в `main`» решает владелец в T-02, спецификация его не предрешает. |
 
 ### 4.2. Вердикт по задачам 19–35
 
@@ -266,7 +267,7 @@ DISCOVERED -> ARCHIVED -> NORMALIZED -> TRANSCRIBED -> ANALYZED -> MATERIALIZED 
                    -> CANCELLED(explicit operator action)
 ```
 
-`delivery_jobs`/outbox живут отдельно: `PENDING -> SENT | RETRYABLE_FAILED | DEAD_LETTER`. Старый integer `pipeline_stage` временно остаётся compatibility projection, но перестаёт быть источником истины.
+`delivery_jobs`/outbox живут отдельно: `PENDING -> SENT | RETRYABLE_FAILED | UNKNOWN | DEAD_LETTER`. `UNKNOWN` — исход внешней отправки, о котором нельзя судить локально (обрыв после принятия запроса); он не ретраится автоматически и требует владельческой политики, см. T-17. Старый integer `pipeline_stage` временно остаётся compatibility projection, но перестаёт быть источником истины.
 
 Минимальные новые logical records (конкретный DDL проектируется в задаче T-05):
 
@@ -295,7 +296,7 @@ DISCOVERED -> ARCHIVED -> NORMALIZED -> TRANSCRIBED -> ANALYZED -> MATERIALIZED 
 - ASR runner возвращает не только segments, но coverage, failed regions, duration, model revision, language confidence и completeness status.
 - Роль назначается только выше calibrated similarity/margin/coverage; иначе `UNKNOWN`, и анализ не делает owner-specific assertions.
 - Model registry принимает только allowlisted local directory + hash manifest; remote download/`trust_remote_code` в production startup выключен либо привязан к заранее проверенному immutable snapshot.
-- Candidate model/segmentation не заменяет stable path без corpus gate из R-01/R-02.
+- Candidate ASR model/segmentation не заменяет stable path без corpus gate из R-01. Диаризационная модель зафиксирована решением владельца (C-03) — её замена не является инженерным решением этого плана; R-02 калибрует политику ролей на действующей модели.
 
 ### 6.6. LLM contract
 
@@ -367,12 +368,12 @@ Grammar остаётся оптимизацией syntax reliability. Обяза
 
 - **Goal:** снять C-01…C-05 до кодовых миграций.
 - **Why:** реализация не может одновременно удовлетворять противоречащим ограничениям.
-- **Scope:** owner decisions: primary/fallback ASR, pyannote support, card limit, Telegram privacy, branch/release, definition of `done`.
+- **Scope:** owner decisions: primary/fallback ASR, **runtime-контракт pyannote** (модельный выбор уже сделан 2026-08-07 — фиксируется, а не переоткрывается: C-03), card limit, Telegram privacy, branch/release, definition of `done`.
 - **Output:** 5 коротких measured decision records; при одобрении владельца — отдельная Constitution revision.
 - **Files:** `CONSTITUTION.md`, architecture/decision docs, config defaults — только в будущей implementation session и отдельным commit.
 - **Approach:** для каждого конфликта привести observed evidence, choice, compatibility, migration, rollback; запретить silent drift.
 - **Alternatives:** временно freeze current behavior и маркировать конфликт startup warning; это допустимо до измерения, но не для release.
-- **Dependencies:** T-00; R-01/R-02 нужны для окончательной модели, но не для определения процесса выбора.
+- **Dependencies:** T-00; R-01 нужен для окончательного ASR-решения, но не для определения процесса выбора. Диаризационная модель уже решена владельцем — T-02 её фиксирует, а не выбирает.
 - **Risks:** широкая ревизия Конституции может скрыть unrelated weakening.
 - **Tests:** contract tests, сверяющие default config, CLI help и selected runner/policy; docs lint.
 - **Acceptance:** каждый conflict имеет одного owner, одно решение и дату review; config/code/tests ссылаются на тот же policy version.
@@ -611,12 +612,12 @@ Grammar остаётся оптимизацией syntax reliability. Обяза
 - **Scope:** cards/Telegram/notification dispatch, callback signing, privacy classes; dashboard updates via local event channel.
 - **Output:** outbox worker, deterministic delivery keys, signed callbacks, dead-letter/operator view.
 - **Files:** `deliver/telegram_bot.py`, reminders, card dispatch, pipeline delivery, outbox repository, tests.
-- **Approach:** core commit enqueues; worker async owns loop; scoped command on callback validates signature/user/entity/action/expiry/allowlist; retries with backoff; core `DONE` independent from optional `SENT`; redact logs.
+- **Approach:** core commit enqueues; worker async owns loop; scoped command on callback validates signature/user/entity/action/expiry/allowlist; retries с backoff **только по подтверждённым отказам**, неоднозначный исход → `UNKNOWN` без авто-ретрая; core `DONE` independent from optional `SENT`; redact logs.
 - **Alternatives:** sync notification acceptable only for CLI foreground, still via same command contract. `run_coro` ambient helper rejected.
 - **Dependencies:** T-03/T-07/T-08/T-16.
 - **Risks:** duplicate Telegram messages; callback key rotation; network service is non-local transport.
 - **Tests:** forged/wrong-user/expired callbacks; duplicate delivery/restart; Telegram timeout/429; card failure; loop already running; privacy payload snapshot; token absence/redaction.
-- **Acceptance:** callback cannot mutate other tenant; at-most-one user-visible send per idempotency key under retries; delivery failure visible and does not falsify core state; no token fragment in logs.
+- **Acceptance:** callback cannot mutate other tenant; delivery failure visible and does not falsify core state; no token fragment in logs. **Гарантия доставки формулируется доказуемо (исправлено в ревизии 3):** Telegram Bot API не принимает idempotency key и не даёт read-back для уже отправленного ботом сообщения, поэтому при сетевом обрыве *после* принятия запроса локальный процесс принципиально не может узнать исход. Абсолютное «at-most-once под retry» недоказуемо как написано. Проверяемый контракт: (1) повторная отправка происходит **только после подтверждённого отказа** (соединение не установлено, 4xx/5xx с ответом, 429 после `retry_after`) — на таком пути дубликатов быть не может, и это тестируется; (2) неоднозначный исход (таймаут/обрыв в ожидании ответа) переводит запись outbox в `UNKNOWN`, **не** ретраится автоматически и попадает в operator view; (3) политика разрешения `UNKNOWN` — владельческая, по умолчанию «не досылать» (видимый дубликат вреднее задержки), альтернатива «досылать» включается флагом и означает явно принятый at-least-once; (4) дедупликация по `delivery_key` защищает от повторов при рестарте/перезапуске воркера, но не выдаётся за защиту от дубликата, созданного самим Telegram.
 - **Rollback:** disable Telegram adapter, retain outbox/dead letters; local processing continues.
 - **Trace:** P-TEN-04, P-PIPE-01, P-OBS-01, C-04, opsus task 2.
 
@@ -741,7 +742,7 @@ Grammar остаётся оптимизацией syntax reliability. Обяза
 - **Files:** release checklist/scripts, no ad hoc production patches.
 - **Approach:** verified backup; read-only preflight; shadow process copies representative calls; compare old/new logical outputs; one opt-in user; soak; expand cohort; explicit stop thresholds; restore rehearsal.
 - **Alternatives:** big-bang migration rejected; dual-writing outputs допустим только bounded canary with reconciliation, not permanent architecture.
-- **Dependencies:** CP-0…CP-4; T-00…T-24 required according to critical path; R-01/R-02 only if changing models.
+- **Dependencies:** CP-0…CP-4; T-00…T-24 required according to critical path; R-01 — только при смене ASR-модели; R-02 — только если менялась политика назначения ролей.
 - **Risks:** VRAM OOM, latency backlog, Windows file locks, model quality regression, Telegram duplicate sends.
 - **Tests:** 24–72h soak; crash/reboot mid-stage; GPU unload/OOM; llama unavailable; DB locked; backup restore; two users; Telegram disabled and enabled; queue catch-up.
 - **Acceptance:** zero cross-tenant/silent-success/data-loss events; restore/rollback within measured target; all required calls converge; quality non-regression bounds met; owner signs go-live.
@@ -766,21 +767,25 @@ Grammar остаётся оптимизацией syntax reliability. Обяза
 - **Rollback:** research adapter deleted; stable model unchanged.
 - **Trace:** DS-01…DS-05, P-NFR-01, C-01.
 
-### R-02 — Diarization Community-1, speaker policy и role calibration benchmark
+### R-02 — Speaker policy и role calibration benchmark на действующей модели
 
-- **Goal:** установить лучший model/policy для telephony roles.
-- **Why:** Community-1 promising but not universally superior; exact-two policy and ref matching are code decisions.
-- **Scope:** pyannote current vs Community-1 offline; 1/2/3 speakers, overlap/exclusive output, ref similarity threshold/margin.
-- **Output:** DER/JER, OWNER/OTHER/UNKNOWN precision-recall, role swap rate, latency/VRAM/license/offline packaging report.
-- **Files:** research harness, local artifact manifest/prototype adapter only.
-- **Approach:** gold speaker boundaries + owner identity; score exclusive and overlap-aware; tune on train split, report untouched temporal/contact holdout.
-- **Alternatives:** keep 3.3.2; improve current role confidence alone; do not force known role when uncertain.
-- **Dependencies:** T-00/T-10/T-11; T-02 decision follows results.
-- **Risks:** license/terms, model gate/token, overfit threshold, telephony channel mismatch.
-- **Tests:** artifact offline load, deterministic ordering, ref swap, no ref, similar voices, long overlap.
-- **Acceptance:** statistically/materially lower role swap/DER within VRAM budget and no license/offline blocker; otherwise no switch.
-- **Rollback:** current pinned runner remains default; candidate artifact removable.
-- **Trace:** DS-05/09, P-TEN-01, P-MODEL-02, C-03.
+> **Пересмотрено в ревизии 3.** Модельная часть исходного R-02 («current vs Community-1») **закрыта решением владельца 2026-08-07** на основании собственного DER-замера (C-03, §3.1). Сравнение моделей здесь больше не проводится и не является гейтом. Задача сведена к тому, что осталось открытым и является кодовым решением, а не выбором модели.
+>
+> **Условие переоткрытия — единственное и владельческое:** DER > 15% на собственном телефонном корпусе. Тогда сначала документированный план Б владельца (чистый ECAPA-TDNN вместо `pyannote/embedding`), и только потом — новая модельная задача с отдельным разрешением.
+
+- **Goal:** откалибровать speaker policy и назначение ролей на действующей паре «модель `speaker-diarization-3.1` + `pyannote-audio 4.0.4`».
+- **Why:** `min_speakers=max_speakers=2`, порог/маржа cosine-similarity к reference и политика отказа — решения кода, а не модели; они не проверены и порождают P-MODEL-02 (роль назначается всегда).
+- **Scope:** 1/2/3 speakers и overlap на текущей модели; ref similarity threshold/margin/coverage; поведение при отсутствующем/слабом reference. Смена модели — вне scope.
+- **Output:** DER/JER на собственном корпусе, OWNER/OTHER/UNKNOWN precision-recall, role swap rate, кривая «порог similarity → доля UNKNOWN / доля ошибочных ролей», latency/VRAM.
+- **Files:** research harness, calibration report; изменения runner policy — отдельным slice после утверждения порогов.
+- **Approach:** gold speaker boundaries + owner identity; score exclusive и overlap-aware; подбор порога на train split, отчёт на нетронутом temporal/contact holdout.
+- **Alternatives:** не трогать policy и ограничиться повышением честности `role_fragile`; допустимо, если калибровка не даёт материального выигрыша. Принудительное назначение роли при низкой уверенности отвергнуто.
+- **Dependencies:** T-00/T-10/T-11. **Не является зависимостью T-02** — модельное решение уже принято владельцем.
+- **Risks:** overfit порога на малом корпусе, telephony channel mismatch, смещение выборки в сторону «удобных» звонков.
+- **Tests:** deterministic ordering, ref swap, no ref, similar voices, long overlap, поведение на границе порога.
+- **Acceptance:** выбран порог/маржа с измеренной ошибкой ролей и явной долей воздержания; если калиброванный вариант не лучше текущего — фиксируется отказ от изменения с отчётом.
+- **Rollback:** действующая policy остаётся default; калибровочные константы возвращаются к текущим значениям.
+- **Trace:** DS-05, P-TEN-01, P-MODEL-02, C-03(b).
 
 ### R-03 — Exact llama.cpp constrained-decoding canary
 
@@ -1017,7 +1022,7 @@ Hard numeric gates, не требующие baseline:
 9. Raw/derived data имеет понятную retention/purge/backup policy; originals immutable.
 10. Психологические/биографические выводы не выдают unsupported inference за факт; provenance доступна пользователю.
 11. Quality/performance thresholds зарегистрированы до candidate test и достигнуты; очередь после outage догоняется в установленное время.
-12. Release/branch/Constitution decisions выполнены согласно repo policy; нет direct push или скрытого изменения Конституции.
+12. Release/branch/Constitution decisions выполнены согласно **однозначной политике, зафиксированной в T-02** (C-05 фиксирует, что сейчас она противоречива); нет скрытого изменения Конституции.
 
 ## 14. Явно отклонённые быстрые решения
 
@@ -1039,7 +1044,7 @@ Hard numeric gates, не требующие baseline:
 Внешние факты использованы только для проверки модельных гипотез, а не вместо анализа текущего кода:
 
 - GigaAM official repository: <https://github.com/salute-developers/GigaAM> — модели v3, short/longform, word timestamps, revisions и multilingual release.
-- pyannote Community-1 official model card: <https://huggingface.co/pyannote/speaker-diarization-community-1> — license/gating/offline use, exclusive output и published benchmark table.
+- pyannote Community-1 official model card: <https://huggingface.co/pyannote/speaker-diarization-community-1> — license/gating/offline use, exclusive output и published benchmark table. **Кандидат отклонён владельцем 2026-08-07** (C-03); источник сохранён как обоснование закрытого решения, а не открытого вопроса.
 - llama.cpp grammar official documentation: <https://github.com/ggml-org/llama.cpp/blob/master/grammars/README.md> — constrained output API, JSON-schema limitations и grammar validation.
 
 Локальные anchor files: `src/callprofiler/pipeline/orchestrator.py`, `pipeline/watcher.py`, `diarize/pyannote_runner.py`, `transcribe/gigaam_runner.py`, `db/repository.py`, `db/schema.sql`, `analyze/llm_client.py`, `analyze/response_parser.py`, `analyze/analysis_service.py`, `bulk/enricher.py`, `dashboard/server.py`, `dashboard/db_reader.py`, `deliver/reminders.py`, `deliver/card_generator.py`, `graph/resolver.py`, `psychology_profiler.py`, `configs/base.yaml`, `configs/prompts/analyze_v001.txt`, `pyproject.toml`, `CONSTITUTION.md`, `deepseekdiharea.md`, `opsus5.md`.
@@ -1091,3 +1096,15 @@ Hard numeric gates, не требующие baseline:
 5. **§5 — добавлена отметка о перепроверке anchors** и о воспроизведении крэша парсера (E2).
 
 **Что осталось непроверяемым здесь и остаётся E3/E4:** внешние model cards и поведение конкретной сборки `llama-server` (R-01…R-03), реальные GPU/VRAM/Windows-замеры (CP-5). Решения, приоритеты, severity, состав задач, critical path и checkpoints ревизией 2 не менялись.
+
+### 16.5. Ревизия 3 — сверка с актуальным `main` и снятие принятых решений (2026-08-08)
+
+Повод: внешнее ревью указало, что базовая точка устарела и что три пункта нельзя отдавать разработчикам в текущем виде. Проверено — замечания обоснованы, внесены пять точечных правок. Нового исследования не проводилось; третий план не создавался — единственным источником истины остаётся этот документ.
+
+1. **Базовая точка актуализирована.** Аудит выполнялся на `742a94c`, текущий `main` — `6361c6c` (+3 коммита: `562110c` SVG-схема архитектуры, `1790bde` удаление stray-лога, `6361c6c` решение по диаризации + актуализация `AGENTS.md`). `git diff --stat 742a94c origin/main` показывает изменения только в `AGENTS.md`, `CONTINUITY.md`, `CHANGELOG.md`, `ARCHITECTURE_SCHEMA.html` и удалённом лог-файле — **ни одного файла `src/`, `configs/`, `tests/`**. Следовательно все выводы §5 сохраняют силу дословно, а пересмотра потребовали только контрактные пункты C-01/C-03/C-05 и R-02. E1.
+2. **C-03 переписан: модель ≠ версия библиотеки.** Прежняя формулировка смешивала выбор модели (`speaker-diarization-3.1` vs Community-1) с версией runtime (`pyannote-audio 3.3.2` vs 4.0.4) и предлагала benchmark по уже закрытому вопросу. `CHANGELOG.md`/`CONTINUITY.md` (`6361c6c`) содержат явное решение владельца от 2026-08-07 «оставить 3.1, ничего не менять» с собственной DER-таблицей, отклонением NeMo (несовместим: Linux/Python 3.12+/torch 2.7+ против локальных 3.10/2.6) и облачных вариантов (Статья 4). Одновременно там же зафиксировано, что установлен `pyannote-audio 4.0.4` и runner уже на API 4.x, тогда как `CONSTITUTION.md` (стр. 305-306) **и** `AGENTS.md` всё ещё пишут «3.3.2 + `use_auth_token`». Открытым остался только технический пункт — ревизия документов под фактическую пару «модель 3.1 + библиотека 4.0.4» с offline/gated-ограничениями и владельческим планом Б.
+3. **R-02 сведён к калибровке ролей.** Модельное сравнение убрано (решено), задача переформулирована на то, что действительно открыто и является кодовым решением: `min_speakers=max_speakers=2`, порог/маржа similarity к reference, политика воздержания. Указано единственное владельческое условие переоткрытия модельного вопроса — DER > 15% на собственном корпусе. R-02 больше не является зависимостью T-02.
+4. **T-17: снято недоказуемое обещание Telegram.** Формулировка «at-most-one user-visible send per idempotency key under retries» не может быть строго доказана: Bot API не принимает idempotency key и не даёт read-back отправленного ботом сообщения, поэтому обрыв после принятия запроса локально неразличим. Acceptance переписан на проверяемый контракт (ретрай только после подтверждённого отказа; неоднозначный исход → `UNKNOWN` без авто-ретрая; политика разрешения `UNKNOWN` — владельческая, по умолчанию «не досылать»; `delivery_key` защищает от повторов при рестарте, но не выдаётся за защиту от дубликата на стороне Telegram). В §6.3 добавлено состояние `UNKNOWN`. Замечание ревью принято по сути; предложенная им замена на «at-least-once + application-level dedup» взята не буквально: наша дедупликация работает на нашей стороне и не может убрать дубликат, который пользователь уже увидел в мессенджере, поэтому корректнее зафиксировать сам компромисс и владельца решения.
+5. **C-05 перестал предрешать ответ.** Убрано «в production-плане запрещён direct push в main» — это выход за рамки роли спецификации, противоречащий её же правилу «C-01…C-05 решает владелец». Конфликт назван точно: `AGENTS.md` (строки 128, 183-184) требует ветку `claude/clone-callprofiler-repo-hL5dQ`, а `CLAUDE.md`/`CONTINUITY.md` дают постоянное разрешение на прямой push в `main`, и фактические коммиты владельца идут в `main`. Соответственно поправлены строка задачи 36 в §4.1 и пункт 12 в §13.
+
+**Не изменено сознательно:** каталог §5, severity, состав и порядок задач T-00…T-25, critical path, checkpoints, stop-the-line, test strategy, migration/rollback. C-01 сузился (после `6361c6c` `AGENTS.md` перешёл на сторону GigaAM), но не закрылся: `CONSTITUTION.md` по-прежнему называет Whisper primary.
