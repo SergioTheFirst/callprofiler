@@ -51,7 +51,7 @@ callprofiler/
 │   │   ├── gigaam_runner.py       ← GigaAM-v3-RNNT, локальная HF-модель (GPU, основная)
 │   │   └── whisper_runner.py      ← faster-whisper large-v3 (GPU, fallback при asr_backend: whisper)
 │   ├── diarize/
-│   │   ├── pyannote_runner.py     ← pyannote 3.3.2 + ref embedding (GPU)
+│   │   ├── pyannote_runner.py     ← pyannote-audio 4.0.4 + модель speaker-diarization-3.1 + ref embedding (GPU)
 │   │   └── role_assigner.py       ← overlap-mapping сегмент→спикер
 │   ├── analyze/
 │   │   ├── llm_client.py          ← HTTP клиент llama.cpp (OpenAI API)
@@ -125,7 +125,7 @@ callprofiler/
    известные ограничения.
 3. Сверить изменения с `CONSTITUTION.md` (нет ли нарушений).
 4. Запустить тесты.
-5. Сделать коммит на ветке `claude/clone-callprofiler-repo-hL5dQ`.
+5. Сделать коммит в `main` (C-05, см. 4.3).
 
 > Этот процесс существует потому, что контекст AI-сессии стирается.
 > Журналы — единственный способ преемственности между сессиями
@@ -180,8 +180,11 @@ python -m callprofiler digest serhio --days 7
 
 ### 4.3. Ветка разработки
 
-Все изменения — на ветке `claude/clone-callprofiler-repo-hL5dQ`.
-Не пушить в другие ветки без явного указания владельца.
+Единственная политика — работа и push напрямую в `main`, без feature-веток
+(решение C-05, `docs/decisions/CP-0-contracts.md`). Требование работать на ветке
+`claude/clone-callprofiler-repo-hL5dQ` было реликтом разового клон-задания и
+противоречило постоянному разрешению владельца в `CLAUDE.md`/`CONTINUITY.md`.
+`git push --force` по-прежнему запрещён без явного разрешения владельца.
 
 ---
 
@@ -190,15 +193,22 @@ python -m callprofiler digest serhio --days 7
 | Слой         | Решение                              | Обоснование                  |
 |--------------|--------------------------------------|------------------------------|
 | ASR          | `GigaAM-v3-RNNT` (локальная HF-модель, GPU); fallback: `faster-whisper` large-v3 | Русский из коробки, быстрее на RTX 3060 |
-| Диаризация   | `pyannote.audio` 3.3.2 + ref embed   | Работает, замерено           |
+| Диаризация   | runtime `pyannote-audio` 4.0.4; модель `pyannote/speaker-diarization-3.1` + ref embed | Модель — решение владельца 2026-08-07 по DER; C-03 |
 | LLM          | `llama.cpp` (OpenAI API совместимый) | Локальность, контроль памяти |
 | БД           | `sqlite3` + FTS5 (без ORM)           | Один ПК, простота            |
 | Telegram     | `python-telegram-bot`                | Стандарт                     |
 | GPU          | torch 2.6.0+cu124, RTX 3060 12GB     | Железо пользователя          |
 
 **Обязательные хаки** (иначе не работает, см. CONSTITUTION 13.1):
-- `torch.load` monkey-patch (`weights_only=False`)
-- `use_auth_token=` (не `token=`) для pyannote 3.3.2
+- `torch.load` monkey-patch (`weights_only=False`) — теперь НЕ глобальный: точечный
+  context manager `callprofiler.torch_patch.patch_weights_only_false()` вокруг загрузки
+  чекпоинтов (T-01; глобальный патч в `__init__.py` тянул torch даже в `--help`/`doctor`)
+- Аргумент токена у `from_pretrained` различается по версиям: pyannote 3.3.x ждёт
+  `use_auth_token=`, 3.4+/4.x — `token=`. `_load_pretrained` пробует оба, поэтому код
+  переживает обе. Жёстко зашивать один вариант нельзя.
+- pyannote вход — ТОЛЬКО in-memory `{waveform, sample_rate}`: 4.x по умолчанию декодирует
+  по пути через `torchcodec`, чьи DLL на Windows не грузятся (роли молча становятся UNKNOWN
+  при исправном ASR)
 - `HF_TOKEN` из `configs/base.yaml`
 
 ---
