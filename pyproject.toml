@@ -7,20 +7,38 @@ name = "callprofiler"
 version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
+    # ВНИМАНИЕ: torch и numpy НАМЕРЕННО без нижней границы.
+    # Целевая машина (GPU-бокс) работает на Python 3.12 + torch==2.6.0+cu124
+    # (CLAUDE.md Hard Constraints, requirements-gigaam.txt, bugs.md B1 2026-06-03).
+    # Floor, снятый с dev-машины (torch 2.9.1, CPU-only), ИСКЛЮЧИЛ БЫ боевое
+    # окружение: `pip install -e .` на боксе потянул бы апгрейд torch и снёс бы
+    # CUDA-сборку — ровно тот класс отказа, который стоил целого прогона.
+    # numpy связан с torch-сборкой, поэтому тоже не ограничиваем здесь.
+    # Точные версии рантайма фиксирует requirements-gigaam.txt, не этот манифест.
     "torch",
     "faster-whisper",
     "pyannote.audio",
-    "pyyaml",
+    "pyyaml>=6.0.3",
     "numpy",
     "soundfile",
     "librosa",
-    "requests",
-    "fastapi",
-    "uvicorn",
-    "jinja2",
-    "python-telegram-bot",
-    "psutil",
+    "requests>=2.34.2",
+    "fastapi>=0.122.0",
+    "uvicorn>=0.38.0",
+    "jinja2>=3.1.6",
+    "python-telegram-bot>=22.6",
+    "psutil>=7.2.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4.2",
+    "ruff>=0.15.5",
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

@@ -1,0 +1,37 @@
+# Dev-machine snapshot — NOT a universal lock, NOT the GPU box.
+# Captured: 2026-08-08, Windows-10-10.0.19045-SP0, Python 3.10.11, CPU-only (no CUDA here).
+# Dev/run split (CLAUDE.md): this machine has no GPU, no models, no DB — tests run mocked/offline.
+# GPU-box ASR/roles stack (faster-whisper, pyannote.audio, soundfile, librosa, torch+cu124) is
+# NOT installed here and NOT captured below — see requirements-gigaam.txt for that install path
+# and its documented Python-3.12 requirement. Regenerate on this machine with:
+#   python -m pip freeze | findstr /I "torch numpy pyyaml requests fastapi uvicorn jinja2 python-telegram-bot psutil pytest ruff"
+
+torch==2.9.1
+numpy==2.2.6
+PyYAML==6.0.3
+requests==2.34.2
+fastapi==0.122.0
+uvicorn==0.38.0
+Jinja2==3.1.6
+python-telegram-bot==22.6
+psutil==7.2.2
+
+# transitive, behavior-relevant
+starlette==0.50.0
+pydantic==2.10.6
+anyio==4.12.0
+httpx==0.28.1
+h11==0.16.0
+click==8.3.1
+scipy==1.15.3
+sympy==1.14.0
+networkx==3.4.2
+filelock==3.20.0
+MarkupSafe==3.0.3
+
+# dev/test
+pytest==8.4.2
+ruff==0.15.5
+
+# not installed on this dev machine (GPU-box only, see requirements-gigaam.txt):
+#   faster-whisper, pyannote.audio, soundfile, librosa
