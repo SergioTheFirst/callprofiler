@@ -18,6 +18,7 @@ main.py — точка входа CLI для CallProfiler.
 from __future__ import annotations
 
 import argparse
+import importlib
 import logging
 import sys
 from pathlib import Path
@@ -27,68 +28,78 @@ from callprofiler.cli.utils import load_config_and_repo as _load_config_and_repo
 
 
 # ── Команды ────────────────────────────────────────────────────────────────
+# T-01: НЕ импортировать command-модули на верхнем уровне — они тянут
+# torch/pyannote/transformers транзитивно (через orchestrator/watcher/etc),
+# что делает `--help`/`doctor` медленными и ломает их на окружении без ML-стека.
+# Импорт — лениво, внутри dispatch (module, func) в main().
 
+_DISPATCH: dict[str, tuple[str, str]] = {
+    "watch": ("callprofiler.cli.commands.admin", "cmd_watch"),
+    "process": ("callprofiler.cli.commands.admin", "cmd_process"),
+    "reprocess": ("callprofiler.cli.commands.admin", "cmd_reprocess"),
+    "bootstrap": ("callprofiler.cli.commands.admin", "cmd_bootstrap"),
+    "add-user": ("callprofiler.cli.commands.admin", "cmd_add_user"),
+    "status": ("callprofiler.cli.commands.admin", "cmd_status"),
+    "dashboard": ("callprofiler.cli.commands.admin", "cmd_dashboard"),
+    "bot": ("callprofiler.cli.commands.admin", "cmd_bot"),
 
-# ---- admin commands ----
-from callprofiler.cli.commands.admin import (  # noqa: E402
-    cmd_watch, cmd_process, cmd_reprocess, cmd_add_user, cmd_bootstrap,
-    cmd_status, cmd_dashboard, cmd_bot,
-)
+    "extract-names": ("callprofiler.cli.commands.bulk", "cmd_extract_names"),
+    "bulk-load": ("callprofiler.cli.commands.bulk", "cmd_bulk_load"),
+    "bulk-enrich": ("callprofiler.cli.commands.bulk", "cmd_bulk_enrich"),
+    "audio-migrate": ("callprofiler.cli.commands.bulk", "cmd_audio_migrate"),
+    "canary-analyze": ("callprofiler.cli.commands.bulk", "cmd_canary_analyze"),
 
-# ---- bulk commands ----
-from callprofiler.cli.commands.bulk import (  # noqa: E402
-    cmd_extract_names, cmd_bulk_load, cmd_bulk_enrich, cmd_audio_migrate,
-    cmd_canary_analyze,
-)
+    "digest": ("callprofiler.cli.commands.query", "cmd_digest"),
+    "search": ("callprofiler.cli.commands.query", "cmd_search"),
+    "promises": ("callprofiler.cli.commands.query", "cmd_promises"),
+    "inspect-schema": ("callprofiler.cli.commands.query", "cmd_inspect_schema"),
+    "backfill-events": ("callprofiler.cli.commands.query", "cmd_backfill_events"),
+    "backfill-calltypes": ("callprofiler.cli.commands.query", "cmd_backfill_calltypes"),
+    "analytics": ("callprofiler.cli.commands.query", "cmd_analytics"),
 
-# ---- query commands ----
-from callprofiler.cli.commands.query import (  # noqa: E402
-    cmd_digest, cmd_search, cmd_promises,
-    cmd_inspect_schema, cmd_backfill_events,
-    cmd_backfill_calltypes, cmd_analytics,
-)
+    "rebuild-summaries": ("callprofiler.cli.commands.contacts", "cmd_rebuild_summaries"),
+    "rebuild-cards": ("callprofiler.cli.commands.contacts", "cmd_rebuild_cards"),
+    "book-chapter": ("callprofiler.cli.commands.contacts", "cmd_book_chapter"),
+    "person-profile": ("callprofiler.cli.commands.contacts", "cmd_person_profile"),
+    "profile-all": ("callprofiler.cli.commands.contacts", "cmd_profile_all"),
 
-# ---- contact commands ----
-from callprofiler.cli.commands.contacts import (  # noqa: E402
-    cmd_rebuild_summaries, cmd_rebuild_cards,
-    cmd_book_chapter, cmd_person_profile, cmd_profile_all,
-)
+    "biography-run": ("callprofiler.cli.commands.biography", "cmd_biography_run"),
+    "biography-status": ("callprofiler.cli.commands.biography", "cmd_biography_status"),
+    "biography-export": ("callprofiler.cli.commands.biography", "cmd_biography_export"),
 
-# ---- biography commands ----
-from callprofiler.cli.commands.biography import (  # noqa: E402
-    cmd_biography_run, cmd_biography_status, cmd_biography_export,
-)
+    "graph-backfill": ("callprofiler.cli.commands.graph", "cmd_graph_backfill"),
+    "reenrich-v2": ("callprofiler.cli.commands.graph", "cmd_reenrich_v2"),
+    "graph-stats": ("callprofiler.cli.commands.graph", "cmd_graph_stats"),
+    "graph-replay": ("callprofiler.cli.commands.graph", "cmd_graph_replay"),
+    "entity-merge": ("callprofiler.cli.commands.graph", "cmd_entity_merge"),
+    "entity-unmerge": ("callprofiler.cli.commands.graph", "cmd_entity_unmerge"),
+    "graph-audit": ("callprofiler.cli.commands.graph", "cmd_graph_audit"),
+    "graph-health": ("callprofiler.cli.commands.graph", "cmd_graph_health"),
 
-# ---- graph commands ----
-from callprofiler.cli.commands.graph import (  # noqa: E402
-    cmd_graph_backfill, cmd_reenrich_v2, cmd_graph_stats,
-    cmd_graph_replay, cmd_entity_merge, cmd_entity_unmerge,
-    cmd_graph_audit, cmd_graph_health,
-)
+    "features-build": ("callprofiler.cli.commands.insight", "cmd_features_build"),
+    "archetypes-fit": ("callprofiler.cli.commands.insight", "cmd_archetypes_fit"),
+    "person-archetype": ("callprofiler.cli.commands.insight", "cmd_person_archetype"),
+    "person-link": ("callprofiler.cli.commands.insight", "cmd_person_link"),
+    "mentions-build": ("callprofiler.cli.commands.insight", "cmd_mentions_build"),
+    "quarterly-report": ("callprofiler.cli.commands.insight", "cmd_quarterly_report"),
+    "promise-outcomes": ("callprofiler.cli.commands.insight", "cmd_promise_outcomes"),
+    "age-estimate": ("callprofiler.cli.commands.insight", "cmd_age_estimate"),
+    "age-style": ("callprofiler.cli.commands.insight", "cmd_age_style"),
+    "spotcheck-sample": ("callprofiler.cli.commands.insight", "cmd_spotcheck_sample"),
+    "calibrate-risk": ("callprofiler.cli.commands.insight", "cmd_calibrate_risk"),
+    "mirror-build": ("callprofiler.cli.commands.insight", "cmd_mirror_build"),
+    "tiers-recompute": ("callprofiler.cli.commands.insight", "cmd_tiers_recompute"),
+    "deep-extract": ("callprofiler.cli.commands.insight", "cmd_deep_extract"),
 
-# ---- insight commands ----
-from callprofiler.cli.commands.insight import (  # noqa: E402
-    cmd_features_build, cmd_archetypes_fit, cmd_person_archetype, cmd_person_link,
-    cmd_mentions_build, cmd_quarterly_report, cmd_promise_outcomes,
-    cmd_age_estimate, cmd_age_style, cmd_spotcheck_sample, cmd_calibrate_risk,
-    cmd_mirror_build, cmd_tiers_recompute, cmd_deep_extract,
-)
+    "doctor": ("callprofiler.cli.commands.doctor", "cmd_doctor"),
 
-# ---- doctor command (M1) ----
-from callprofiler.cli.commands.doctor import cmd_doctor  # noqa: E402
+    "daily-report": ("callprofiler.cli.commands.deliver", "cmd_daily_report"),
+    "obligations-digest": ("callprofiler.cli.commands.deliver", "cmd_obligations_digest"),
+    "on-this-day": ("callprofiler.cli.commands.deliver", "cmd_on_this_day"),
+    "reminders-due": ("callprofiler.cli.commands.deliver", "cmd_reminders_due"),
 
-# ---- deliver commands (A1) ----
-from callprofiler.cli.commands.deliver import (  # noqa: E402
-    cmd_daily_report,
-    cmd_obligations_digest,
-    cmd_on_this_day,
-    cmd_reminders_due,
-)
-
-# ---- ask command (A2) ----
-from callprofiler.cli.commands.ask import cmd_ask  # noqa: E402
-
-# cmd_graph_audit -> cli/commands/graph.py
+    "ask": ("callprofiler.cli.commands.ask", "cmd_ask"),
+}
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -877,69 +888,13 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
-    dispatch = {
-        "watch": cmd_watch,
-        "process": cmd_process,
-        "reprocess": cmd_reprocess,
-        "bootstrap": cmd_bootstrap,
-        "add-user": cmd_add_user,
-        "digest": cmd_digest,
-        "status": cmd_status,
-        "extract-names": cmd_extract_names,
-        "bulk-load": cmd_bulk_load,
-        "bulk-enrich": cmd_bulk_enrich,
-        "rebuild-summaries": cmd_rebuild_summaries,
-        "rebuild-cards": cmd_rebuild_cards,
-        "search": cmd_search,
-        "promises": cmd_promises,
-        "inspect-schema": cmd_inspect_schema,
-        "backfill-events": cmd_backfill_events,
-        "backfill-calltypes": cmd_backfill_calltypes,
-        "analytics": cmd_analytics,
-        "bot": cmd_bot,
-        "biography-run": cmd_biography_run,
-        "biography-status": cmd_biography_status,
-        "biography-export": cmd_biography_export,
-        "audio-migrate": cmd_audio_migrate,
-        "graph-backfill": cmd_graph_backfill,
-        "reenrich-v2": cmd_reenrich_v2,
-        "graph-replay": cmd_graph_replay,
-        "graph-stats": cmd_graph_stats,
-        "features-build": cmd_features_build,
-        "archetypes-fit": cmd_archetypes_fit,
-        "person-link": cmd_person_link,
-        "mentions-build": cmd_mentions_build,
-        "quarterly-report": cmd_quarterly_report,
-        "promise-outcomes": cmd_promise_outcomes,
-        "person-archetype": cmd_person_archetype,
-        "age-estimate": cmd_age_estimate,
-        "age-style": cmd_age_style,
-        "spotcheck-sample": cmd_spotcheck_sample,
-        "entity-merge": cmd_entity_merge,
-        "entity-unmerge": cmd_entity_unmerge,
-        "graph-audit": cmd_graph_audit,
-        "graph-health": cmd_graph_health,
-        "dashboard": cmd_dashboard,
-        "book-chapter": cmd_book_chapter,
-        "person-profile": cmd_person_profile,
-        "profile-all": cmd_profile_all,
-        "doctor": cmd_doctor,
-        "canary-analyze": cmd_canary_analyze,
-        "obligations-digest": cmd_obligations_digest,
-        "daily-report": cmd_daily_report,
-        "on-this-day": cmd_on_this_day,
-        "reminders-due": cmd_reminders_due,
-        "ask": cmd_ask,
-        "calibrate-risk": cmd_calibrate_risk,
-        "mirror-build": cmd_mirror_build,
-        "tiers-recompute": cmd_tiers_recompute,
-        "deep-extract": cmd_deep_extract,
-    }
-
-    handler = dispatch.get(args.command)
-    if handler is None:
+    entry = _DISPATCH.get(args.command)
+    if entry is None:
         parser.print_help()
         sys.exit(1)
+
+    module_name, func_name = entry
+    handler = getattr(importlib.import_module(module_name), func_name)
 
     try:
         exit_code = handler(args)

@@ -1,11 +1,8 @@
-import torch as _torch
+# -*- coding: utf-8 -*-
+"""callprofiler package.
 
-_original_load = _torch.load
-
-
-def _patched_load(*args, **kwargs):
-    kwargs.setdefault("weights_only", False)
-    return _original_load(*args, **kwargs)
-
-
-_torch.load = _patched_load
+Намеренно НЕ импортирует torch на уровне пакета — иначе любой
+``import callprofiler.*`` (включая ``--help``/``doctor``) тянет ML-стек.
+torch 2.6 weights_only-патч живёт в ``callprofiler.torch_patch`` и
+применяется точечно в runner'ах при загрузке чекпоинтов (T-01).
+"""

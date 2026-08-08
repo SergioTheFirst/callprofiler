@@ -3,12 +3,16 @@
 config.py — загрузка и валидация конфигурации из YAML.
 """
 
+import logging
 import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlparse
 
 import yaml
+
+_logger = logging.getLogger(__name__)
 
 
 def _resolve_secret(raw: str) -> str:
@@ -123,7 +127,7 @@ def load_config(path: str, validate: bool = True) -> Config:
     могут отсутствовать, чтобы отчитаться об этом как об обычном чеке, а не крашем.
     """
     with open(path, encoding="utf-8") as f:
-        raw = yaml.safe_load(f)
+        raw = yaml.safe_load(f) or {}
 
     cfg = Config(
         data_dir=raw.get("data_dir", ""),
@@ -239,10 +243,90 @@ def _load_features(config_dir: Path, inline: dict | None) -> FeaturesConfig:
     )
 
 
-def _validate(cfg: Config) -> None:
-    """Проверить наличие data_dir и доступность ffmpeg."""
-    if cfg.data_dir and not Path(cfg.data_dir).exists():
-        raise FileNotFoundError(f"data_dir не существует: {cfg.data_dir}")
+_LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 
+
+def validate_config(cfg: Config) -> tuple[list[str], list[str]]:
+    """Проверить семантику конфига. Ничего не бросает — (errors, warnings).
+
+    Используется и `load_config` (fail-fast), и `doctor.py` (M1) — один
+    источник правды вместо двух параллельных наборов проверок.
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    if not cfg.data_dir:
+        errors.append("data_dir не задан")
+    elif not Path(cfg.data_dir).is_absolute():
+        errors.append(f"data_dir должен быть абсолютным путём: {cfg.data_dir!r}")
+    elif not Path(cfg.data_dir).exists():
+        errors.append(f"data_dir не существует: {cfg.data_dir}")
+
+    ted = cfg.pipeline.text_export_dir
+    if ted:
+        if not Path(ted).is_absolute():
+            errors.append(f"pipeline.text_export_dir должен быть абсолютным путём: {ted!r}")
+        if cfg.data_dir:
+            try:
+                dd = Path(cfg.data_dir).resolve()
+                tedp = Path(ted).resolve()
+                if dd == tedp or dd in tedp.parents or tedp in dd.parents:
+                    errors.append(
+                        f"data_dir и pipeline.text_export_dir пересекаются: {dd} / {tedp}"
+                    )
+            except OSError:
+                pass
+
+    url = cfg.models.llm_url
+    if not url:
+        errors.append("models.llm_url не задан")
+    else:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            errors.append(f"models.llm_url: невалидный URL: {url!r}")
+        elif parsed.hostname not in _LOOPBACK_HOSTS:
+            errors.append(
+                f"models.llm_url указывает не на loopback ({parsed.hostname}) — "
+                "проект local-only (см. CLAUDE.md Hard Constraints)"
+            )
+
+    positive_ints = {
+        "pipeline.watch_interval_sec": cfg.pipeline.watch_interval_sec,
+        "pipeline.file_settle_sec": cfg.pipeline.file_settle_sec,
+        "pipeline.max_retries": cfg.pipeline.max_retries,
+        "pipeline.retry_interval_sec": cfg.pipeline.retry_interval_sec,
+        "pipeline.batch_chunk_size": cfg.pipeline.batch_chunk_size,
+        "models.gigaam_chunk_sec": cfg.models.gigaam_chunk_sec,
+    }
+    for name, value in positive_ints.items():
+        if value is None or value <= 0:
+            errors.append(f"{name} должен быть > 0, получено {value!r}")
+
+    if cfg.models.asr_backend not in ("gigaam", "whisper"):
+        errors.append(
+            f"models.asr_backend неизвестен: {cfg.models.asr_backend!r} "
+            "(ожидается 'gigaam' или 'whisper')"
+        )
+    elif cfg.models.asr_backend == "gigaam" and not cfg.models.gigaam_model_dir:
+        errors.append("models.asr_backend='gigaam' требует models.gigaam_model_dir")
+
+    if cfg.features.enable_diarization and not cfg.hf_token:
+        warnings.append(
+            "enable_diarization=true без hf_token — pyannote gated-модели "
+            "не скачаются, диаризация деградирует в UNKNOWN (штатно, не блокирует)"
+        )
+
+    return errors, warnings
+
+
+def _validate(cfg: Config) -> None:
+    """Fail-fast обёртка над ``validate_config`` + проверка ffmpeg в PATH."""
+    errors, warnings = validate_config(cfg)
     if not shutil.which("ffmpeg"):
-        raise EnvironmentError("ffmpeg не найден в PATH")
+        errors.append("ffmpeg не найден в PATH")
+
+    for w in warnings:
+        _logger.warning("config: %s", w)
+
+    if errors:
+        raise ValueError("Конфиг невалиден:\n  - " + "\n  - ".join(errors))

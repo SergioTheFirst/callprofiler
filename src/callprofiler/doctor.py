@@ -54,6 +54,20 @@ def _safe(name: str, fn) -> Check:
         return Check(name, "FAIL", f"чек упал: {exc}")
 
 
+def _check_config_contract(config: Any) -> Check:
+    """T-01: те же семантические проверки, что `load_config` делает fail-fast
+    (llm_url loopback, числовые диапазоны, asr_backend, пересечение путей) —
+    единый источник (`config.validate_config`), не отдельный набор правил."""
+    from callprofiler.config import validate_config
+
+    errors, warnings = validate_config(config)
+    if errors:
+        return Check("config-contract", "FAIL", "; ".join(errors))
+    if warnings:
+        return Check("config-contract", "WARN", "; ".join(warnings))
+    return Check("config-contract", "OK", "конфиг соответствует контракту")
+
+
 def _check_python() -> Check:
     import sys
     v = sys.version_info
@@ -357,6 +371,7 @@ def run_checks(config: Any, conn=None) -> list[Check]:
     """Прогнать все преполётные чеки. conn=None -> db-* блоки SKIP."""
     return [
         _safe("python", _check_python),
+        _safe("config-contract", lambda: _check_config_contract(config)),
         _safe("deps-core", _check_deps_core),
         _safe("deps-gpu", _check_deps_gpu),
         _safe("deps-roles", _check_deps_roles),

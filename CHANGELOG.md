@@ -6,6 +6,76 @@
 
 ---
 
+### Fixed — T-10: reference embedding не переиспользуется между профилями (S0) (2026-08-08)
+- `diarize/pyannote_runner.py::load()` был идемпотентен «по факту загрузки», а не «по ref»:
+  ранний `return` при `self.pipeline is not None` пропускал `_build_ref_embedding()`, стоящий
+  в конце метода. `orchestrator._diarize_batch` группирует звонки по `ref_audio` и между
+  группами runner НЕ выгружает (выгрузка только в `_unload_models()` после всей Фазы 2) →
+  для второй и последующих ref-групп эталон оставался от ПЕРВОГО профиля. Голос владельца
+  профиля A назначался OWNER в звонках профиля B; все downstream-выводы (роли, promises,
+  психопрофиль, BS-index) молча становились неверными.
+- **Решение (принято оркестратором, отличается от исходной спеки):** pyannote pipeline от
+  `ref_audio` НЕ зависит — зависит только эмбеддинг. Поэтому вместо предложенного спекой
+  unload/reload на каждую ref-группу модель не перезагружается вовсе: при смене отпечатка
+  пересобирается ТОЛЬКО `ref_embedding`. Нулевая VRAM-возня, нет лишней загрузки модели.
+- Новое: `_ref_fingerprint(path)` (abspath+size+mtime_ns, файл целиком не читается),
+  поле `ref_fingerprint`, сброс отпечатка и эмбеддинга в `unload()`, `FileNotFoundError`
+  поднят ВЫШЕ раннего return (раньше при втором вызове несуществующий ref не диагностировался),
+  `diarize()` при отсутствующем эмбеддинге деградирует в UNKNOWN вместо исключения.
+- `_diarize_batch`: постусловие перед каждой группой — отпечаток runner'а обязан совпасть с
+  отпечатком группы, иначе группа пропускается (роли UNKNOWN) с `logger.error`. Сторож
+  **fail-closed**: отсутствие атрибута = несоответствие (первая версия использовала
+  `getattr(..., expected_fp)` и была бесшумно бесполезна для любого runner'а без атрибута —
+  тест-дубль, будущий ECAPA по плану Б C-03).
+- Тесты: `tests/test_pyannote_ref_isolation.py` (8) — оба порядка A→B/B→A, дедуп повторного
+  load, отсутствие перезагрузки модели при смене ref, сброс в unload, FileNotFoundError при
+  загруженном pipeline, две группы в `_diarize_batch` с собственными эмбеддингами, пропуск
+  группы при рассогласовании. Фейковый runner в `test_orchestrator_roles.py` обновлён под
+  контракт (не сторож ослаблен, а дубль приведён к реальности).
+
+### Changed — T-01: ML-импорты убраны из package init, typed config preflight (2026-08-08)
+- `callprofiler/__init__.py` больше НЕ импортирует torch и не патчит `torch.load` глобально:
+  любой `import callprofiler.*` (включая `--help` и `doctor`) тянул весь ML-стек, из-за чего
+  `doctor` — команда, чья работа диагностировать отсутствие ML-стека — падала на импорте.
+- Новый `callprofiler/torch_patch.py::patch_weights_only_false()` — context manager, torch
+  импортируется лениво внутри. Применяется точечно вокруг фактической загрузки чекпоинтов в
+  `gigaam_runner` и `pyannote_runner` (torch 2.6 сменил дефолт `weights_only=True`).
+  Своевременность патча сохранена: он по-прежнему охватывает тот же `from_pretrained`.
+- `cli/main.py`: команды импортируются лениво через `_DISPATCH`-карту + `importlib`;
+  `--help` не тянет ни одного командного модуля. Архитектура CLI не переписывалась (T-22).
+- `config.py`: `yaml.safe_load(f) or {}` (пустой YAML давал `AttributeError`); новая чистая
+  `validate_config(cfg) -> (errors, warnings)` — абсолютность и непересечение каталогов,
+  loopback-only LLM URL, положительные числа, `asr_backend` enum + обязательный
+  `gigaam_model_dir`, диаризация без HF-токена = warning (не ошибка: штатная деградация в
+  UNKNOWN). `_validate()` поднимает один `ValueError` со списком всех ошибок.
+- `doctor.py` использует ту же `validate_config`, а не собственный дублирующий набор правил.
+- Тесты: `tests/test_bootstrap_no_torch.py` — **subprocess** с заглушкой, ломающей импорт
+  torch (единственное настоящее доказательство: юнит-тест внутри уже импортировавшего torch
+  процесса ничего не доказывает); `tests/test_config_validate.py`.
+
+### Added — T-00: воспроизводимый baseline (2026-08-08)
+- `pyproject.toml`: нижние границы версий, группа `[project.optional-dependencies].dev`
+  (`pytest`, `ruff` не были объявлены нигде), `[tool.pytest.ini_options]` с
+  `pythonpath=["src"]` → `python -m pytest` работает без ручного `PYTHONPATH`.
+- **`torch` и `numpy` намеренно БЕЗ нижней границы** (правка оркестратора поверх агента):
+  floor `torch>=2.9.1`, снятый с dev-машины, исключил бы боевой бокс (Python 3.12 +
+  torch==2.6.0+cu124, CLAUDE.md Hard Constraints) — `pip install -e .` там потянул бы апгрейд
+  и снёс CUDA-сборку, ровно класс отказа bugs.md B1. Точные версии рантайма фиксирует
+  `requirements-gigaam.txt`, а не этот манифест.
+- `requirements-lock.txt` — снимок dev-машины с явной пометкой «Windows/CPU, не универсальный
+  lock»; `scripts/baseline.py` + `docs/baseline-report.json` (machine-readable отчёт:
+  версии, pytest, ruff); `docs/TESTING.md`.
+- `ruff check`: 163 замечания зафиксированы как known-fail ledger, НЕ исправлялись.
+
+### Decided — CP-0: контракты C-01…C-05 (2026-08-08)
+- `docs/decisions/CP-0-contracts.md`: C-01 GigaAM primary + Whisper fallback; C-02 карточка
+  512 UTF-8 байт (физическое ограничение MacroDroid, а не редакторское); C-03 фиксация уже
+  принятого владельцем решения (модель 3.1 + runtime 4.0.4); C-04 Telegram opt-in с whitelist
+  полей, сырой транскрипт/аудио/цитаты-улики запрещены; C-05 прямой push в `main`.
+- Правки `CONSTITUTION.md`/`AGENTS.md` под эти решения — отдельным owner-approved коммитом.
+
+---
+
 ### Research — диаризация: остаёмся на pyannote 3.1 (2026-08-07)
 - Задача `/gaol`: выбрать самую точную диаризацию под Win 10 + RTX 3060 12GB.
   Вердикт: лучшая реально запускаемая — `pyannote/speaker-diarization-community-1`

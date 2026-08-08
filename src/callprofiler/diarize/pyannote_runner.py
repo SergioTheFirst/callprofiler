@@ -50,6 +50,22 @@ _MAX_OWNER_EMB_SEC = 30.0
 os.environ.setdefault("OTEL_SDK_DISABLED", "true")
 
 
+def _ref_fingerprint(path: str) -> str:
+    """Дешёвый детерминированный отпечаток ref-файла: путь+размер+mtime.
+
+    Не читает файл целиком (ref может быть большим). Используется, чтобы
+    ``load()`` был идемпотентен ПО REF, а не по факту загрузки модели —
+    иначе второй ``load()`` с ДРУГИМ ref молча оставлял бы эмбеддинг от
+    первого профиля (голос владельца A назначался бы OWNER в звонках B).
+    """
+    p = os.path.abspath(os.path.normpath(path))
+    try:
+        st = os.stat(path)
+        return f"{p}|{st.st_size}|{st.st_mtime_ns}"
+    except OSError:
+        return f"{p}|missing"
+
+
 def _load_pretrained(loader, model_id: str, token: str):
     """``from_pretrained`` совместимо с разными версиями pyannote.audio.
 
@@ -155,6 +171,7 @@ class PyannoteRunner:
         self.pipeline = None
         self.inference = None
         self.ref_embedding = None
+        self.ref_fingerprint = None
         self._device = None
 
     def load(self, ref_audio_path: str) -> None:
@@ -167,12 +184,25 @@ class PyannoteRunner:
             FileNotFoundError  — если ref_audio_path не существует
             RuntimeError       — если загрузка моделей упала
         """
-        if self.pipeline is not None:
-            logger.warning("Pyannote уже загружена, пропуск повторной загрузки")
-            return
-
         if not os.path.isfile(ref_audio_path):
             raise FileNotFoundError(f"Эталон голоса не найден: {ref_audio_path}")
+
+        fp = _ref_fingerprint(ref_audio_path)
+
+        if self.pipeline is not None and self.ref_fingerprint == fp:
+            logger.debug("Pyannote уже загружена с тем же ref, пропуск повторной загрузки")
+            return
+
+        if self.pipeline is not None:
+            # Модель НЕ зависит от ref_audio (только эмбеддинг) — не перезагружаем,
+            # пересобираем только reference embedding под новый ref.
+            logger.info(
+                "Pyannote: смена ref_audio — модель не перезагружается, "
+                "reference embedding пересобран"
+            )
+            self.ref_embedding = self._build_ref_embedding(ref_audio_path)
+            self.ref_fingerprint = fp
+            return
 
         try:
             from pyannote.audio import Pipeline, Model, Inference
@@ -201,22 +231,28 @@ class PyannoteRunner:
             )
 
         try:
-            # Загрузить embedding модель (для cosine similarity)
-            logger.debug("Загрузка pyannote/embedding...")
-            emb_model = _load_pretrained(
-                Model.from_pretrained, "pyannote/embedding", self.config.hf_token
-            )
-            self.inference = Inference(emb_model, window="whole")
-            self.inference.to(self._device)
+            # torch 2.6 weights_only=True by default breaks pyannote checkpoints —
+            # тот же патч, что и GigaAM (см. callprofiler.torch_patch), раньше
+            # применялся глобально из __init__.py, теперь точечно здесь.
+            from callprofiler.torch_patch import patch_weights_only_false
 
-            # Загрузить диаризационный pipeline (для разделения спикеров)
-            logger.debug("Загрузка pyannote/speaker-diarization-3.1...")
-            self.pipeline = _load_pretrained(
-                Pipeline.from_pretrained,
-                "pyannote/speaker-diarization-3.1",
-                self.config.hf_token,
-            )
-            self.pipeline.to(self._device)
+            with patch_weights_only_false():
+                # Загрузить embedding модель (для cosine similarity)
+                logger.debug("Загрузка pyannote/embedding...")
+                emb_model = _load_pretrained(
+                    Model.from_pretrained, "pyannote/embedding", self.config.hf_token
+                )
+                self.inference = Inference(emb_model, window="whole")
+                self.inference.to(self._device)
+
+                # Загрузить диаризационный pipeline (для разделения спикеров)
+                logger.debug("Загрузка pyannote/speaker-diarization-3.1...")
+                self.pipeline = _load_pretrained(
+                    Pipeline.from_pretrained,
+                    "pyannote/speaker-diarization-3.1",
+                    self.config.hf_token,
+                )
+                self.pipeline.to(self._device)
 
             # ── Perf: батчевый инференс (главный рычаг скорости) ──────────────
             # Узкое место — серийный per-window инференс. По умолчанию pyannote
@@ -251,6 +287,7 @@ class PyannoteRunner:
         # Построить reference embedding
         logger.debug("Построение reference embedding из: %s", ref_audio_path)
         self.ref_embedding = self._build_ref_embedding(ref_audio_path)
+        self.ref_fingerprint = fp
 
     def diarize(self, wav_path: str) -> list[dict]:
         """Диаризировать аудиофайл, вернуть сегменты с ролями.
@@ -274,7 +311,10 @@ class PyannoteRunner:
             raise RuntimeError("Pyannote не загружена. Вызовите load() сначала")
 
         if self.ref_embedding is None:
-            raise RuntimeError("Reference embedding не построен. Вызовите load()")
+            logger.warning(
+                "Reference embedding не построен — диаризация пропущена, роли UNKNOWN"
+            )
+            return []
 
         logger.debug("Диаризация: %s", wav_path)
 
@@ -341,6 +381,9 @@ class PyannoteRunner:
           - gc.collect()
           - torch.cuda.empty_cache() (если GPU)
         """
+        self.ref_fingerprint = None
+        self.ref_embedding = None
+
         if self.pipeline is None and self.inference is None:
             logger.debug("Pyannote уже выгружена")
             return

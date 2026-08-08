@@ -78,14 +78,7 @@ class GigaAMRunner:
 
         import torch
 
-        # torch 2.6: from_pretrained грузит pytorch_model.bin через torch.load,
-        # которому по умолчанию ставят weights_only=True → падает на конфиге.
-        # Временно снимаем ограничение только на время загрузки (см. CLAUDE.md).
-        _orig_load = torch.load
-
-        def _patched_load(*a, **k):
-            k.setdefault("weights_only", False)
-            return _orig_load(*a, **k)
+        from callprofiler.torch_patch import patch_weights_only_false
 
         # transformers trust_remote_code сканирует ВСЕ import'ы в modeling_gigaam.py
         # (даже внутри функций — get_imports() regex ловит и отступы) и падает, если
@@ -104,13 +97,12 @@ class GigaAMRunner:
         except Exception:  # noqa: BLE001 — best-effort, не критично
             _dmu = None
 
-        torch.load = _patched_load
         try:
-            from transformers import AutoModel
+            with patch_weights_only_false():
+                from transformers import AutoModel
 
-            model = AutoModel.from_pretrained(model_dir, trust_remote_code=True)
+                model = AutoModel.from_pretrained(model_dir, trust_remote_code=True)
         finally:
-            torch.load = _orig_load
             if _dmu is not None and _orig_check is not None:
                 _dmu.check_imports = _orig_check
 

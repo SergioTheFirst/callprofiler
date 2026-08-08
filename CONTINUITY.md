@@ -20,6 +20,34 @@
 - `data_dir = C:\calls\data`. Лог: `C:\calls\callprofiler.log`.
 - **GPU sequential (Hard Constraint):** ASR+pyannote и LLM НИКОГДА одновременно (12GB RTX 3060).
 
+**State (2026-08-08) — ИСПОЛНЕНИЕ `docs/sintezdiharea.md`, оркестрация:**
+
+🚀 **Новая входная точка исполнения — `docs/sintezdiharea.md`** (доказательная спецификация
+доведения до production-ready; ревизии 2 и 3 сверены с кодом). Она **не отменяет** `opsus5.md`
+как каталог продуктовых задач, но идёт ПЕРЕД ним: сначала фундамент correctness/recovery
+(T-00…T-25), продуктовые и психологические фичи — после CP-5.
+
+- **CP-0 пройден.** C-01…C-05 приняты и записаны в `docs/decisions/CP-0-contracts.md`
+  (делегация владельца 2026-08-08): GigaAM primary + Whisper fallback · карточка 512 UTF-8 байт ·
+  pyannote = модель 3.1 + runtime 4.0.4 (решение владельца 2026-08-07 зафиксировано, не
+  переоткрывается) · Telegram opt-in с whitelist полей · прямой push в `main`.
+  **Намеренно НЕ сделано:** правки `CONSTITUTION.md`/`AGENTS.md` под эти решения — отдельным
+  owner-approved коммитом.
+- **Закрыты:** T-10 (S0 — утечка reference embedding между профилями, `bugs.md` 2026-08-08),
+  T-01 (torch убран из package init → `doctor` живёт без ML-стека; typed config preflight),
+  T-00 (пины/dev-группа/`python -m pytest` без `PYTHONPATH`/baseline-отчёт).
+- **Правки оркестратора поверх агентов (оба — реальные дефекты):** сторож отпечатка был
+  fail-open (`getattr(..., expected_fp)`); `torch>=2.9.1` в `pyproject.toml` исключал боевой
+  бокс (torch 2.6.0+cu124) — floor снят у torch и numpy.
+- Тесты: **1317 passed, 3 skipped** (3-й скип — нет ffmpeg на dev-машине, штатно).
+  `ruff`: 163 замечания зафиксированы как known-fail ledger, не исправлялись.
+
+**Следующие по критическому пути:** T-02 (документные ревизии под CP-0) → T-03 (tenant identity
+и ownership API) → T-04 (SQLite UoW) → T-20 (verified backup) → T-05 (versioned schema).
+Порядок обязателен: T-05 не запускать на боевых данных до рабочего T-20.
+
+---
+
 **State (2026-08-07):**
 
 ✅ **Диаризация: решение — остаёмся на pyannote 3.1** (задача `/gaol`, T1, без субагентов).

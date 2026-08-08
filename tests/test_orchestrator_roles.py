@@ -130,6 +130,11 @@ class _FakePyannote:
 
     def load(self, ref_audio):
         self.load_calls += 1
+        # Часть контракта runner'а (T-10): после load() отпечаток обязан
+        # соответствовать запрошенному ref — orchestrator проверяет это
+        # постусловие fail-closed перед диаризацией группы.
+        from callprofiler.diarize.pyannote_runner import _ref_fingerprint
+        self.ref_fingerprint = _ref_fingerprint(ref_audio)
 
     def diarize(self, norm_path):
         self.diarize_calls += 1

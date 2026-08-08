@@ -761,6 +761,24 @@ class Orchestrator:
 
             try:
                 self.pyannote_runner.load(ref_audio)  # ОДИН раз на ref
+
+                # Постусловие: эмбеддинг загруженного runner'а обязан
+                # соответствовать ЭТОЙ ref-группе (bugs.md — utечка эмбеддинга
+                # между профилями при смене ref без выгрузки модели).
+                from callprofiler.diarize.pyannote_runner import _ref_fingerprint
+                expected_fp = _ref_fingerprint(ref_audio)
+                # Fail-closed: отсутствие атрибута — тоже несоответствие. Дефолт
+                # expected_fp сделал бы сторожа бесшумно бесполезным для любого
+                # другого runner'а (тест-дубль, будущий ECAPA — план Б C-03).
+                actual_fp = getattr(self.pyannote_runner, "ref_fingerprint", None)
+                if actual_fp != expected_fp:
+                    logger.error(
+                        "Pyannote ref_fingerprint не совпадает с группой (ref=%r) — "
+                        "пропуск группы, роли UNKNOWN (защита от чужого эталона)",
+                        ref_audio,
+                    )
+                    continue
+
                 for call in group:
                     call_id = call["call_id"]
                     self.repo.update_call_status(call_id, "diarizing")
