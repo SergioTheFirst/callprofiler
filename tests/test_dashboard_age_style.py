@@ -149,6 +149,7 @@ def test_age_recompute_endpoint_writes_and_returns():
         server_mod._TOOLS.run_age_recompute.return_value = {
             "status": "ok", "stats": {"estimated": 1}, "age_style": {"group_code": "G4"}}
         with TestClient(server_mod.app) as tc:
+            tc.headers.update({"X-CSRF-Token": tc.get("/").cookies.get("cp_csrf") or ""})
             resp = tc.post("/api/tools/age-recompute?contact_id=5")
             assert resp.status_code == 200
             body = resp.json()
@@ -229,6 +230,7 @@ def test_recompute_returns_fused(tmp_path):
             "age": {"age_point": 50, "confidence": 80},
         }
         with TestClient(server_mod.app) as tc:
+            tc.headers.update({"X-CSRF-Token": tc.get("/").cookies.get("cp_csrf") or ""})
             resp = tc.post("/api/tools/age-recompute?contact_id=5")
             assert resp.status_code == 200
             body = resp.json()
@@ -252,6 +254,7 @@ def test_recompute_hint_diarization(tmp_path):
             "hint_diarization": "реплики контакта не размечены (UNKNOWN) — стилометрия невозможна",
         }
         with TestClient(server_mod.app) as tc:
+            tc.headers.update({"X-CSRF-Token": tc.get("/").cookies.get("cp_csrf") or ""})
             resp = tc.post("/api/tools/age-recompute?contact_id=5")
             assert resp.status_code == 200
             body = resp.json()
@@ -274,6 +277,7 @@ def test_age_recompute_runs_marker_pass(tmp_path):
             "stats": {"estimated": 1},
         }
         with TestClient(server_mod.app) as tc:
+            tc.headers.update({"X-CSRF-Token": tc.get("/").cookies.get("cp_csrf") or ""})
             resp = tc.post("/api/tools/age-recompute?contact_id=5")
             assert resp.status_code == 200
             body = resp.json()
@@ -296,6 +300,7 @@ def test_age_recompute_hint_when_no_owner_birth_year(tmp_path):
             "hint": "owner_birth_year не задан в base.yaml — реляционные якоря выключены",
         }
         with TestClient(server_mod.app) as tc:
+            tc.headers.update({"X-CSRF-Token": tc.get("/").cookies.get("cp_csrf") or ""})
             resp = tc.post("/api/tools/age-recompute?contact_id=5")
             assert resp.status_code == 200
             body = resp.json()

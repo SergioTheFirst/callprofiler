@@ -88,6 +88,20 @@ class DashboardDBReader:
         ).fetchall()
         return [{"user_id": r["user_id"], "calls": r["cnt"]} for r in rows]
 
+    def user_exists(self, user_id: str) -> bool:
+        """Существует ли профиль. Источник истины — таблица ``users``.
+
+        Не ``get_user_ids()``: та выводит профили из ``calls`` GROUP BY, поэтому
+        только что заведённый пользователь без единого звонка в неё не попадает.
+        Для валидации tenant-идентичности из клиентской cookie это дало бы отказ
+        легитимному профилю.
+        """
+        self.connect()
+        row = self._conn.execute(
+            "SELECT 1 FROM users WHERE user_id = ? LIMIT 1", (user_id,)
+        ).fetchone()
+        return row is not None
+
     def get_recent_calls(self, user_id: str, limit: int = 50) -> list[dict[str, Any]]:
         """Get recent calls with analysis data."""
         self.connect()

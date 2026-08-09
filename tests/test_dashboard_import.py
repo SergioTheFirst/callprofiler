@@ -127,6 +127,7 @@ def client():
     from fastapi.testclient import TestClient
 
     with TestClient(server_mod.app) as tc:
+        tc.headers.update({"X-CSRF-Token": tc.get("/").cookies.get("cp_csrf") or ""})
         yield tc, mock_tools
 
     server_mod._TOOLS = saved_tools
@@ -136,29 +137,30 @@ def client():
 class TestImportAudioEndpoint:
     def test_valid_upload_returns_saved(self, client):
         tc, mock_tools = client
-        mock_tools.run_import_audio.return_value = {"saved": "call.mp3", "bytes": 4}
+        mock_tools.run_import_audio_stream.return_value = {"saved": "call.mp3", "bytes": 4}
 
         resp = tc.post("/api/tools/import-audio?name=call.mp3", content=b"data")
 
         assert resp.status_code == 200
         assert resp.json() == {"saved": "call.mp3", "bytes": 4}
-        mock_tools.run_import_audio.assert_called_once()
-        args = mock_tools.run_import_audio.call_args[0]
+        mock_tools.run_import_audio_stream.assert_called_once()
+        args = mock_tools.run_import_audio_stream.call_args[0]
         assert args[0] == "call.mp3"
-        assert args[1] == b"data"
+        # 2nd arg is Request.stream() — an async chunk iterator, not raw bytes
+        # (P-WEB-02: body must never be buffered in memory before the check).
 
     def test_error_result_returns_400(self, client):
         tc, mock_tools = client
-        mock_tools.run_import_audio.return_value = {"error": "unsupported type"}
+        mock_tools.run_import_audio_stream.return_value = {"error": "unsupported type"}
 
         resp = tc.post("/api/tools/import-audio?name=evil.exe", content=b"data")
 
         assert resp.status_code == 400
         assert resp.json() == {"error": "unsupported type"}
 
-    def test_missing_run_import_audio_falls_back(self, client):
+    def test_missing_run_import_audio_stream_falls_back(self, client):
         tc, mock_tools = client
-        del mock_tools.run_import_audio
+        del mock_tools.run_import_audio_stream
 
         resp = tc.post("/api/tools/import-audio?name=call.mp3", content=b"data")
 

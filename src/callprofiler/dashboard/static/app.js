@@ -23,6 +23,19 @@
         return div.innerHTML;
     }
 
+    // T-18: double-submit CSRF cookie (set by the server on every response).
+    // Mutating requests must echo it back as a header — a cross-site page
+    // cannot read our cookie, so it cannot forge this header.
+    function csrfToken() {
+        var m = document.cookie.match(/(?:^|; )cp_csrf=([^;]*)/);
+        return m ? decodeURIComponent(m[1]) : '';
+    }
+    function csrfHeaders(extra) {
+        var h = extra || {};
+        h['X-CSRF-Token'] = csrfToken();
+        return h;
+    }
+
     var tabs = $$('#tab-nav .tab');
     var panels = $$('.tab-panel');
     var sseDot = $('#sse-dot');
@@ -137,7 +150,7 @@
             .catch(function(e) { console.error('Profiles load failed:', e); });
         sel.addEventListener('change', function() {
             var u = this.value;
-            fetch('/api/users/select?user=' + encodeURIComponent(u), { method: 'POST' })
+            fetch('/api/users/select?user=' + encodeURIComponent(u), { method: 'POST', headers: csrfHeaders() })
                 .then(function() { location.reload(); })
                 .catch(function(e) { console.error('Profile switch failed:', e); });
         });
@@ -234,6 +247,7 @@
         }
         fetch('/api/tools/import-audio?name=' + encodeURIComponent(file.name), {
             method: 'POST',
+            headers: csrfHeaders(),
             body: file,
         })
             .then(function(r) {
@@ -1054,7 +1068,7 @@
             btn.addEventListener('click', function() {
                 fetch('/api/tools/fact-verdict', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers: csrfHeaders({'Content-Type': 'application/json'}),
                     body: JSON.stringify({
                         item_kind: this.dataset.kind,
                         item_key: this.dataset.key,
@@ -1536,7 +1550,7 @@
                 var note = $('#dossier-note-textarea').value;
                 fetch('/api/tools/contact-note', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers: csrfHeaders({'Content-Type': 'application/json'}),
                     body: JSON.stringify({contact_id: Number(cid), note: note}),
                 })
                     .then(function() { openPersonDossier(cid); })
@@ -1548,7 +1562,7 @@
             var cid = this.dataset.cid;
             this.disabled = true;
             this.textContent = 'Считаю…';
-            fetch('/api/tools/age-recompute?contact_id=' + cid, {method: 'POST'})
+            fetch('/api/tools/age-recompute?contact_id=' + cid, {method: 'POST', headers: csrfHeaders()})
                 .then(function(resp) { return resp.json(); })
                 .then(function(data) {
                     // C3: сохранить hints из ответа
@@ -1958,7 +1972,7 @@
                 var endpoint = '/api/tools/' + action;
                 btn.disabled = true;
                 btn.textContent = 'Running...';
-                fetch(endpoint, { method: 'POST' })
+                fetch(endpoint, { method: 'POST', headers: csrfHeaders() })
                     .then(function(r) { return r.json(); })
                     .then(function(data) {
                         toast(data.message || (action + ' completed'), 'ok');

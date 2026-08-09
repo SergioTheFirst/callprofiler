@@ -41,126 +41,49 @@ class Repository:
         вызовов в этом файле."""
         commit_unless_uow(conn)
 
-    def init_db(self) -> None:
-        """РЎРѕР·РґР°С‚СЊ РІСЃРµ С‚Р°Р±Р»РёС†С‹ РїРѕ schema.sql + РїСЂРёРјРµРЅРёС‚СЊ РјРёРіСЂР°С†РёРё."""
+    def init_db(self, *, backup_dir: str | None = None, unsafe: bool = False) -> None:
+        """Создать все таблицы по schema.sql + применить миграции (T-05).
+
+        ``backup_dir`` — если задан, требует свежий верифицированный бэкап
+        (``ops.backup``) перед миграцией существующей (не только что
+        созданной) БД; ``unsafe=True`` явно снимает этот гейт. По умолчанию
+        (``backup_dir=None``) гейт пропущен — так ведут себя все тесты и
+        первый bootstrap на пустой БД, где бэкапить нечего.
+        """
+        from callprofiler.db.migrations import (
+            apply_migrations,
+            data_at_risk,
+            default_backup_dir,
+            ensure_backup_before_migrate,
+        )
+
         schema_path = Path(__file__).parent / "schema.sql"
         with open(schema_path, encoding="utf-8") as f:
             sql = f.read()
         conn = self._get_conn()
         conn.executescript(sql)
         self._commit(conn)
-        self._migrate()
+
+        # Гейт бэкапа взводится САМ, когда есть что терять (непримененные
+        # миграции + непустая таблица calls). Опциональный параметр, который
+        # никто не передаёт, защитой не является — T-20 ставился перед T-05
+        # именно чтобы боевая БД не мигрировала без проверенного снимка.
+        if not unsafe and data_at_risk(conn):
+            ensure_backup_before_migrate(
+                self._db_path,
+                backup_dir or default_backup_dir(self._db_path),
+                unsafe=False,
+            )
+
+        apply_migrations(conn)
+        self._commit(conn)
 
     def _migrate(self) -> None:
-        """РџСЂРёРјРµРЅРёС‚СЊ ALTER TABLE РґР»СЏ РєРѕР»РѕРЅРѕРє, РґРѕР±Р°РІР»РµРЅРЅС‹С… РїРѕСЃР»Рµ РїРµСЂРІРѕРіРѕ СЂРµР»РёР·Р°."""
+        """Совместимость: некоторые тесты/вызовы дёргают _migrate() напрямую."""
+        from callprofiler.db.migrations import apply_migrations
+
         conn = self._get_conn()
-
-        # contacts migrations
-        contacts_cols = [
-            ("guessed_name", "TEXT"),
-            ("guessed_company", "TEXT"),
-            ("guess_source", "TEXT"),
-            ("guess_call_id", "INTEGER"),
-            ("guess_confidence", "TEXT"),
-            ("name_confirmed", "INTEGER NOT NULL DEFAULT 0"),
-        ]
-        existing_contacts = {
-            row[1] for row in conn.execute("PRAGMA table_info(contacts)").fetchall()
-        }
-        for col_name, col_def in contacts_cols:
-            if col_name not in existing_contacts:
-                conn.execute(f"ALTER TABLE contacts ADD COLUMN {col_name} {col_def}")
-
-        # analyses migrations
-        analyses_cols = [
-            ("call_type", "TEXT DEFAULT 'unknown'"),
-            ("hook", "TEXT"),
-            ("parse_status", "TEXT DEFAULT 'unknown'"),
-            ("profanity_count", "INTEGER DEFAULT 0"),
-            ("profanity_density", "REAL DEFAULT 0"),
-            ("schema_version", "TEXT DEFAULT 'v2'"),
-            ("canonical_json", "TEXT DEFAULT ''"),
-        ]
-        existing_analyses = {
-            row[1] for row in conn.execute("PRAGMA table_info(analyses)").fetchall()
-        }
-        for col_name, col_def in analyses_cols:
-            if col_name not in existing_analyses:
-                conn.execute(f"ALTER TABLE analyses ADD COLUMN {col_name} {col_def}")
-
-        # events migrations (graph columns)
-        events_cols = [
-            ("entity_id", "INTEGER"),
-            ("fact_id", "TEXT"),
-            ("fact_type", "TEXT"),
-            ("quote", "TEXT"),
-            ("start_ms", "INTEGER"),
-            ("end_ms", "INTEGER"),
-            ("polarity", "REAL"),
-            ("intensity", "REAL"),
-        ]
-        existing_events = {
-            row[1] for row in conn.execute("PRAGMA table_info(events)").fetchall()
-        }
-        for col_name, col_def in events_cols:
-            if col_name not in existing_events:
-                conn.execute(f"ALTER TABLE events ADD COLUMN {col_name} {col_def}")
-
-        # entities migration
-        entities_cols = [
-            ("archived", "INTEGER DEFAULT 0"),
-            ("merged_into_id", "INTEGER"),
-            ("is_owner", "INTEGER DEFAULT 0"),
-        ]
-        try:
-            existing_entities = {
-                row[1] for row in conn.execute("PRAGMA table_info(entities)").fetchall()
-            }
-            for col_name, col_def in entities_cols:
-                if col_name not in existing_entities:
-                    conn.execute(
-                        f"ALTER TABLE entities ADD COLUMN {col_name} {col_def}"
-                    )
-        except Exception:
-            pass  # entities table may not exist yet
-
-        # calls migration: pipeline_stage для crash-resume (Фаза 1 надёжности) +
-        # role_fragile — роль-шум-доктрина (OzaluplivanieFable.md §4.2): UNKNOWN-доля
-        # сегментов > порога -> who-критичные извлечения (M8/B3/B5/B7) на этот звонок не опираются
-        calls_cols = [
-            ("pipeline_stage", "INTEGER NOT NULL DEFAULT 0"),
-            ("role_fragile", "INTEGER NOT NULL DEFAULT 0"),
-            ("call_type", "TEXT"),
-        ]
-        existing_calls = {
-            row[1] for row in conn.execute("PRAGMA table_info(calls)").fetchall()
-        }
-        for col_name, col_def in calls_cols:
-            if col_name not in existing_calls:
-                conn.execute(f"ALTER TABLE calls ADD COLUMN {col_name} {col_def}")
-
-        # indexes для dashboard/poller (Фаза 2)
-        for _idx_sql in [
-            "CREATE INDEX IF NOT EXISTS idx_calls_user_status ON calls(user_id, status)",
-            "CREATE INDEX IF NOT EXISTS idx_calls_updated_at ON calls(updated_at)",
-            "CREATE INDEX IF NOT EXISTS idx_calls_user_datetime ON calls(user_id, call_datetime)",
-            "CREATE INDEX IF NOT EXISTS idx_entities_user_archived ON entities(user_id, archived)",
-        ]:
-            try:
-                conn.execute(_idx_sql)
-            except Exception:
-                pass
-
-        # РЈРЅРёРєР°Р»СЊРЅС‹Р№ РёРЅРґРµРєСЃ РґР»СЏ Р°С‚РѕРјР°СЂРЅРѕР№ MD5-РґРµРґСѓРїР»РёРєР°С†РёРё Р·РІРѕРЅРєРѕРІ (F2.5)
-        try:
-            conn.execute(
-                """CREATE UNIQUE INDEX IF NOT EXISTS idx_calls_user_md5
-                   ON calls(user_id, source_md5)
-                   WHERE source_md5 IS NOT NULL"""
-            )
-        except Exception:
-            pass  # Index may already exist or duplicate data prevents it
-
+        apply_migrations(conn)
         self._commit(conn)
 
     def close(self) -> None:
@@ -634,18 +557,18 @@ class Repository:
     def _fts_delete_rows(self, conn, rows: list) -> None:
         """Удалить строки из внешнего FTS5-индекса ``transcripts_fts``.
 
-        ``rows`` — список кортежей ``(segment_id, text, speaker, call_id, user_id)``
-        для удаляемых сегментов. Так же, как ``save_transcripts``, используем
-        FTS5 special-command ``'delete'`` с СТАРЫМИ значениями (external-content
-        FTS5 хранит только индекс, поэтому old-values нужны явно). ``'rebuild'``
-        здесь НЕ годится: content-таблица ``transcripts`` не имеет колонки
-        ``user_id`` (FTS получает её через JOIN в триггере ``transcripts_ai``),
-        поэтому rebuild падает «SQL logic error». Вызывать ДО DELETE из transcripts.
+        ``rows`` — список кортежей ``(segment_id, text, speaker, call_id)``
+        для удаляемых сегментов. Используем FTS5 special-command ``'delete'``
+        со СТАРЫМИ значениями (external-content FTS5 хранит только индекс,
+        поэтому old-values нужны явно). Вызывать ДО DELETE из transcripts.
+        Колонки FTS больше не включают ``user_id`` (P-DB-06, db/migrations.py
+        ``_m008_fts_drop_user_id``) — ownership фильтруется через JOIN к
+        ``calls`` во всех читателях, а не через колонку в самом индексе.
         """
         if rows and self._table_exists(conn, "transcripts_fts"):
             conn.executemany(
-                "INSERT INTO transcripts_fts(transcripts_fts, rowid, text, speaker, call_id, user_id) "
-                "VALUES ('delete', ?, ?, ?, ?, ?)",
+                "INSERT INTO transcripts_fts(transcripts_fts, rowid, text, speaker, call_id) "
+                "VALUES ('delete', ?, ?, ?, ?)",
                 rows,
             )
 
@@ -704,7 +627,7 @@ class Repository:
                 self._fts_delete_rows(
                     conn,
                     [
-                        (r["segment_id"], r["text"], r["speaker"], r["call_id"], r["user_id"])
+                        (r["segment_id"], r["text"], r["speaker"], r["call_id"])
                         for r in fts_rows
                     ],
                 )
@@ -780,7 +703,7 @@ class Repository:
             self._fts_delete_rows(
                 conn,
                 [
-                    (r["segment_id"], r["text"], r["speaker"], r["call_id"], user_id)
+                    (r["segment_id"], r["text"], r["speaker"], r["call_id"])
                     for r in fts_rows
                 ],
             )
@@ -878,10 +801,10 @@ class Repository:
         if existing:
             # FTS5 content table: нужно явно удалять через команду 'delete'
             conn.executemany(
-                """INSERT INTO transcripts_fts(transcripts_fts, rowid, text, speaker, call_id, user_id)
-                   VALUES ('delete', ?, ?, ?, ?, ?)""",
+                """INSERT INTO transcripts_fts(transcripts_fts, rowid, text, speaker, call_id)
+                   VALUES ('delete', ?, ?, ?, ?)""",
                 [
-                    (r["segment_id"], r["text"], r["speaker"], r["call_id"], user_id)
+                    (r["segment_id"], r["text"], r["speaker"], r["call_id"])
                     for r in existing
                 ],
             )

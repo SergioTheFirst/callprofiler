@@ -24,19 +24,15 @@ _WINDOWS_RESERVED_NAMES = {
 }
 
 
-def save_incoming_audio(db_path: str, user_id: str, filename: str, data: bytes) -> dict[str, Any]:
-    """Сохранить перетащенный аудиофайл в incoming_dir юзера (M5, security-sensitive).
+def _resolve_incoming_dst(db_path: str, user_id: str, filename: str) -> Path | dict[str, Any]:
+    """Validate filename + resolve a free destination path in incoming_dir.
 
-    Watcher штатно подхватит файл дальше — ничего в пайплайне не меняется.
-    Path traversal режется через Path(filename).name; расширение — whitelist;
-    запись атомарна (.part -> os.replace), недописанный файл watcher не увидит.
+    Shared by the buffered (``save_incoming_audio``) and streaming
+    (``DashboardTools.run_import_audio_stream``) upload paths so path
+    traversal / extension / reserved-name / unknown-user checks live once.
+    Path traversal режется через Path(filename).name; расширение — whitelist.
     """
     import sqlite3
-
-    if not data:
-        return {"error": "empty file"}
-    if len(data) > _IMPORT_MAX_BYTES:
-        return {"error": "file too large"}
 
     name = Path(filename).name
     if not name:
@@ -66,6 +62,23 @@ def save_incoming_audio(db_path: str, user_id: str, filename: str, data: bytes) 
     while dst.exists():
         dst = incoming / f"{stem}-{i}{suffix}"
         i += 1
+    return dst
+
+
+def save_incoming_audio(db_path: str, user_id: str, filename: str, data: bytes) -> dict[str, Any]:
+    """Сохранить перетащенный аудиофайл в incoming_dir юзера (M5, security-sensitive).
+
+    Watcher штатно подхватит файл дальше — ничего в пайплайне не меняется.
+    Запись атомарна (.part -> os.replace), недописанный файл watcher не увидит.
+    """
+    if not data:
+        return {"error": "empty file"}
+    if len(data) > _IMPORT_MAX_BYTES:
+        return {"error": "file too large"}
+
+    dst = _resolve_incoming_dst(db_path, user_id, filename)
+    if isinstance(dst, dict):
+        return dst
 
     tmp = dst.with_suffix(dst.suffix + ".part")
     tmp.write_bytes(data)
@@ -363,6 +376,42 @@ class DashboardTools:
         except Exception as e:
             log.error("import-audio failed: %s", e)
             return {"error": str(e)}
+
+    async def run_import_audio_stream(self, filename: str, body: Any) -> dict[str, Any]:
+        """P-WEB-02 fix: consume ``body`` (an async byte-chunk iterator, e.g.
+        ``Request.stream()``) and enforce the size cap WHILE reading — the
+        upload never sits fully in memory before the check.
+        """
+        dst = _resolve_incoming_dst(str(self.db_path), self.user_id, filename)
+        if isinstance(dst, dict):
+            return dst
+
+        tmp = dst.with_suffix(dst.suffix + ".part")
+        total = 0
+        try:
+            with open(tmp, "wb") as f:
+                async for chunk in body:
+                    if not chunk:
+                        continue
+                    total += len(chunk)
+                    if total > _IMPORT_MAX_BYTES:
+                        raise ValueError("file too large")
+                    f.write(chunk)
+        except ValueError:
+            tmp.unlink(missing_ok=True)
+            return {"error": "file too large"}
+        except Exception as e:
+            tmp.unlink(missing_ok=True)
+            log.error("import-audio stream failed: %s", e)
+            return {"error": str(e)}
+
+        if total == 0:
+            tmp.unlink(missing_ok=True)
+            return {"error": "empty file"}
+
+        os.replace(tmp, dst)
+        self._log(f"import-audio: {dst.name} ({total} bytes)")
+        return {"saved": dst.name, "bytes": total}
 
     async def run_contact_note(self, contact_id: int, note: str) -> dict[str, Any]:
         loop = asyncio.get_event_loop()

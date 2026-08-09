@@ -78,16 +78,41 @@ def test_schema_migration_adds_role_fragile_to_old_db(tmp_path):
     conn = sqlite3.connect(db_path)
     # Минимальная "старая" схема: calls БЕЗ role_fragile (и без pipeline_stage) +
     # прочие таблицы, которые _migrate() трогает без try/except (должны просто существовать).
+    # Base (never-migrated) columns match schema.sql's calls/contacts/analyses/
+    # events tables from the very first release — only the ALTER-added columns
+    # (role_fragile, pipeline_stage, ...) are missing, matching a real old DB.
     conn.execute(
         """CREATE TABLE calls (
             call_id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'new'
+            contact_id INTEGER,
+            direction TEXT NOT NULL DEFAULT 'UNKNOWN',
+            call_datetime TEXT,
+            source_filename TEXT NOT NULL,
+            source_md5 TEXT NOT NULL,
+            audio_path TEXT,
+            norm_path TEXT,
+            duration_sec INTEGER,
+            status TEXT NOT NULL DEFAULT 'new',
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            error_message TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         )"""
     )
-    conn.execute("CREATE TABLE contacts (contact_id INTEGER PRIMARY KEY)")
-    conn.execute("CREATE TABLE analyses (analysis_id INTEGER PRIMARY KEY)")
-    conn.execute("CREATE TABLE events (event_id INTEGER PRIMARY KEY)")
+    conn.execute(
+        "CREATE TABLE contacts (contact_id INTEGER PRIMARY KEY, user_id TEXT, "
+        "phone_e164 TEXT, display_name TEXT)"
+    )
+    conn.execute("CREATE TABLE analyses (analysis_id INTEGER PRIMARY KEY, call_id INTEGER UNIQUE)")
+    conn.execute(
+        "CREATE TABLE events (id INTEGER PRIMARY KEY, user_id TEXT, contact_id INTEGER, "
+        "call_id INTEGER, event_type TEXT, who TEXT, payload TEXT, status TEXT)"
+    )
+    conn.execute(
+        "CREATE TABLE promises (promise_id INTEGER PRIMARY KEY, user_id TEXT, "
+        "contact_id INTEGER, call_id INTEGER, who TEXT, what TEXT, due TEXT, status TEXT)"
+    )
     conn.commit()
     conn.close()
 

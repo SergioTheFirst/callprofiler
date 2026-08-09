@@ -90,19 +90,21 @@ CREATE TABLE IF NOT EXISTS promises (
     created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- NB: no user_id column here (P-DB-06, db/migrations.py::_m008_fts_drop_user_id).
+-- content='transcripts' has no user_id column, so a rebuild ('rebuild' special
+-- command) would fail looking for it. Ownership filtering is done via JOIN to
+-- calls.user_id everywhere this is queried (search_transcripts, dashboard).
 CREATE VIRTUAL TABLE IF NOT EXISTS transcripts_fts USING fts5(
     text,
     speaker,
     call_id UNINDEXED,
-    user_id UNINDEXED,
     content='transcripts',
     content_rowid='segment_id'
 );
 
 CREATE TRIGGER IF NOT EXISTS transcripts_ai AFTER INSERT ON transcripts BEGIN
-    INSERT INTO transcripts_fts(rowid, text, speaker, call_id, user_id)
-    SELECT NEW.segment_id, NEW.text, NEW.speaker, NEW.call_id,
-           (SELECT user_id FROM calls WHERE call_id = NEW.call_id);
+    INSERT INTO transcripts_fts(rowid, text, speaker, call_id)
+    VALUES (NEW.segment_id, NEW.text, NEW.speaker, NEW.call_id);
 END;
 
 CREATE TABLE IF NOT EXISTS events (

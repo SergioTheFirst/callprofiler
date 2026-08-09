@@ -117,6 +117,7 @@ class TestContactNoteEndpoint:
         server_mod._USER_ID = "test_user"
 
         with TestClient(server_mod.app) as tc:
+            tc.headers.update({"X-CSRF-Token": tc.get("/").cookies.get("cp_csrf") or ""})
             yield tc, mock_tools
 
         server_mod._TOOLS = saved_tools
