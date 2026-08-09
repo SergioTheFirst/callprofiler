@@ -31,6 +31,7 @@ def cmd_biography_run(args: argparse.Namespace) -> int:
 
     try:
         llm_core = LLMClient(base_url=cfg.models.llm_url, timeout=300)
+        llm_core.ensure_ready()  # T-13: явная проверка вместо сети в конструкторе
     except ConnectionError as e:
         log.error("Ошибка подключения к LLM %s: %s", cfg.models.llm_url, e)
         return 1

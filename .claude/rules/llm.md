@@ -15,11 +15,26 @@
 
 - Таблица `llm_calls(cache_key PK, user_id, prompt_version, response, finish_reason)`,
   идемпотентно создаётся `apply_llm_cache_schema()` при первой передаче `cache_conn` в `LLMClient`.
-- Ключ = `sha1(json.dumps(messages,sort_keys=True) + "|"+temperature+"|"+max_tokens+"|"+prompt_version)`.
+- Ключ (T-13, 2026-08-08) = `sha1(messages + temperature + max_tokens + prompt_version + json_mode
+  + **user_id** + **model_fingerprint**)`. `user_id` добавлен для изоляции профилей;
+  `model_fingerprint` заполняется только если вызывающий заранее позвал `check_ready()`
+  (`/v1/models`), иначе пустой — ограничение зафиксировано, фиктивный отпечаток не выдумывается.
+  Старые строки `llm_calls` (без `user_id` в ключе) просто перестают попадаться, НЕ удаляются.
 - `LLMClient(cache_conn=None)` — поведение прежнее (без кэша, обратная совместимость: biography/graph
   зовут как раньше). Только call-analysis путь (`AnalysisService.__init__`, `bulk_enrich()`) передаёт
-  `cache_conn=repo._get_conn()`. **Сбой (`text=None`) НЕ кэшируется** — иначе временный отказ
-  llama-server залип бы навсегда; truncated (`finish_reason='length'`) кэшируется как есть.
+  `cache_conn=repo._get_conn()`. **Ни сбой, ни усечение НЕ кэшируются** (T-13, 2026-08-08):
+  временный отказ llama-server иначе залип бы навсегда, а `finish_reason='length'` — это
+  неполный JSON, который repair-парсер достраивает догадкой; закэшировав его, мы зафиксировали
+  бы догадку навечно (все прогоны возвращали бы тот же обрубок, ни разу не сходив к серверу —
+  ровно «stale/incomplete как успех», P-LLM-06). Вызывающему обрубок по-прежнему возвращается —
+  решение, что с ним делать, принимает он. Прежний тест `test_truncated_response_cached_as_is`
+  закреплял старое поведение и заменён на `test_truncated_response_absent_from_cache`.
+- **Конструктор `LLMClient` не ходит в сеть** (T-13): проверка доступности вынесена в
+  `check_live()` (`/health`) / `check_ready()` (`/v1/models`, fallback на 1-токенный completion
+  для старых сборок) / `ensure_ready()` — последняя поднимает тот же `ConnectionError`, что
+  раньше бросал конструктор, поэтому контракт «exit 2 при мёртвом сервере» у `ask`/`bulk`/
+  `deep-extract`/`biography` сохранён. Пробы в кэш не пишут. Невалидный ответ транспорта →
+  типизированный `LLMDecodeError` вместо тихого `text=None`.
 - `bio_llm_calls` (biography) и per-row кэши insight (age/ask/promise) НЕ унифицированы с
   `llm_calls` — отдельная мемоизация, сознательно (blast radius).
 

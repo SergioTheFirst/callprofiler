@@ -22,6 +22,18 @@ import requests
 logger = logging.getLogger(__name__)
 
 
+class LLMDecodeError(Exception):
+    """Ответ получен (не сетевая ошибка, не HTTP-ошибка) но не в ожидаемом
+    OpenAI-формате — невалидный JSON или отсутствуют ``choices[0].message.content``.
+
+    Раньше это молча превращалось в ``LLMResult(text=None)`` — неотличимо от
+    «сервер недоступен». Теперь типизировано (T-13/P-LLM-задача о жизненном
+    цикле клиента). :meth:`LLMClient.generate` по-прежнему ловит это и
+    возвращает ``None`` — обратная совместимость для старых вызывающих
+    (biography, graph), которым важен только контракт ``str | None``.
+    """
+
+
 @dataclass(frozen=True)
 class LLMResult:
     """Результат вызова LLM с метаданными завершения.
@@ -64,16 +76,18 @@ class LLMClient:
         cache_user_id: str = "",
         prompt_version: str = "",
     ) -> None:
-        """Инициализировать LLM клиент.
+        """Инициализировать LLM клиент. НЕ делает ни одного HTTP-запроса (T-13,
+        P-LLM-01) — дёшево создаётся даже без живого сервера. Явная проверка
+        доступности — :meth:`check_live`/:meth:`check_ready`/:meth:`ensure_ready`,
+        вызывающий код зовёт их сам ДО работы, если ему нужен fail-fast.
 
         Параметры:
             base_url        — URL endpoint (обычно http://127.0.0.1:8080/v1/chat/completions)
             timeout          — timeout для запроса в секундах (по умолчанию 300 для длинных звонков)
             cache_conn       — sqlite-коннект для мемоизации (M3, decisions.md 2026-06-04 #1).
                                ``None`` (по умолчанию) — поведение прежнее байт-в-байт, без кэша.
-                               Cache-hit путь HTTP НЕ зовёт (``_verify_connection`` при __init__
-                               по-прежнему шумит независимо от cache-hit — поведенческий контракт).
-            cache_user_id    — user_id для строки кэша (аудит, в ключ кэша НЕ входит).
+            cache_user_id    — user_id для строки кэша И для ключа кэша (T-13: изоляция профилей —
+                               раньше не входил в ключ, второй профиль читал чужой кэш).
             prompt_version   — версия промпта для строки кэша и ключа (та же, что пишется
                                в ``analyses.prompt_version`` вызывающим кодом).
         """
@@ -82,37 +96,66 @@ class LLMClient:
         self.cache_conn = cache_conn
         self.cache_user_id = cache_user_id
         self.prompt_version = prompt_version
+        # Отпечаток модели/сборки сервера (T-13 п.3) — заполняется check_ready()
+        # через /v1/models, если эндпоинт есть. Недоступен на старых сборках
+        # llama-server → остаётся "" (известное ограничение, не выдумываем).
+        self.model_fingerprint: str = ""
         if cache_conn is not None:
             from callprofiler.llm_cache import apply_llm_cache_schema
             apply_llm_cache_schema(cache_conn)
-        self._verify_connection()
 
-    def _verify_connection(self) -> None:
-        """Проверить что llama-server доступен при инициализации.
+    def _base_host(self) -> str:
+        return self.base_url.split("/v1/")[0] if "/v1/" in self.base_url else self.base_url
 
-        Raises:
-            ConnectionError  — если сервер недоступен
-        """
+    def check_live(self, timeout: float = 2.0) -> bool:
+        """Liveness: транспорт доступен (дешёвый GET /health). НЕ пишет кэш,
+        не тратит токены. ``False`` на любой сетевой ошибке — не поднимает."""
         try:
-            # Попытаться минимальный запрос
-            response = requests.post(
+            resp = requests.get(self._base_host().rstrip("/") + "/health", timeout=timeout)
+            return resp.status_code == 200
+        except requests.RequestException:
+            return False
+
+    def check_ready(self, timeout: float = 5.0) -> bool:
+        """Readiness: сервер реально может генерировать. Пробует GET /v1/models
+        (дёшево, заодно даёт отпечаток модели для кэша — сохраняется в
+        ``self.model_fingerprint``). Старые сборки llama-server без этого
+        эндпоинта — 404/иная ошибка НЕ считается "не готов": fallback на
+        минимальный completion (max_tokens=1). НЕ пишет кэш ни в одной ветке."""
+        try:
+            resp = requests.get(self._base_host().rstrip("/") + "/v1/models", timeout=timeout)
+            if resp.status_code == 200:
+                try:
+                    data = resp.json().get("data") or []
+                    if data and isinstance(data, list) and data[0].get("id"):
+                        self.model_fingerprint = str(data[0]["id"])
+                except (ValueError, AttributeError, KeyError, IndexError):
+                    pass  # fingerprint недоступен дёшево — остаётся "" (не выдумываем)
+                return True
+        except requests.RequestException:
+            pass
+        try:
+            resp = requests.post(
                 self.base_url,
-                json={
-                    "messages": [{"role": "user", "content": "test"}],
-                    "temperature": 0.1,
-                    "max_tokens": 10,
-                },
-                timeout=5,
+                json={"messages": [{"role": "user", "content": "ping"}], "temperature": 0.0, "max_tokens": 1},
+                timeout=timeout,
             )
-            response.raise_for_status()
-            logger.info("✓ LLM сервер доступен на %s", self.base_url)
-        except requests.ConnectionError as exc:
+            resp.raise_for_status()
+            return True
+        except requests.RequestException:
+            return False
+
+    def ensure_ready(self, timeout: float = 5.0) -> None:
+        """Явная проверка вместо старого поведения ``__init__``: бросает то же
+        ``ConnectionError``, что раньше бросал конструктор, если сервер не
+        готов. Вызывающие, которым нужен fail-fast контракт (ask/bulk/deep_extract/
+        biography CLI-команды — они ловят ``ConnectionError`` и выходят с кодом
+        2/1), зовут это сразу после конструктора."""
+        if not self.check_ready(timeout=timeout):
             raise ConnectionError(
                 f"Не удаётся подключиться к llama-server на {self.base_url}. "
                 f"Запустите: llama-server -api"
-            ) from exc
-        except requests.RequestException as exc:
-            logger.warning("Предупреждение при проверке LLM сервера: %s", exc)
+            )
 
     def complete(
         self,
@@ -134,7 +177,13 @@ class LLMClient:
 
         Возвращает:
             LLMResult(text, finish_reason). ``text=None`` при ошибке подключения
-            или невалидном ответе. ``finish_reason="length"`` → вывод обрезан.
+            (транспорт/timeout/5xx после ретраев). ``finish_reason="length"`` →
+            вывод обрезан.
+
+        Raises:
+            LLMDecodeError — ответ пришёл (2xx), но не в OpenAI-формате
+            (невалидный JSON / нет choices[0].message.content). Раньше это
+            молча превращалось в ``text=None`` — теперь типизировано (T-13).
         """
         logger.debug(
             "Отправка промпта в LLM сервер (сообщений: %d, max_tokens: %d, json_mode=%s)",
@@ -147,7 +196,10 @@ class LLMClient:
             from callprofiler.llm_cache import make_key
             from callprofiler.llm_cache import put as cache_put
 
-            cache_key = make_key(messages, temperature, max_tokens, self.prompt_version, json_mode)
+            cache_key = make_key(
+                messages, temperature, max_tokens, self.prompt_version, json_mode,
+                self.cache_user_id, self.model_fingerprint,
+            )
             cached = cache_get(self.cache_conn, cache_key)
             if cached is not None:
                 logger.debug("LLM cache HIT (key=%s...)", cache_key[:8])
@@ -178,14 +230,37 @@ class LLMClient:
                     content = choice["message"]["content"]
                     finish_reason = choice.get("finish_reason")
                     final = LLMResult(text=content, finish_reason=finish_reason)
-                    if cache_key is not None:
+                    # T-13: кэшируется ТОЛЬКО полный ответ. Усечённый
+                    # (finish_reason="length") — это неполный JSON, который
+                    # repair-парсер потом достраивает догадкой; закэшировав его,
+                    # мы зафиксировали бы эту догадку навсегда — все последующие
+                    # прогоны возвращали бы тот же обрубок, ни разу не сходив к
+                    # серверу. Ровно "stale/incomplete как успех" из P-LLM-06.
+                    if cache_key is not None and not final.truncated:
                         cache_put(self.cache_conn, cache_key, self.cache_user_id,
                                   self.prompt_version, final)
                     return final
-                except (json.JSONDecodeError, KeyError, IndexError):
+                except (json.JSONDecodeError, KeyError, IndexError) as exc:
                     logger.error("Невалидный ответ от LLM сервера: %s", response.text[:200])
-                    return LLMResult(text=None)  # не ретраим: ответ пришёл, но невалидный JSON — не кэшируется (put() no-op на text=None)
+                    # НЕ кэшируется — raise, не return (T-13: типизированная ошибка декодирования,
+                    # не путать с "сервер недоступен").
+                    raise LLMDecodeError(
+                        f"Невалидный ответ от LLM сервера: {response.text[:200]}"
+                    ) from exc
 
+            except requests.HTTPError as exc:
+                last_exc = exc
+                status = getattr(exc.response, "status_code", None)
+                if status is not None and status >= 500 and attempt < 2:
+                    delay = 2 ** (attempt + 1)  # 2s, 4s, 8s
+                    logger.warning(
+                        "LLM сервер вернул %s (попытка %d/3), повтор через %ds: %s",
+                        status, attempt + 1, delay, exc,
+                    )
+                    time.sleep(delay)
+                else:
+                    logger.error("Ошибка при запросе к LLM серверу: %s", exc)
+                    return LLMResult(text=None)  # 4xx или ретраи исчерпаны — не transient
             except (requests.Timeout, requests.ConnectionError) as exc:
                 last_exc = exc
                 if attempt < 2:
@@ -214,9 +289,13 @@ class LLMClient:
 
         Существующие вызовы (biography, graph и т.д.) продолжают получать
         ``str | None``. Новый код, которому нужен ``finish_reason``, зовёт
-        :meth:`complete`.
+        :meth:`complete`. Never raises ``LLMDecodeError`` — caught here and
+        turned into ``None``, same as the old silent-``text=None`` contract.
         """
-        return self.complete(messages, temperature, max_tokens).text
+        try:
+            return self.complete(messages, temperature, max_tokens).text
+        except LLMDecodeError:
+            return None
 
 
 # Для обратной совместимости (если что-то ещё использует OllamaClient)

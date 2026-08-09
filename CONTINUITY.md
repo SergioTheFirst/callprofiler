@@ -41,6 +41,13 @@
   inventory-тест по интроспекции), T-04 (`db/connection.py` + `db/uow.py`, границы транзакций
   в сценариях, `busy_timeout` на writer), T-08 (`artifacts.py` — атомарная публикация;
   транскрипты больше не перезаписываются между профилями).
+- **T-13 закрыт:** конструктор `LLMClient` не ходит в сеть (liveness/readiness разведены),
+  `user_id` и `model_fingerprint` в ключе кэша, `ask_log` уникален по паре, усечённые ответы
+  больше не кэшируются. Карта `llm.md` обновлена.
+- **T-20 закрыт** (`ops/backup.py` + CLI `backup`/`verify-backup`/`restore`): снимок только через
+  SQLite online backup API, обязательная верификация ДО публикации, манифест с SHA-256,
+  retention по манифесту. **Это гейт: T-05 на боевых данных без него не запускать.**
+  Осталось: добавить чек backup в `doctor.py` (файл был занят другим агентом).
 - **Остаток T-04 (осознанный, не потерян):** ~60 мест вне `repository.py` коммитят безусловно
   (`biography/repo.py`, `insight/*`, `graph/repository.py` ×3, `deliver/reminders.py`, `ask.py`,
   `llm_cache.py`, `dashboard/tools.py`, CLI) — не на пер-звонковом пути, список в CHANGELOG.

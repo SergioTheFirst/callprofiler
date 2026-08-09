@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
-"""test_llm_cache.py — M3: мемоизация analyze-пути по fingerprint (decisions.md 2026-06-04 #1)."""
+"""test_llm_cache.py — M3: мемоизация analyze-пути по fingerprint (decisions.md 2026-06-04 #1).
+
+T-13: ключ теперь включает user_id (изоляция профилей) + опциональный
+model_fingerprint. Конструктор LLMClient больше не бьёт сеть (P-LLM-01) —
+call_count в тестах ниже считает только реальные complete()-вызовы.
+"""
 from __future__ import annotations
 
 import sqlite3
@@ -57,6 +62,29 @@ class TestMakeKey:
         msgs = [{"role": "user", "content": "hi"}]
         assert make_key(msgs, 0.3, 1500, "v001") != make_key(msgs, 0.7, 1500, "v001")
 
+    def test_differs_on_max_tokens(self):
+        msgs = [{"role": "user", "content": "hi"}]
+        assert make_key(msgs, 0.3, 1500, "v001") != make_key(msgs, 0.3, 100, "v001")
+
+    def test_differs_on_json_mode(self):
+        msgs = [{"role": "user", "content": "hi"}]
+        assert make_key(msgs, 0.3, 1500, "v001", json_mode=False) != make_key(
+            msgs, 0.3, 1500, "v001", json_mode=True
+        )
+
+    def test_differs_on_user_id(self):
+        """T-13/P-LLM-06: изоляция профилей — раньше user_id не входил в ключ."""
+        msgs = [{"role": "user", "content": "hi"}]
+        assert make_key(msgs, 0.3, 1500, "v001", user_id="alice") != make_key(
+            msgs, 0.3, 1500, "v001", user_id="bob"
+        )
+
+    def test_differs_on_model_fingerprint(self):
+        msgs = [{"role": "user", "content": "hi"}]
+        assert make_key(msgs, 0.3, 1500, "v001", model_fingerprint="modelA") != make_key(
+            msgs, 0.3, 1500, "v001", model_fingerprint="modelB"
+        )
+
     def test_key_order_independent(self):
         # sort_keys=True -> порядок ключей внутри сообщения не важен
         m1 = [{"role": "user", "content": "hi"}]
@@ -88,29 +116,59 @@ class TestPutGet:
 class TestLLMClientCaching:
     def test_second_identical_call_hits_cache(self, conn):
         msgs = [{"role": "user", "content": "hello"}]
+        client = LLMClient(
+            "http://localhost:8080/v1/chat/completions",
+            cache_conn=conn, cache_user_id="me", prompt_version="v001",
+        )
         with patch("requests.post", return_value=_ok("hi", "stop")) as mock_post:
-            client = LLMClient(
-                "http://localhost:8080/v1/chat/completions",
-                cache_conn=conn, cache_user_id="me", prompt_version="v001",
-            )
             r1 = client.complete(msgs, temperature=0.3, max_tokens=100)
             r2 = client.complete(msgs, temperature=0.3, max_tokens=100)
         assert r1.text == "hi" and r1.finish_reason == "stop"
         assert r2.text == "hi" and r2.finish_reason == "stop"
-        # 1 вызов на _verify_connection (в __init__) + 1 на первый complete() = 2
-        assert mock_post.call_count == 2
+        assert mock_post.call_count == 1  # второй complete() — cache HIT, HTTP не бьёт
+
+    def test_truncated_response_not_cached_retries_next_time(self, conn):
+        """finish_reason='length' — неполный JSON, кэшировать его нельзя.
+
+        Иначе догадка repair-парсера фиксируется навсегда: все последующие
+        прогоны получают тот же обрубок, ни разу не сходив к серверу
+        (P-LLM-06 «stale/incomplete как успех»).
+        """
+        msgs = [{"role": "user", "content": "hello"}]
+        client = LLMClient(
+            "http://localhost:8080/v1/chat/completions",
+            cache_conn=conn, cache_user_id="me", prompt_version="v001",
+        )
+        with patch("requests.post", return_value=_ok('{"summary": "обр', "length")) as mock_post:
+            r1 = client.complete(msgs, temperature=0.3, max_tokens=100)
+            r2 = client.complete(msgs, temperature=0.3, max_tokens=100)
+        assert r1.truncated is True
+        assert mock_post.call_count == 2, "усечённый ответ не должен становиться cache HIT"
+        n = conn.execute("SELECT COUNT(*) FROM llm_calls").fetchone()[0]
+        assert n == 0, "усечённый ответ не должен попадать в llm_calls"
+
+    def test_full_response_still_cached(self, conn):
+        """Контроль: полный ответ по-прежнему кэшируется (гард не переусердствовал)."""
+        msgs = [{"role": "user", "content": "hello"}]
+        client = LLMClient(
+            "http://localhost:8080/v1/chat/completions",
+            cache_conn=conn, cache_user_id="me", prompt_version="v001",
+        )
+        with patch("requests.post", return_value=_ok("ok", "stop")):
+            client.complete(msgs, temperature=0.3, max_tokens=100)
+        n = conn.execute("SELECT COUNT(*) FROM llm_calls").fetchone()[0]
+        assert n == 1
 
     def test_connection_error_not_cached_retries_next_time(self, conn):
         msgs = [{"role": "user", "content": "hello"}]
+        client = LLMClient(
+            "http://localhost:8080/v1/chat/completions",
+            cache_conn=conn, cache_user_id="me", prompt_version="v001",
+        )
         mock_post = MagicMock(side_effect=[
-            _ok("verify-ok"),  # _verify_connection в __init__
             ReqConnectionError("down"), ReqConnectionError("down"), ReqConnectionError("down"),
         ])
         with patch("requests.post", mock_post), patch("callprofiler.analyze.llm_client.time.sleep"):
-            client = LLMClient(
-                "http://localhost:8080/v1/chat/completions",
-                cache_conn=conn, cache_user_id="me", prompt_version="v001",
-            )
             r1 = client.complete(msgs, temperature=0.3, max_tokens=100)
         assert r1.text is None
         n = conn.execute("SELECT COUNT(*) FROM llm_calls").fetchone()[0]
@@ -139,35 +197,60 @@ class TestLLMClientCaching:
         n = conn.execute("SELECT COUNT(*) FROM llm_calls").fetchone()[0]
         assert n == 2
 
+    def test_different_user_id_writes_two_rows_no_cross_hit(self, conn):
+        """T-13/P-LLM-06: два профиля, идентичный промпт → разные записи, без кросс-попадания."""
+        msgs = [{"role": "user", "content": "hello"}]
+        client_alice = LLMClient(
+            "http://localhost:8080/v1/chat/completions",
+            cache_conn=conn, cache_user_id="alice", prompt_version="v001",
+        )
+        client_bob = LLMClient(
+            "http://localhost:8080/v1/chat/completions",
+            cache_conn=conn, cache_user_id="bob", prompt_version="v001",
+        )
+        mock_post = MagicMock(return_value=_ok("hi", "stop"))
+        with patch("requests.post", mock_post):
+            client_alice.complete(msgs, temperature=0.3, max_tokens=100)
+            client_bob.complete(msgs, temperature=0.3, max_tokens=100)
+        n = conn.execute("SELECT COUNT(*) FROM llm_calls").fetchone()[0]
+        assert n == 2
+        assert mock_post.call_count == 2  # bob НЕ получил alice's cache hit
+
     def test_no_cache_conn_calls_http_every_time(self):
         """Регресс: cache_conn=None -> поведение прежнее (без кэша)."""
         msgs = [{"role": "user", "content": "hello"}]
+        client = LLMClient("http://localhost:8080/v1/chat/completions")
         with patch("requests.post", return_value=_ok("hi", "stop")) as mock_post:
-            client = LLMClient("http://localhost:8080/v1/chat/completions")
             client.complete(msgs, temperature=0.3, max_tokens=100)
             client.complete(msgs, temperature=0.3, max_tokens=100)
-        # verify (1) + 2 complete() без кэша = 3
-        assert mock_post.call_count == 3
+        assert mock_post.call_count == 2
 
     def test_user_id_written_to_cache_row(self, conn):
         msgs = [{"role": "user", "content": "hello"}]
+        client = LLMClient(
+            "http://localhost:8080/v1/chat/completions",
+            cache_conn=conn, cache_user_id="alice", prompt_version="v001",
+        )
         with patch("requests.post", return_value=_ok("hi", "stop")):
-            client = LLMClient(
-                "http://localhost:8080/v1/chat/completions",
-                cache_conn=conn, cache_user_id="alice", prompt_version="v001",
-            )
             client.complete(msgs, temperature=0.3, max_tokens=100)
         row = conn.execute("SELECT user_id FROM llm_calls").fetchone()
         assert row["user_id"] == "alice"
 
-    def test_truncated_response_cached_as_is(self, conn):
+    def test_truncated_response_absent_from_cache(self, conn):
+        """Заменяет прежний test_truncated_response_cached_as_is.
+
+        Тот закреплял ровно тот дефект, который T-13 обязан устранить: усечённый
+        ответ сохранялся и выдавался как валидный. Возвращаемое значение по-прежнему
+        отдаётся вызывающему (он сам решает, что делать с truncated), но в кэш
+        не попадает.
+        """
         msgs = [{"role": "user", "content": "hello"}]
+        client = LLMClient(
+            "http://localhost:8080/v1/chat/completions",
+            cache_conn=conn, cache_user_id="me", prompt_version="v001",
+        )
         with patch("requests.post", return_value=_ok("partial json", "length")):
-            client = LLMClient(
-                "http://localhost:8080/v1/chat/completions",
-                cache_conn=conn, cache_user_id="me", prompt_version="v001",
-            )
             r1 = client.complete(msgs, temperature=0.3, max_tokens=100)
         assert r1.truncated
-        cached = cache_get(conn, make_key(msgs, 0.3, 100, "v001"))
-        assert cached.text == "partial json" and cached.finish_reason == "length"
+        assert r1.text == "partial json", "вызывающему обрубок всё ещё возвращается"
+        assert cache_get(conn, make_key(msgs, 0.3, 100, "v001", user_id="me")) is None

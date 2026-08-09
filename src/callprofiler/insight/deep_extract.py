@@ -27,7 +27,7 @@ import sqlite3
 from hashlib import sha1
 from pathlib import Path
 
-from callprofiler.analyze.llm_client import LLMClient
+from callprofiler.analyze.llm_client import LLMClient, LLMDecodeError
 from callprofiler.textnorm import norm_quote
 
 PROMPT_VERSION_DEEP = "deep-v1"
@@ -278,13 +278,20 @@ def run_deep_extract(
                     llm_url, timeout=timeout, cache_conn=conn,
                     cache_user_id=user_id, prompt_version=PROMPT_VERSION_DEEP,
                 )
+                client.ensure_ready()  # T-13: явная проверка вместо сети в конструкторе
             prompt = template.replace("{chunk}", chunk)
-            result = client.complete(
-                [{"role": "user", "content": prompt}],
-                temperature=0.1, max_tokens=900, json_mode=True,
-            )
+            try:
+                result = client.complete(
+                    [{"role": "user", "content": prompt}],
+                    temperature=0.1, max_tokens=900, json_mode=True,
+                )
+                raw_text = result.text
+            except LLMDecodeError:
+                # T-13: complete() теперь raise-ит на невалидный transport-ответ —
+                # один плохой чанк не должен ронять весь map-reduce прогон.
+                raw_text = None
             stats["chunks"] += 1
-            for item in _parse_items(result.text):
+            for item in _parse_items(raw_text):
                 saved = _save_item(conn, user_id, call["call_id"], call["contact_id"],
                                     idx, chunk, item, PROMPT_VERSION_DEEP, is_note=is_note)
                 stats["items_saved" if saved else "items_dropped"] += 1

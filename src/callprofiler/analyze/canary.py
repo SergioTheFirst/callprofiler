@@ -13,7 +13,7 @@ import json
 import random
 from typing import Callable
 
-from callprofiler.analyze.llm_client import LLMClient
+from callprofiler.analyze.llm_client import LLMClient, LLMDecodeError
 from callprofiler.analyze.output_budget import output_budget
 from callprofiler.analyze.prompt_budget import estimate_tokens
 from callprofiler.analyze.prompt_builder import PromptBuilder
@@ -127,10 +127,16 @@ def run_canary(
         )
 
         for json_mode in (False, True):
-            result = client.complete(
-                messages=messages, temperature=0.3, max_tokens=budget, json_mode=json_mode,
-            )
-            raw = result.text or ""
+            try:
+                result = client.complete(
+                    messages=messages, temperature=0.3, max_tokens=budget, json_mode=json_mode,
+                )
+                raw = result.text or ""
+            except LLMDecodeError:
+                # T-13: complete() теперь raise-ит на невалидный transport-ответ
+                # вместо LLMResult(text=None). canary — диагностика по многим
+                # звонкам, один малформленный ответ не должен ронять весь прогон.
+                raw = ""
             analysis = parse_llm_response(
                 raw, model=config.models.llm_model, prompt_version=PROMPT_VERSION_ANALYZE,
             )

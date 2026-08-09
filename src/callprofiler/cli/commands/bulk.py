@@ -143,9 +143,13 @@ def cmd_canary_analyze(args: argparse.Namespace) -> int:
     out = args.out or "C:\\calls\\canary-json.md"
 
     try:
+        # T-13: readiness проверяется здесь (вызывающий код), не внутри run_canary —
+        # тот принимает произвольный duck-typed клиент (см. тесты с FakeClient).
+        client = LLMClient(base_url=cfg.models.llm_url)
+        client.ensure_ready()
         report = run_canary(
             conn, args.user_id,
-            llm_client_factory=lambda: LLMClient(base_url=cfg.models.llm_url),
+            llm_client_factory=lambda: client,
             config=cfg,
             n=args.n, seed=args.seed,
         )

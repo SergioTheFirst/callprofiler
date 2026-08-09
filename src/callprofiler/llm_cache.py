@@ -41,15 +41,26 @@ def make_key(
     max_tokens: int,
     prompt_version: str,
     json_mode: bool = False,
+    user_id: str = "",
+    model_fingerprint: str = "",
 ) -> str:
     """Fingerprint запроса — детерминированный, порядок ключей сообщений не важен
     (``sort_keys=True``): один и тот же запрос всегда даёт один и тот же ключ.
 
     ``json_mode`` входит в ключ (M4): ``response_format`` меняет форму ответа модели —
     без этого json_mode=True/False на одних messages читали бы чужой кэш друг у друга.
+
+    ``user_id`` входит в ключ (T-13, P-LLM-06): раньше НЕ входил — второй профиль
+    с идентичным промптом читал чужой кэш. ``model_fingerprint`` — отпечаток
+    модели/сборки сервера, если он был дёшево получен (``LLMClient.check_ready``);
+    "" по умолчанию (не пробовали / эндпоинт недоступен на старой сборке) —
+    известное ограничение, не различает модели в этом случае.
     """
     canonical = json.dumps(messages, ensure_ascii=False, sort_keys=True)
-    payload = f"{canonical}|{temperature}|{max_tokens}|{prompt_version}|{json_mode}"
+    payload = (
+        f"{canonical}|{temperature}|{max_tokens}|{prompt_version}|{json_mode}"
+        f"|{user_id}|{model_fingerprint}"
+    )
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
 

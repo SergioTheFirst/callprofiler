@@ -99,6 +99,10 @@ _DISPATCH: dict[str, tuple[str, str]] = {
     "reminders-due": ("callprofiler.cli.commands.deliver", "cmd_reminders_due"),
 
     "ask": ("callprofiler.cli.commands.ask", "cmd_ask"),
+
+    "backup": ("callprofiler.cli.commands.backup", "cmd_backup"),
+    "verify-backup": ("callprofiler.cli.commands.backup", "cmd_verify_backup"),
+    "restore": ("callprofiler.cli.commands.backup", "cmd_restore"),
 }
 
 
@@ -878,6 +882,55 @@ def _build_parser() -> argparse.ArgumentParser:
     p_deep.add_argument(
         "--force", action="store_true",
         help="Пересканировать звонки, уже пройденные текущей версией промпта",
+    )
+
+    # ── backup / verify-backup / restore (T-20) ─────────────────────
+    p_backup = sub.add_parser(
+        "backup",
+        help="T-20: верифицированный снимок БД (online backup API)",
+    )
+    p_backup.add_argument(
+        "--out", dest="out", default=None, metavar="DIR",
+        help="Каталог снимков (по умолчанию: <data_dir>/backups)",
+    )
+    p_backup.add_argument(
+        "--kind", default="manual", choices=("manual", "daily", "weekly"),
+        help="Метка снимка в манифесте (по умолчанию: manual)",
+    )
+    p_backup.add_argument(
+        "--retention-daily", dest="retention_daily", type=int, default=7, metavar="N",
+        help="Сколько последних снимков хранить безусловно (по умолчанию 7)",
+    )
+    p_backup.add_argument(
+        "--retention-weekly", dest="retention_weekly", type=int, default=4, metavar="N",
+        help="Сколько недельных снимков хранить сверх daily (по умолчанию 4)",
+    )
+
+    p_verify = sub.add_parser(
+        "verify-backup",
+        help="T-20: проверить снимок (quick_check + foreign_key_check + sha256 + счётчики)",
+    )
+    p_verify.add_argument("path", help="Путь к файлу снимка .db")
+
+    p_restore = sub.add_parser(
+        "restore",
+        help="T-20: восстановить снимок в указанный путь",
+    )
+    p_restore.add_argument(
+        "--to", required=True, metavar="PATH",
+        help="Куда восстановить БД",
+    )
+    p_restore.add_argument(
+        "--from", dest="from_path", default=None, metavar="PATH",
+        help="Какой снимок восстанавливать (по умолчанию — самый свежий из --out/<data_dir>/backups)",
+    )
+    p_restore.add_argument(
+        "--out", dest="out", default=None, metavar="DIR",
+        help="Каталог снимков для поиска --from по умолчанию и для авто-снимка при --overwrite",
+    )
+    p_restore.add_argument(
+        "--overwrite", action="store_true",
+        help="Разрешить перезапись существующего файла назначения (снимет его состояние перед заменой)",
     )
 
     return parser

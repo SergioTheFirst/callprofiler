@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 from unittest import mock
 
+import pytest
+
 from callprofiler.analyze.llm_client import LLMResult
 from callprofiler.db.repository import Repository
 from callprofiler.deliver.digest import build_digest
@@ -133,6 +135,23 @@ def test_run_deep_extract_saves_valid_item_and_marks_scanned():
     # LLMClient walked через M3-кэш (cache_conn=conn) — не свой параллельный кэш
     assert MC.call_args.kwargs["cache_conn"] is conn
     assert MC.call_args.kwargs["prompt_version"] == PROMPT_VERSION_DEEP
+
+
+def test_run_deep_extract_propagates_connection_error_when_llm_not_ready():
+    """T-13: readiness проверяется явно (ensure_ready) на первом чанке —
+    cli/commands/insight.py::cmd_deep_extract ловит ConnectionError и exit 2."""
+    repo = _repo()
+    _user(repo)
+    conn = repo._get_conn()
+    cid = _contact(conn)
+    call_id = _call(conn, "me", cid)
+    _transcript(conn, call_id, [("OTHER", "я перезвоню завтра насчёт сметы")])
+    conn.commit()
+
+    with mock.patch("callprofiler.insight.deep_extract.LLMClient") as MC:
+        MC.return_value.ensure_ready.side_effect = ConnectionError("down")
+        with pytest.raises(ConnectionError):
+            run_deep_extract(conn, "me", llm_url="http://fake")
 
 
 def test_quote_not_in_chunk_dropped_entirely():

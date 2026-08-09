@@ -43,11 +43,12 @@ def apply_ask_schema(conn: sqlite3.Connection) -> None:
             id             INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id        TEXT NOT NULL,
             question       TEXT NOT NULL,
-            prompt_hash    TEXT NOT NULL UNIQUE,
+            prompt_hash    TEXT NOT NULL,
             answer         TEXT NOT NULL,
             citations_json TEXT NOT NULL DEFAULT '[]',
             prompt_version TEXT NOT NULL,
-            created_at     TEXT DEFAULT CURRENT_TIMESTAMP
+            created_at     TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, prompt_hash)
         )"""
     )
     # F3: answered — 1 если ответ содержал >=1 цитату (F13 переиспользует эту
@@ -55,7 +56,53 @@ def apply_ask_schema(conn: sqlite3.Connection) -> None:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(ask_log)").fetchall()}
     if "answered" not in cols:
         conn.execute("ALTER TABLE ask_log ADD COLUMN answered INTEGER")
+    _migrate_drop_global_prompt_hash_unique(conn)
     conn.commit()
+
+
+def _migrate_drop_global_prompt_hash_unique(conn: sqlite3.Connection) -> None:
+    """T-13/P-LLM-06: старая схема имела ``prompt_hash TEXT UNIQUE`` (глобально) —
+    второй профиль с идентичным вопросом получал конфликт вставки и оставался
+    без своей строки (INSERT OR IGNORE молча терял её). Rebuild в
+    ``UNIQUE(user_id, prompt_hash)`` — sqlite не умеет ALTER DROP CONSTRAINT.
+    Идемпотентно: срабатывает только если старый одноколоночный UNIQUE ещё жив
+    (обнаруживается через auto-индекс на ``prompt_hash``); данные не теряются —
+    старая схема гарантировала prompt_hash глобально уникальным, значит
+    конфликтов при копировании в новую таблицу быть не может."""
+    has_column_unique = any(
+        row[2] == 1 and _index_columns(conn, row[1]) == ["prompt_hash"]
+        for row in conn.execute("PRAGMA index_list(ask_log)").fetchall()
+    )
+    if not has_column_unique:
+        return
+    conn.execute("ALTER TABLE ask_log RENAME TO ask_log_old_uq")
+    conn.execute(
+        """CREATE TABLE ask_log (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id        TEXT NOT NULL,
+            question       TEXT NOT NULL,
+            prompt_hash    TEXT NOT NULL,
+            answer         TEXT NOT NULL,
+            citations_json TEXT NOT NULL DEFAULT '[]',
+            prompt_version TEXT NOT NULL,
+            created_at     TEXT DEFAULT CURRENT_TIMESTAMP,
+            answered       INTEGER,
+            UNIQUE(user_id, prompt_hash)
+        )"""
+    )
+    conn.execute(
+        """INSERT INTO ask_log
+           (id, user_id, question, prompt_hash, answer, citations_json,
+            prompt_version, created_at, answered)
+           SELECT id, user_id, question, prompt_hash, answer, citations_json,
+                  prompt_version, created_at, answered
+             FROM ask_log_old_uq"""
+    )
+    conn.execute("DROP TABLE ask_log_old_uq")
+
+
+def _index_columns(conn: sqlite3.Connection, index_name: str) -> list[str]:
+    return [r[2] for r in conn.execute(f"PRAGMA index_info({index_name})").fetchall()]
 
 
 def llm_available(llm_url: str, timeout: float = 2.0) -> bool:

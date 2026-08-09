@@ -343,6 +343,7 @@ def bulk_enrich(
             cache_conn=repo._get_conn(), cache_user_id=user_id,
             prompt_version="v001",
         )
+        llm.ensure_ready()  # T-13: явная проверка вместо сети в конструкторе
     except ConnectionError as e:
         log.error("[enricher] Ошибка подключения к LLM: %s", e)
         return {"processed": 0, "failed": 0, "skipped": 0, "total": 0}

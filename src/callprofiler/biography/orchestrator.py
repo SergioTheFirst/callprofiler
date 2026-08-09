@@ -9,6 +9,7 @@ swaps — a re-run skips work already done and continues.
 Usage:
     bio = BiographyRepo(host_repo)
     llm_core = LLMClient(config.models.llm_url)
+    llm_core.ensure_ready()  # T-13: конструктор не бьёт сеть — явная проверка
     rllm = ResilientLLMClient(llm_core, bio, model_name="qwen3.5-9b")
     orch = Orchestrator(user_id, bio, rllm)
     orch.run_all()
