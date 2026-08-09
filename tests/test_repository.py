@@ -117,7 +117,7 @@ def test_phonebook_name_overwrites_guessed_name(repo):
     # Контакт с именем из предыдущего звонка
     contact_id = repo.get_or_create_contact("user1", "+79161234567", "Иван")
     # LLM угадал другое имя в guessed_name
-    repo.update_contact_guessed_name(contact_id, "Ваня", "llm", 1, "medium")
+    repo.update_contact_guessed_name("user1", contact_id, "Ваня", "llm", 1, "medium")
     # Новый звонок с обновлённым именем из телефонной книги
     repo.get_or_create_contact("user1", "+79161234567", "Иванов Иван Петрович")
     c = repo.get_contact_by_phone("user1", "+79161234567")
@@ -165,7 +165,7 @@ def test_call_exists_isolation(repo):
 def test_update_call_status(repo):
     add_user(repo)
     call_id, _ = add_call(repo)
-    repo.update_call_status(call_id, "transcribing")
+    repo.update_call_status("user1", call_id, "transcribing")
     calls = repo.get_calls_for_user("user1")
     assert calls[0]["status"] == "transcribing"
 
@@ -173,7 +173,7 @@ def test_update_call_status(repo):
 def test_update_call_status_error_increments_retry(repo):
     add_user(repo)
     call_id, _ = add_call(repo)
-    repo.update_call_status(call_id, "error", error_message="что-то сломалось")
+    repo.update_call_status("user1", call_id, "error", error_message="что-то сломалось")
     calls = repo.get_calls_for_user("user1")
     assert calls[0]["retry_count"] == 1
     assert calls[0]["error_message"] == "что-то сломалось"
@@ -190,12 +190,12 @@ def test_get_pending_calls(repo):
 def test_get_error_calls(repo):
     add_user(repo)
     call_id, _ = add_call(repo)
-    repo.update_call_status(call_id, "error", "ошибка")
+    repo.update_call_status("user1", call_id, "error", "ошибка")
     errors = repo.get_error_calls(max_retries=3)
     assert len(errors) == 1
     # После max_retries попыток — не возвращать
     for _ in range(3):
-        repo.update_call_status(call_id, "error", "снова")
+        repo.update_call_status("user1", call_id, "error", "снова")
     errors = repo.get_error_calls(max_retries=3)
     assert len(errors) == 0
 
@@ -209,8 +209,8 @@ def test_save_and_get_transcript(repo):
         Segment(start_ms=0, end_ms=1000, text="Привет", speaker="OWNER"),
         Segment(start_ms=1000, end_ms=2000, text="Здравствуйте", speaker="OTHER"),
     ]
-    repo.save_transcripts(call_id, segs)
-    result = repo.get_transcript(call_id)
+    repo.save_transcripts("user1", call_id, segs)
+    result = repo.get_transcript("user1", call_id)
     assert len(result) == 2
     assert result[0]["text"] == "Привет"
     assert result[1]["speaker"] == "OTHER"
@@ -223,7 +223,7 @@ def test_search_transcripts(repo):
         Segment(start_ms=0, end_ms=1000, text="цена договора", speaker="OWNER"),
         Segment(start_ms=1000, end_ms=2000, text="доставка завтра", speaker="OTHER"),
     ]
-    repo.save_transcripts(call_id, segs)
+    repo.save_transcripts("user1", call_id, segs)
     hits = repo.search_transcripts("user1", "цена")
     assert len(hits) == 1
     assert "цена" in hits[0]["text"]
@@ -234,7 +234,7 @@ def test_search_transcripts_isolation(repo):
     add_user(repo, "u2")
     call_id, _ = add_call(repo, user_id="u1")
     segs = [Segment(start_ms=0, end_ms=500, text="секрет", speaker="OWNER")]
-    repo.save_transcripts(call_id, segs)
+    repo.save_transcripts("u1", call_id, segs)
     assert repo.search_transcripts("u2", "секрет") == []
 
 
@@ -250,7 +250,7 @@ def test_save_and_get_analysis(repo):
         key_topics=["цена", "сроки"],
         model="qwen", prompt_version="v001",
     )
-    repo.save_analysis(call_id, a)
+    repo.save_analysis("user1", call_id, a)
     result = repo.get_analysis("user1", call_id)
     assert result is not None
     assert result["priority"] == 70
@@ -262,9 +262,9 @@ def test_set_feedback(repo):
     add_user(repo)
     call_id, _ = add_call(repo)
     a = Analysis(priority=50, risk_score=10, summary="ok")
-    repo.save_analysis(call_id, a)
+    repo.save_analysis("user1", call_id, a)
     analysis = repo.get_analysis("user1", call_id)
-    repo.set_feedback(analysis["analysis_id"], "good")
+    repo.set_feedback("user1", analysis["analysis_id"], "good")
     result = repo.get_analysis("user1", call_id)
     assert result["feedback"] == "good"
 
@@ -314,7 +314,7 @@ def test_stalled_reclaims_normalizing_stage0(repo):
     сиротил такие звонки навсегда (754 шт. в проде)."""
     add_user(repo)
     call_id, _ = add_call(repo)
-    repo.update_call_status(call_id, "normalizing")  # stage остаётся 0
+    repo.update_call_status("user1", call_id, "normalizing")  # stage остаётся 0
     stalled = repo.get_stalled_calls()
     assert call_id in [c["call_id"] for c in stalled]
 
@@ -323,8 +323,8 @@ def test_stalled_reclaims_midstage(repo):
     """Звонок, упавший на середине (transcribing@stage2), тоже stalled."""
     add_user(repo)
     call_id, _ = add_call(repo)
-    repo.update_call_status(call_id, "transcribing")
-    repo.update_pipeline_stage(call_id, 2)
+    repo.update_call_status("user1", call_id, "transcribing")
+    repo.update_pipeline_stage("user1", call_id, 2)
     assert [c["call_id"] for c in repo.get_stalled_calls()] == [call_id]
 
 
@@ -333,9 +333,9 @@ def test_stalled_excludes_terminal_and_new(repo):
     add_user(repo)
     call_id, _ = add_call(repo)
     assert repo.get_stalled_calls() == []  # свежесозданный = 'new'
-    repo.update_call_status(call_id, "done")
+    repo.update_call_status("user1", call_id, "done")
     assert repo.get_stalled_calls() == []
-    repo.update_call_status(call_id, "error", "boom")
+    repo.update_call_status("user1", call_id, "error", "boom")
     assert repo.get_stalled_calls() == []
 
 
@@ -344,6 +344,6 @@ def test_stalled_isolated_by_user(repo):
     add_user(repo, "u2")
     c1, _ = add_call(repo, user_id="u1", md5="m1")
     c2, _ = add_call(repo, user_id="u2", md5="m2")
-    repo.update_call_status(c1, "normalizing")
-    repo.update_call_status(c2, "normalizing")
+    repo.update_call_status("u1", c1, "normalizing")
+    repo.update_call_status("u2", c2, "normalizing")
     assert [c["call_id"] for c in repo.get_stalled_calls(user_id="u1")] == [c1]

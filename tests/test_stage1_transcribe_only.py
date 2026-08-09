@@ -25,9 +25,9 @@ def _repo() -> Repository:
 def test_transcribed_is_terminal_not_stalled():
     r = _repo()
     in_progress = r.create_call("me", None, "in", None, "a.mp3", "md5a", "a.mp3")
-    r.update_call_status(in_progress, "transcribing")
+    r.update_call_status("me", in_progress, "transcribing")
     terminal = r.create_call("me", None, "in", None, "b.mp3", "md5b", "b.mp3")
-    r.update_call_status(terminal, "transcribed")
+    r.update_call_status("me", terminal, "transcribed")
 
     stalled = {c["call_id"] for c in r.get_stalled_calls("me")}
     assert in_progress in stalled       # промежуточный статус — реклаймится
@@ -37,8 +37,8 @@ def test_transcribed_is_terminal_not_stalled():
 def test_batch_transcribe_only_terminalizes_to_transcribed():
     r = _repo()
     cid = r.create_call("me", None, "in", None, "x.mp3", "md5x", "x.mp3")
-    r.update_pipeline_stage(cid, 2)            # транскрипт уже в БД (stage 2)
-    r.update_call_status(cid, "transcribing")  # как оставляет Pass B/C
+    r.update_pipeline_stage("me", cid, 2)            # транскрипт уже в БД (stage 2)
+    r.update_call_status("me", cid, "transcribing")  # как оставляет Pass B/C
 
     cfg = Config()
     cfg.features.enable_llm_analysis = False
@@ -59,8 +59,8 @@ def test_batch_keeps_done_calls_done_when_analysis_disabled():
     """Уже доведённый звонок (status='done') не трогается при отключённом анализе."""
     r = _repo()
     cid = r.create_call("me", None, "in", None, "d.mp3", "md5d", "d.mp3")
-    r.update_pipeline_stage(cid, 4)
-    r.update_call_status(cid, "done")
+    r.update_pipeline_stage("me", cid, 4)
+    r.update_call_status("me", cid, "done")
 
     cfg = Config()
     cfg.features.enable_llm_analysis = False

@@ -34,8 +34,8 @@ def _call(repo: Repository, user_id, contact_id, dt: datetime, duration=600,
         user_id, contact_id, "incoming", dt, f"f{dt.isoformat()}.mp3", f"md5-{dt.isoformat()}",
         f"/audio/{dt.isoformat()}.mp3",
     )
-    repo.update_call_paths(call_id, f"/norm/{call_id}.wav", duration)
-    repo.update_call_status(call_id, status, error_message)
+    repo.update_call_paths(user_id, call_id, f"/norm/{call_id}.wav", duration)
+    repo.update_call_status(user_id, call_id, status, error_message)
     return call_id
 
 

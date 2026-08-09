@@ -9,8 +9,11 @@ reminders.py — F2: напоминания по подтверждённым (F
 """
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
 
 MAX_CONSECUTIVE_ERRORS = 5
 
@@ -150,12 +153,22 @@ def snooze_reminder(conn, reminder_id: int, user_id: str) -> None:
 
 def close_item(repo, user_id: str, item_kind: str, item_key: str) -> None:
     """«✅ Сделано»: закрыть обещание/факт под напоминанием. deep_fact — no-op
-    (M8 не реализован, таблицы нет)."""
+    (M8 не реализован, таблицы нет).
+
+    P-TEN-04: user_id ОБЯЗАН дойти до repo.update_event_status — чужой
+    item_key иначе закрывал бы событие другого пользователя. Несовпадение
+    владельца/несуществующий id логируется явно (не тихий no-op, в отличие
+    от штатных мутаторов — это callback-путь Telegram)."""
     if item_kind == "event":
         try:
-            repo.update_event_status(int(item_key), "fulfilled")
+            event_id = int(item_key)
         except (ValueError, TypeError):
-            pass
+            return
+        if not repo.update_event_status(user_id, event_id, "fulfilled"):
+            logger.warning(
+                "close_item: event_id=%s не принадлежит user_id=%s (или не найден)",
+                event_id, user_id,
+            )
     elif item_kind == "promise":
         conn = repo._get_conn()
         conn.execute(

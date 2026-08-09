@@ -88,7 +88,10 @@ def cmd_prune_missing(args) -> int:
         if c["call_id"] in orphan_ids:
             print(f"    пример call_id={c['call_id']}: {c.get('source_filename')}")
 
-    counts = repo.delete_calls(orphan_ids, apply=args.apply)
+    # ADMIN-путь: orphans собираются по всем профилям, поэтому владелец здесь
+    # намеренно не задан. Это единственное место с кросс-тенантным удалением —
+    # параметр обязателен именно чтобы такой вызов нельзя было сделать по умолчанию.
+    counts = repo.delete_calls(orphan_ids, apply=args.apply, user_id=None)
     print("  " + ("УДАЛЕНО:" if args.apply else "БУДЕТ удалено (dry-run):"))
     _print_counts(counts)
     if not args.apply:

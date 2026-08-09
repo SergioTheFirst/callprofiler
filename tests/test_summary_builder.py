@@ -60,7 +60,7 @@ class TestSummaryBuilder:
             cid = repo.get_or_create_contact("u1", "+70001112233", "Test")
             call_id = repo.create_call("u1", cid, "inbound", datetime.now(), "test.ogg", "md5a", "/tmp/test.ogg")
             from callprofiler.models import Segment
-            repo.save_transcripts(call_id, [Segment(start_ms=0, end_ms=5000, text="Hello", speaker="OWNER")])
+            repo.save_transcripts("u1", call_id, [Segment(start_ms=0, end_ms=5000, text="Hello", speaker="OWNER")])
             analysis = type("obj", (), {
                 "priority": 50, "risk_score": 30, "summary": "test",
                 "action_items": [], "promises": [],
@@ -70,7 +70,7 @@ class TestSummaryBuilder:
                 "parse_status": "ok", "canonical_json": "{}", "schema_version": "v2",
                 "profanity_count": 0, "profanity_density": 0.0,
             })()
-            repo.save_analysis(call_id, analysis)
+            repo.save_analysis("u1", call_id, analysis)
 
             sb = SummaryBuilder(repo)
             sb.rebuild_contact("u1", cid)
@@ -95,8 +95,8 @@ class TestSummaryBuilder:
             call2 = repo.create_call("u2", c2, "outbound", datetime.now(), "b.ogg", "md5_u2", "/tmp/b.ogg")
 
             from callprofiler.models import Segment
-            repo.save_transcripts(call1, [Segment(start_ms=0, end_ms=5000, text="hello", speaker="OWNER")])
-            repo.save_transcripts(call2, [Segment(start_ms=0, end_ms=5000, text="world", speaker="OWNER")])
+            repo.save_transcripts("u1", call1, [Segment(start_ms=0, end_ms=5000, text="hello", speaker="OWNER")])
+            repo.save_transcripts("u2", call2, [Segment(start_ms=0, end_ms=5000, text="world", speaker="OWNER")])
 
             a = type("obj", (), {
                 "priority": 50, "risk_score": 80, "summary": "test",
@@ -107,8 +107,8 @@ class TestSummaryBuilder:
                 "canonical_json": "{}", "schema_version": "v2",
                 "profanity_count": 0, "profanity_density": 0.0,
             })()
-            repo.save_analysis(call1, a)
-            repo.save_analysis(call2, a)
+            repo.save_analysis("u1", call1, a)
+            repo.save_analysis("u2", call2, a)
 
             sb = SummaryBuilder(repo)
             sb.rebuild_contact("u1", c1)

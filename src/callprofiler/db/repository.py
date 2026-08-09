@@ -5,12 +5,16 @@ repository.py вЂ” РґРѕСЃС‚СѓРї Рє SQLite. Р‘РµР· ORM, 
 """
 
 import json
+import logging
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from callprofiler.identity import validate_user_id
 from callprofiler.models import Analysis, Segment
+
+logger = logging.getLogger(__name__)
 
 
 class Repository:
@@ -172,6 +176,7 @@ class Repository:
         sync_dir: str,
         ref_audio: str,
     ) -> None:
+        validate_user_id(user_id)  # P-TEN-06: allowlist slug — user_id feeds paths
         conn = self._get_conn()
         conn.execute(
             """INSERT INTO users (user_id, display_name, telegram_chat_id,
@@ -359,20 +364,25 @@ class Repository:
 
     def update_contact_guessed_name(
         self,
+        user_id: str,
         contact_id: int,
         guessed_name: str,
         guess_source: str,
         guess_call_id: int,
         guess_confidence: str,
     ) -> bool:
-        """Записать угаданное имя контакта (не перезаписывает подтверждённые)."""
+        """Записать угаданное имя контакта (не перезаписывает подтверждённые).
+
+        Возвращает False без исключения при чужом/несуществующем contact_id.
+        """
         conn = self._get_conn()
         row = conn.execute(
             """UPDATE contacts
                SET guessed_name=?, guess_source=?,
                    guess_call_id=?, guess_confidence=?
-               WHERE contact_id=? AND (name_confirmed = 0 OR name_confirmed IS NULL)""",
-            (guessed_name, guess_source, guess_call_id, guess_confidence, contact_id),
+               WHERE contact_id=? AND user_id=?
+                 AND (name_confirmed = 0 OR name_confirmed IS NULL)""",
+            (guessed_name, guess_source, guess_call_id, guess_confidence, contact_id, user_id),
         )
         conn.commit()
         return row.rowcount > 0
@@ -415,17 +425,19 @@ class Repository:
         )
         return dict(row) if row else None
 
-    def reset_call(self, call_id: int) -> None:
+    def reset_call(self, user_id: str, call_id: int) -> bool:
         """Сбросить звонок на полную переобработку: status='new', stage=0,
         retry_count=0, error_message=NULL. Используется при восстановлении
-        потерянного аудио / форс-переобработке."""
+        потерянного аудио / форс-переобработке. False без исключения при
+        чужом/несуществующем call_id."""
         conn = self._get_conn()
-        conn.execute(
+        row = conn.execute(
             "UPDATE calls SET status='new', pipeline_stage=0, retry_count=0, "
-            "error_message=NULL WHERE call_id=?",
-            (call_id,),
+            "error_message=NULL WHERE call_id=? AND user_id=?",
+            (call_id, user_id),
         )
         conn.commit()
+        return row.rowcount > 0
 
     def create_call(
         self,
@@ -475,50 +487,62 @@ class Repository:
             raise
 
     def update_call_status(
-        self, call_id: int, status: str, error_message: str | None = None
-    ) -> None:
+        self,
+        user_id: str,
+        call_id: int,
+        status: str,
+        error_message: str | None = None,
+    ) -> bool:
+        """False без исключения при чужом/несуществующем call_id (P-TEN-02)."""
         conn = self._get_conn()
         if error_message is not None:
-            conn.execute(
+            row = conn.execute(
                 """UPDATE calls SET status=?, error_message=?,
                    retry_count=retry_count+1,
-                   updated_at=datetime('now') WHERE call_id=?""",
-                (status, error_message, call_id),
+                   updated_at=datetime('now') WHERE call_id=? AND user_id=?""",
+                (status, error_message, call_id, user_id),
             )
         else:
-            conn.execute(
-                "UPDATE calls SET status=?, updated_at=datetime('now') WHERE call_id=?",
-                (status, call_id),
+            row = conn.execute(
+                "UPDATE calls SET status=?, updated_at=datetime('now') "
+                "WHERE call_id=? AND user_id=?",
+                (status, call_id, user_id),
             )
         conn.commit()
+        return row.rowcount > 0
 
-    def update_pipeline_stage(self, call_id: int, stage: int) -> None:
+    def update_pipeline_stage(self, user_id: str, call_id: int, stage: int) -> bool:
         """Персистировать стадию pipeline (0-4) для crash-resume."""
         conn = self._get_conn()
-        conn.execute(
-            "UPDATE calls SET pipeline_stage=?, updated_at=datetime('now') WHERE call_id=?",
-            (stage, call_id),
+        row = conn.execute(
+            "UPDATE calls SET pipeline_stage=?, updated_at=datetime('now') "
+            "WHERE call_id=? AND user_id=?",
+            (stage, call_id, user_id),
         )
         conn.commit()
+        return row.rowcount > 0
 
-    def set_role_fragile(self, call_id: int, fragile: bool) -> None:
+    def set_role_fragile(self, user_id: str, call_id: int, fragile: bool) -> bool:
         """Пометить звонок role_fragile (роль-шум-доктрина, OzaluplivanieFable.md §4.2)."""
         conn = self._get_conn()
-        conn.execute(
-            "UPDATE calls SET role_fragile=? WHERE call_id=?",
-            (1 if fragile else 0, call_id),
+        row = conn.execute(
+            "UPDATE calls SET role_fragile=? WHERE call_id=? AND user_id=?",
+            (1 if fragile else 0, call_id, user_id),
         )
         conn.commit()
+        return row.rowcount > 0
 
     def update_call_paths(
-        self, call_id: int, norm_path: str, duration_sec: int
-    ) -> None:
+        self, user_id: str, call_id: int, norm_path: str, duration_sec: int
+    ) -> bool:
         conn = self._get_conn()
-        conn.execute(
-            "UPDATE calls SET norm_path=?, duration_sec=?, updated_at=datetime('now') WHERE call_id=?",
-            (norm_path, duration_sec, call_id),
+        row = conn.execute(
+            "UPDATE calls SET norm_path=?, duration_sec=?, updated_at=datetime('now') "
+            "WHERE call_id=? AND user_id=?",
+            (norm_path, duration_sec, call_id, user_id),
         )
         conn.commit()
+        return row.rowcount > 0
 
     def get_pending_calls(self, user_id: str | None = None) -> list[dict]:
         if user_id:
@@ -620,7 +644,13 @@ class Repository:
                 rows,
             )
 
-    def delete_calls(self, call_ids: list[int], apply: bool = False) -> dict[str, int]:
+    def delete_calls(
+        self,
+        call_ids: list[int],
+        apply: bool = False,
+        *,
+        user_id: str | None,
+    ) -> dict[str, int]:
         """Удалить звонки и все зависимые строки (FTS-safe, идемпотентно).
 
         ``apply=False`` (по умолчанию) — ТОЛЬКО считает, что будет удалено, и
@@ -628,6 +658,11 @@ class Repository:
         FTS-delete старых сегментов → events/promises/analyses/transcripts
         (дети) → calls (родитель). Использует TEMP-таблицу, поэтому число id
         не ограничено лимитом параметров SQLite (~999).
+
+        ``user_id`` — если задан, удаление СКОУПЛЕНО этим владельцем (чужие
+        id из ``call_ids`` молча отбрасываются). ``user_id=None`` — явный
+        ADMIN-путь (кросс-тенантное удаление по голым id, как раньше); нет
+        неявного дефолта, вызывающий обязан написать ``user_id=None`` явно.
 
         Возвращает счётчики по таблицам (что удалено / будет удалено).
         """
@@ -640,6 +675,12 @@ class Repository:
         conn.execute("CREATE TEMP TABLE IF NOT EXISTS _del_ids (call_id INTEGER PRIMARY KEY)")
         conn.execute("DELETE FROM _del_ids")
         conn.executemany("INSERT OR IGNORE INTO _del_ids(call_id) VALUES (?)", [(i,) for i in ids])
+        if user_id is not None:
+            conn.execute(
+                """DELETE FROM _del_ids WHERE call_id NOT IN
+                   (SELECT call_id FROM calls WHERE user_id=?)""",
+                (user_id,),
+            )
         in_set = "IN (SELECT call_id FROM _del_ids)"
         try:
             for tbl in ("transcripts", "analyses", "events", "promises", "calls"):
@@ -812,27 +853,30 @@ class Repository:
     # Transcripts
     # ------------------------------------------------------------------
 
-    def save_transcripts(self, call_id: int, segments: list[Segment]) -> None:
+    def save_transcripts(
+        self, user_id: str, call_id: int, segments: list[Segment]
+    ) -> bool:
         """РЎРѕС…СЂР°РЅРёС‚СЊ СЃРµРіРјРµРЅС‚С‹ С‚СЂР°РЅСЃРєСЂРёРїС‚Р°. РРґРµРјРїРѕС‚РµРЅС‚РµРЅ: РїРѕРІС‚РѕСЂРЅС‹Р№ РІС‹Р·РѕРІ
         СѓРґР°Р»СЏРµС‚ СЃС‚Р°СЂС‹Рµ СЃРµРіРјРµРЅС‚С‹ Рё РІСЃС‚Р°РІР»СЏРµС‚ РЅРѕРІС‹Рµ (РґР»СЏ СЃР»СѓС‡Р°РµРІ reprocess).
         """
         conn = self._get_conn()
-        # РЈРґР°Р»РёС‚СЊ СЃС‚Р°СЂС‹Рµ СЃРµРіРјРµРЅС‚С‹ РёР· FTS Рё С‚Р°Р±Р»РёС†С‹ (РёРґРµРјРїРѕС‚РµРЅС‚РЅРѕСЃС‚СЊ, F2.3)
+        owns = conn.execute(
+            "SELECT 1 FROM calls WHERE call_id=? AND user_id=?", (call_id, user_id)
+        ).fetchone()
+        if not owns:
+            return False
+        # Удалить старые сегменты из FTS и таблицы (идемпотентность, F2.3)
         existing = conn.execute(
             "SELECT segment_id, text, speaker, call_id FROM transcripts WHERE call_id=?",
             (call_id,),
         ).fetchall()
         if existing:
-            user_row = conn.execute(
-                "SELECT user_id FROM calls WHERE call_id=?", (call_id,)
-            ).fetchone()
-            uid = user_row["user_id"] if user_row else ""
-            # FTS5 content table: РЅСѓР¶РЅРѕ СЏРІРЅРѕ СѓРґР°Р»СЏС‚СЊ С‡РµСЂРµР· РєРѕРјР°РЅРґСѓ 'delete'
+            # FTS5 content table: нужно явно удалять через команду 'delete'
             conn.executemany(
                 """INSERT INTO transcripts_fts(transcripts_fts, rowid, text, speaker, call_id, user_id)
                    VALUES ('delete', ?, ?, ?, ?, ?)""",
                 [
-                    (r["segment_id"], r["text"], r["speaker"], r["call_id"], uid)
+                    (r["segment_id"], r["text"], r["speaker"], r["call_id"], user_id)
                     for r in existing
                 ],
             )
@@ -842,13 +886,16 @@ class Repository:
             [(call_id, s.start_ms, s.end_ms, s.text, s.speaker) for s in segments],
         )
         conn.commit()
+        return True
 
-    def get_transcript(self, call_id: int) -> list[dict]:
+    def get_transcript(self, user_id: str, call_id: int) -> list[dict]:
         rows = (
             self._get_conn()
             .execute(
-                "SELECT * FROM transcripts WHERE call_id=? ORDER BY start_ms",
-                (call_id,),
+                """SELECT t.* FROM transcripts t
+                   JOIN calls c ON c.call_id = t.call_id
+                   WHERE t.call_id=? AND c.user_id=? ORDER BY t.start_ms""",
+                (call_id, user_id),
             )
             .fetchall()
         )
@@ -886,8 +933,14 @@ class Repository:
     # Analyses
     # ------------------------------------------------------------------
 
-    def save_analysis(self, call_id: int, analysis: Analysis) -> None:
+    def save_analysis(self, user_id: str, call_id: int, analysis: Analysis) -> bool:
+        """False без записи при чужом/несуществующем call_id (P-TEN-02)."""
         conn = self._get_conn()
+        owns = conn.execute(
+            "SELECT 1 FROM calls WHERE call_id=? AND user_id=?", (call_id, user_id)
+        ).fetchone()
+        if not owns:
+            return False
         has_sv = any(
             col[1] == "schema_version"
             for col in conn.execute("PRAGMA table_info(analyses)").fetchall()
@@ -930,6 +983,7 @@ class Repository:
             vals,
         )
         conn.commit()
+        return True
 
     def get_analysis(self, user_id: str, call_id: int) -> dict | None:
         row = (
@@ -993,13 +1047,16 @@ class Repository:
             result.append(d)
         return result
 
-    def set_feedback(self, analysis_id: int, feedback: str) -> None:
+    def set_feedback(self, user_id: str, analysis_id: int, feedback: str) -> bool:
+        """False без записи при чужом/несуществующем analysis_id."""
         conn = self._get_conn()
-        conn.execute(
-            "UPDATE analyses SET feedback=? WHERE analysis_id=?",
-            (feedback, analysis_id),
+        row = conn.execute(
+            """UPDATE analyses SET feedback=? WHERE analysis_id=? AND call_id IN
+               (SELECT call_id FROM calls WHERE user_id=?)""",
+            (feedback, analysis_id, user_id),
         )
         conn.commit()
+        return row.rowcount > 0
 
     # ------------------------------------------------------------------
     # Promises
@@ -1017,6 +1074,17 @@ class Repository:
 
         for item in items:
             call_id = item["call_id"]
+            item_user_id = item["user_id"]
+            owns = conn.execute(
+                "SELECT 1 FROM calls WHERE call_id=? AND user_id=?",
+                (call_id, item_user_id),
+            ).fetchone()
+            if not owns:
+                logger.warning(
+                    "save_batch: call_id=%s не принадлежит user_id=%s — пропуск",
+                    call_id, item_user_id,
+                )
+                continue
             a = item["analysis"]
 
             cols = (
@@ -1089,10 +1157,20 @@ class Repository:
     def save_promises(
         self, user_id: str, contact_id: int | None, call_id: int, promises: list[dict]
     ) -> None:
-        """Save promises. Skip if contact_id is None or no promises."""
+        """Save promises. Skip if contact_id is None, no promises, or call_id
+        does not belong to user_id."""
         if not promises or contact_id is None:
             return
         conn = self._get_conn()
+        owns = conn.execute(
+            "SELECT 1 FROM calls WHERE call_id=? AND user_id=?", (call_id, user_id)
+        ).fetchone()
+        if not owns:
+            logger.warning(
+                "save_promises: call_id=%s не принадлежит user_id=%s — пропуск",
+                call_id, user_id,
+            )
+            return
         conn.executemany(
             """INSERT INTO promises (user_id, contact_id, call_id, who, what, due)
                VALUES (?,?,?,?,?,?)""",
@@ -1136,38 +1214,54 @@ class Repository:
     # Events (structured extraction from transcripts and analyses)
     # ------------------------------------------------------------------
 
-    def save_events(self, call_id: int, events: list[dict]) -> None:
+    def save_events(self, user_id: str, call_id: int, events: list[dict]) -> bool:
         """Save list of events extracted from call analysis.
 
         Each event dict should contain: user_id, contact_id (nullable),
         event_type, who, payload, source_quote (optional), confidence (optional),
         deadline (optional), status (optional).
+
+        False (no write) if call_id does not belong to user_id. Individual
+        events whose own ``user_id`` field disagrees with the call owner are
+        silently dropped (defense-in-depth — same class as P-TEN-02).
         """
         if not events:
-            return
+            return False
         conn = self._get_conn()
+        owns = conn.execute(
+            "SELECT 1 FROM calls WHERE call_id=? AND user_id=?", (call_id, user_id)
+        ).fetchone()
+        if not owns:
+            logger.warning(
+                "save_events: call_id=%s не принадлежит user_id=%s — пропуск",
+                call_id, user_id,
+            )
+            return False
+        rows = [
+            (
+                user_id,
+                e.get("contact_id"),
+                call_id,
+                e.get("event_type", "fact"),
+                e.get("who", "UNKNOWN"),
+                e.get("payload", ""),
+                e.get("source_quote"),
+                e.get("confidence", 1.0),
+                e.get("deadline"),
+                e.get("status", "open"),
+            )
+            for e in events
+            if e.get("user_id", user_id) == user_id
+        ]
         conn.executemany(
             """INSERT INTO events
                (user_id, contact_id, call_id, event_type, who, payload,
                 source_quote, confidence, deadline, status)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            [
-                (
-                    e.get("user_id", ""),
-                    e.get("contact_id"),
-                    call_id,
-                    e.get("event_type", "fact"),
-                    e.get("who", "UNKNOWN"),
-                    e.get("payload", ""),
-                    e.get("source_quote"),
-                    e.get("confidence", 1.0),
-                    e.get("deadline"),
-                    e.get("status", "open"),
-                )
-                for e in events
-            ],
+            rows,
         )
         conn.commit()
+        return True
 
     def get_open_events(
         self, user_id: str, contact_id: int | None = None, event_type: str | None = None
@@ -1205,14 +1299,18 @@ class Repository:
         )
         return [dict(r) for r in rows]
 
-    def update_event_status(self, event_id: int, status: str) -> None:
-        """Update status of an event (open в†’ fulfilled/broken/expired/resolved)."""
+    def update_event_status(self, user_id: str, event_id: int, status: str) -> bool:
+        """Update status of an event (open -> fulfilled/broken/expired/resolved).
+
+        False without exception on a foreign/nonexistent event_id (P-TEN-02).
+        """
         conn = self._get_conn()
-        conn.execute(
-            "UPDATE events SET status = ? WHERE id = ?",
-            (status, event_id),
+        row = conn.execute(
+            "UPDATE events SET status = ? WHERE id = ? AND user_id = ?",
+            (status, event_id, user_id),
         )
         conn.commit()
+        return row.rowcount > 0
 
     # ------------------------------------------------------------------
     # Contact Summaries
@@ -1232,9 +1330,24 @@ class Repository:
         personal_facts: str | None = None,
         contact_role: str | None = None,
         advice: str | None = None,
-    ) -> None:
-        """Save or update a contact summary (INSERT OR REPLACE)."""
+    ) -> bool:
+        """Save or update a contact summary (INSERT OR REPLACE).
+
+        False (no write) if contact_id does not belong to user_id — PK is
+        contact_id alone, so writing without this check could reassign a
+        summary row owned by another tenant.
+        """
         conn = self._get_conn()
+        owns = conn.execute(
+            "SELECT 1 FROM contacts WHERE contact_id=? AND user_id=?",
+            (contact_id, user_id),
+        ).fetchone()
+        if not owns:
+            logger.warning(
+                "save_contact_summary: contact_id=%s не принадлежит user_id=%s — пропуск",
+                contact_id, user_id,
+            )
+            return False
         conn.execute(
             """INSERT OR REPLACE INTO contact_summaries
                (contact_id, user_id, total_calls, last_call_date, global_risk,
@@ -1257,6 +1370,7 @@ class Repository:
             ),
         )
         conn.commit()
+        return True
 
     def get_contact_summary(self, user_id: str, contact_id: int) -> dict | None:
         """Get contact summary by ID, enforcing user_id isolation."""

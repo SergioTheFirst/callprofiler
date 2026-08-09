@@ -129,7 +129,7 @@ def test_calls_by_stage_maps_all_pipeline_statuses(tmp_path):
                                call_datetime="2026-01-01 00:00:00",
                                source_filename=st + ".mp3", source_md5=st,
                                audio_path="/a.mp3")
-        repo.update_call_status(cid, st)
+        repo.update_call_status("me", cid, st)
 
     by_stage = DashboardDBReader(str(db)).get_calls_by_stage("me")
     for st in stages:

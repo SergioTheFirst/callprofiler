@@ -87,7 +87,7 @@ def test_schema_version_saved_and_retrieved():
     _add_user(repo)
     call_id = _add_call(repo)
     a = _make_analysis(schema_version="v2")
-    repo.save_analysis(call_id, a)
+    repo.save_analysis("u1", call_id, a)
     result = repo.get_analysis("u1", call_id)
     assert result["schema_version"] == "v2"
 
@@ -109,7 +109,7 @@ def test_canonical_json_saved_and_retrieved():
     call_id = _add_call(repo)
     payload = json.dumps({"summary": "test", "risk_score": 10}, ensure_ascii=False)
     a = _make_analysis(canonical_json=payload)
-    repo.save_analysis(call_id, a)
+    repo.save_analysis("u1", call_id, a)
     result = repo.get_analysis("u1", call_id)
     assert result["canonical_json"] == payload
 
@@ -149,9 +149,9 @@ def test_save_transcripts_idempotent_segments():
         Segment(0, 1000, "Привет", "OWNER"),
         Segment(1000, 2000, "Здравствуйте", "OTHER"),
     ]
-    repo.save_transcripts(call_id, segs)
-    repo.save_transcripts(call_id, segs)  # повтор
-    result = repo.get_transcript(call_id)
+    repo.save_transcripts("u1", call_id, segs)
+    repo.save_transcripts("u1", call_id, segs)  # повтор
+    result = repo.get_transcript("u1", call_id)
     assert len(result) == 2, f"Ожидали 2 сегмента, получили {len(result)}"
 
 
@@ -160,12 +160,13 @@ def test_save_transcripts_replaces_content():
     repo = _make_repo()
     _add_user(repo)
     call_id = _add_call(repo)
-    repo.save_transcripts(call_id, [Segment(0, 1000, "первый", "OWNER")])
+    repo.save_transcripts("u1", call_id, [Segment(0, 1000, "первый", "OWNER")])
     repo.save_transcripts(
+        "u1",
         call_id,
         [Segment(0, 1000, "второй", "OWNER"), Segment(1000, 2000, "третий", "OTHER")],
     )
-    result = repo.get_transcript(call_id)
+    result = repo.get_transcript("u1", call_id)
     assert len(result) == 2
     texts = {r["text"] for r in result}
     assert "первый" not in texts
@@ -177,8 +178,8 @@ def test_save_transcripts_fts_consistent():
     repo = _make_repo()
     _add_user(repo)
     call_id = _add_call(repo)
-    repo.save_transcripts(call_id, [Segment(0, 1000, "уникальный текст", "OWNER")])
-    repo.save_transcripts(call_id, [Segment(0, 1000, "другой текст", "OWNER")])
+    repo.save_transcripts("u1", call_id, [Segment(0, 1000, "уникальный текст", "OWNER")])
+    repo.save_transcripts("u1", call_id, [Segment(0, 1000, "другой текст", "OWNER")])
     hits = repo.search_transcripts("u1", "другой")
     assert len(hits) >= 1
     old_hits = repo.search_transcripts("u1", "уникальный")
@@ -194,11 +195,11 @@ def test_save_analysis_preserves_feedback():
     _add_user(repo)
     call_id = _add_call(repo)
     a = _make_analysis()
-    repo.save_analysis(call_id, a)
+    repo.save_analysis("u1", call_id, a)
     analysis = repo.get_analysis("u1", call_id)
-    repo.set_feedback(analysis["analysis_id"], "accurate")
+    repo.set_feedback("u1", analysis["analysis_id"], "accurate")
     # Повторное сохранение (reprocess)
-    repo.save_analysis(call_id, _make_analysis(summary="updated"))
+    repo.save_analysis("u1", call_id, _make_analysis(summary="updated"))
     result = repo.get_analysis("u1", call_id)
     assert result["feedback"] == "accurate", (
         "Feedback не должен сбрасываться при обновлении анализа"
@@ -287,7 +288,7 @@ def test_get_analysis_for_user_correct_user():
     repo = _make_repo()
     _add_user(repo)
     call_id = _add_call(repo)
-    repo.save_analysis(call_id, _make_analysis())
+    repo.save_analysis("u1", call_id, _make_analysis())
     result = repo.get_analysis_for_user("u1", call_id)
     assert result is not None
     assert result["summary"] == "test"
@@ -299,7 +300,7 @@ def test_get_analysis_for_user_wrong_user_returns_none():
     _add_user(repo, "uA")
     _add_user(repo, "uB")
     call_id = _add_call(repo, user_id="uA", md5="ma")
-    repo.save_analysis(call_id, _make_analysis())
+    repo.save_analysis("uA", call_id, _make_analysis())
     result = repo.get_analysis_for_user("uB", call_id)
     assert result is None, "Пользователь B не должен читать анализы пользователя A"
 

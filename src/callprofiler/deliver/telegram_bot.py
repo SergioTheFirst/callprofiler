@@ -245,7 +245,7 @@ class TelegramNotifier:
             if analysis:
                 analysis_id = analysis.get("analysis_id")
                 if analysis_id:
-                    self.repo.set_feedback(analysis_id, feedback_text)
+                    self.repo.set_feedback(user_id, analysis_id, feedback_text)
                     await query.edit_message_text(
                         text=f"💾 Ваш отзыв записан: {feedback_display}"
                     )

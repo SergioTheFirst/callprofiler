@@ -21,7 +21,7 @@ class _Repo:
     def get_call_by_md5(self, user_id, md5):
         return self._by_md5.get(md5)
 
-    def reset_call(self, call_id):
+    def reset_call(self, user_id, call_id):
         self.reset_called.append(call_id)
 
 

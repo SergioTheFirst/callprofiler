@@ -224,10 +224,10 @@ def test_transcript_save_and_retrieve():
             Segment(start_ms=1000, end_ms=2000, text="Как дела?", speaker="OTHER"),
             Segment(start_ms=2000, end_ms=3000, text="Хорошо", speaker="OWNER"),
         ]
-        repo.save_transcripts(call_id, segments)
+        repo.save_transcripts("test", call_id, segments)
 
         # Получить и проверить
-        saved = repo.get_transcript(call_id)
+        saved = repo.get_transcript("test", call_id)
         assert len(saved) == 3
         assert saved[0]["text"] == "Привет"
         assert saved[0]["speaker"] == "OWNER"
@@ -276,7 +276,7 @@ def test_analysis_save_and_retrieve():
             model="qwen2.5",
             prompt_version="v001",
         )
-        repo.save_analysis(call_id, analysis)
+        repo.save_analysis("test", call_id, analysis)
 
         # Получить и проверить
         saved = repo.get_analysis("test", call_id)

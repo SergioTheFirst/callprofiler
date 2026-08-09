@@ -62,11 +62,11 @@ def test_set_role_fragile_writes_flag(tmp_path):
     row = conn.execute("SELECT role_fragile FROM calls WHERE call_id=?", (call_id,)).fetchone()
     assert row["role_fragile"] == 0  # default
 
-    repo.set_role_fragile(call_id, True)
+    repo.set_role_fragile("me", call_id, True)
     row = conn.execute("SELECT role_fragile FROM calls WHERE call_id=?", (call_id,)).fetchone()
     assert row["role_fragile"] == 1
 
-    repo.set_role_fragile(call_id, False)
+    repo.set_role_fragile("me", call_id, False)
     row = conn.execute("SELECT role_fragile FROM calls WHERE call_id=?", (call_id,)).fetchone()
     assert row["role_fragile"] == 0
     repo.close()

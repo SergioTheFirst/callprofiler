@@ -27,6 +27,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from callprofiler.identity import user_profile_dir
+
 if TYPE_CHECKING:
     from callprofiler.config import Config
     from callprofiler.db.repository import Repository
@@ -234,7 +236,7 @@ class FileWatcher:
         removed = 0
         for user in self.repo.get_all_users():
             uid = user["user_id"]
-            norm_dir = Path(self.config.data_dir) / "users" / uid / "audio" / "normalized"
+            norm_dir = user_profile_dir(self.config.data_dir, uid, "audio", "normalized")
             if not norm_dir.is_dir():
                 continue
             for wav in norm_dir.glob("*.wav"):
@@ -497,7 +499,7 @@ class FileWatcher:
                     try:
                         Path(archive).parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(filepath, archive)
-                        self.repo.reset_call(call_id)
+                        self.repo.reset_call(user_id, call_id)
                         new_ids.append(call_id)
                         self._last_sources[call_id] = (user_id, incoming_path, filepath)
                         logger.info(

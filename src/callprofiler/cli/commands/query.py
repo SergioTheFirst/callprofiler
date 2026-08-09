@@ -520,7 +520,7 @@ def cmd_backfill_events(args: argparse.Namespace) -> int:
             # Сохранить события
             if events:
                 try:
-                    repo.save_events(call_id, events)
+                    repo.save_events(args.user_id, call_id, events)
                     log.info("  [✓] call_id=%d: сохранено %d событий", call_id, len(events))
                     processed += 1
                 except Exception as e:

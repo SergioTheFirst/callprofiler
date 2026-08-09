@@ -26,6 +26,7 @@ from callprofiler.audio.normalizer import get_duration_sec, normalize
 from callprofiler.deliver.card_generator import CardGenerator
 from callprofiler.deliver.telegram_bot import TelegramNotifier
 from callprofiler.diarize.role_assigner import assign_speakers, is_role_fragile
+from callprofiler.identity import user_profile_dir
 from callprofiler.models import Segment
 from callprofiler.transcribe.whisper_runner import WhisperRunner
 
@@ -135,6 +136,7 @@ class Orchestrator:
         Возвращает:
             True если обработка успешна, False при ошибке
         """
+        user_id: str | None = None
         try:
             call = (
                 self.repo._get_conn()
@@ -154,9 +156,9 @@ class Orchestrator:
             audio_path = call.get("audio_path", "")
 
             # ── Шаг 1: Normalize ─────────────────────────────
-            self.repo.update_call_status(call_id, "normalizing")
-            norm_dir = (
-                Path(self.config.data_dir) / "users" / user_id / "audio" / "normalized"
+            self.repo.update_call_status(user_id, call_id, "normalizing")
+            norm_dir = user_profile_dir(
+                self.config.data_dir, user_id, "audio", "normalized"
             )
             norm_dir.mkdir(parents=True, exist_ok=True)
             norm_path = str(
@@ -170,8 +172,8 @@ class Orchestrator:
             else:
                 normalize(audio_path, norm_path)
             duration_sec = get_duration_sec(norm_path)
-            self.repo.update_call_paths(call_id, norm_path, duration_sec)
-            self.repo.update_pipeline_stage(call_id, 1)
+            self.repo.update_call_paths(user_id, call_id, norm_path, duration_sec)
+            self.repo.update_pipeline_stage(user_id, call_id, 1)
             logger.info(
                 "Нормализация завершена: call_id=%d, duration=%ds",
                 call_id,
@@ -187,10 +189,10 @@ class Orchestrator:
             if is_note:
                 turns = []
             else:
-                self.repo.update_call_status(call_id, "diarizing")
+                self.repo.update_call_status(user_id, call_id, "diarizing")
                 turns = self._diarize_turns(call_id, norm_path, ref_audio)
 
-            self.repo.update_call_status(call_id, "transcribing")
+            self.repo.update_call_status(user_id, call_id, "transcribing")
             self.asr_runner.load()
             try:
                 segments = self._asr_transcribe(norm_path, turns)
@@ -204,10 +206,10 @@ class Orchestrator:
                     seg.speaker = "OWNER"
 
             # Сохранить транскрипт (БД = источник истины) + читабельный .txt
-            self.repo.save_transcripts(call_id, segments)
+            self.repo.save_transcripts(user_id, call_id, segments)
             self._export_text(call, segments)
-            self.repo.set_role_fragile(call_id, is_role_fragile(segments))
-            self.repo.update_pipeline_stage(call_id, 2)
+            self.repo.set_role_fragile(user_id, call_id, is_role_fragile(segments))
+            self.repo.update_pipeline_stage(user_id, call_id, 2)
 
             # F4: заметка — без анализа (промпт заточен под диалог), сразу done.
             if is_note:
@@ -217,28 +219,29 @@ class Orchestrator:
 
             # ── Шаг 4: Analyze ───────────────────────────────
             if not self.config.features.enable_llm_analysis:
-                self.repo.update_call_status(call_id, "transcribed")
+                self.repo.update_call_status(user_id, call_id, "transcribed")
                 self._maybe_delete_normalized(norm_path)
                 return True
 
-            self.repo.update_call_status(call_id, "analyzing")
+            self.repo.update_call_status(user_id, call_id, "analyzing")
             self._analyze_call(call_id, call, segments)
-            self.repo.update_pipeline_stage(call_id, 3)
+            self.repo.update_pipeline_stage(user_id, call_id, 3)
 
             # ── Шаг 5: Deliver ───────────────────────────────
-            self.repo.update_call_status(call_id, "delivering")
+            self.repo.update_call_status(user_id, call_id, "delivering")
             self._deliver_call(call_id, user_id, contact_id)
-            self.repo.update_pipeline_stage(call_id, 4)
+            self.repo.update_pipeline_stage(user_id, call_id, 4)
 
             # ── Готово ────────────────────────────────────────
-            self.repo.update_call_status(call_id, "done")
+            self.repo.update_call_status(user_id, call_id, "done")
             self._maybe_delete_normalized(norm_path)
             logger.info("✓ Звонок %d обработан полностью", call_id)
             return True
 
         except Exception as exc:
             logger.error("Ошибка при обработке call_id=%d: %s", call_id, exc)
-            self.repo.update_call_status(call_id, "error", str(exc))
+            if user_id is not None:
+                self.repo.update_call_status(user_id, call_id, "error", str(exc))
             return False
 
     def process_batch(self, call_ids: list[int]) -> None:
@@ -282,10 +285,10 @@ class Orchestrator:
             if stage >= 1:
                 call["_norm_path"] = call.get("norm_path", "")
                 continue
-            self.repo.update_call_status(call_id, "normalizing")
             user_id = call["user_id"]
-            norm_dir = (
-                Path(self.config.data_dir) / "users" / user_id / "audio" / "normalized"
+            self.repo.update_call_status(user_id, call_id, "normalizing")
+            norm_dir = user_profile_dir(
+                self.config.data_dir, user_id, "audio", "normalized"
             )
             norm_dir.mkdir(parents=True, exist_ok=True)
             norm_path = str(
@@ -318,13 +321,15 @@ class Orchestrator:
                     call = futures[future]
                     if ok:
                         duration_sec = get_duration_sec(call["_norm_path"])
-                        self.repo.update_call_paths(cid, call["_norm_path"], duration_sec)
-                        self.repo.update_pipeline_stage(cid, 1)
+                        self.repo.update_call_paths(
+                            call["user_id"], cid, call["_norm_path"], duration_sec
+                        )
+                        self.repo.update_pipeline_stage(call["user_id"], cid, 1)
                         call["pipeline_stage"] = 1
                         logger.info("Нормализация: call_id=%d, duration=%ds", cid, duration_sec)
                     else:
                         logger.error("Ошибка нормализации call_id=%d: %s", cid, err)
-                        self.repo.update_call_status(cid, "error", err)
+                        self.repo.update_call_status(call["user_id"], cid, "error", err)
                         call["_skip"] = True
 
         calls_data = [c for c in calls_data if not c.get("_skip")]
@@ -336,7 +341,7 @@ class Orchestrator:
         for call in calls_data:
             call_id = call["call_id"]
             if call.get("pipeline_stage", 0) >= 2:
-                rows = self.repo.get_transcript(call_id)
+                rows = self.repo.get_transcript(call["user_id"], call_id)
                 if rows:
                     segments_map[call_id] = [
                         Segment(
@@ -371,8 +376,9 @@ class Orchestrator:
             try:
                 for call in needs_transcribe:
                     call_id = call["call_id"]
+                    uid = call["user_id"]
                     try:
-                        self.repo.update_call_status(call_id, "transcribing")
+                        self.repo.update_call_status(uid, call_id, "transcribing")
                         segs = self._asr_transcribe(
                             call["_norm_path"], turns_map.get(call_id, [])
                         )
@@ -381,14 +387,14 @@ class Orchestrator:
                                 seg.speaker = "OWNER"
                         segments_map[call_id] = segs
                         logger.info("Transcribe: call_id=%d, %d сегментов", call_id, len(segs))
-                        self.repo.save_transcripts(call_id, segs)
+                        self.repo.save_transcripts(uid, call_id, segs)
                         self._export_text(call, segs)
-                        self.repo.set_role_fragile(call_id, is_role_fragile(segs))
-                        self.repo.update_pipeline_stage(call_id, 2)
+                        self.repo.set_role_fragile(uid, call_id, is_role_fragile(segs))
+                        self.repo.update_pipeline_stage(uid, call_id, 2)
                         call["pipeline_stage"] = 2
                     except Exception as exc:
                         logger.error("Ошибка транскрибирования call_id=%d: %s", call_id, exc)
-                        self.repo.update_call_status(call_id, "error", str(exc))
+                        self.repo.update_call_status(uid, call_id, "error", str(exc))
             finally:
                 # GPU-sequential (CLAUDE.md Hard Constraint): ASR+pyannote (~5GB)
                 # ОБЯЗАНЫ уйти из VRAM ДО Фазы 3 — иначе они + llama-server
@@ -416,11 +422,14 @@ class Orchestrator:
             # идут в Phase 4 на доставку как обычно.
             for call in calls_data:
                 if call.get("pipeline_stage", 0) == 2:
-                    self.repo.update_call_status(call["call_id"], "transcribed")
+                    self.repo.update_call_status(
+                        call["user_id"], call["call_id"], "transcribed"
+                    )
                     logger.info("✓ Звонок %d → transcribed (Stage-1 done)", call["call_id"])
         else:
             for call in calls_data:
                 call_id = call["call_id"]
+                uid = call["user_id"]
                 stage = call.get("pipeline_stage", 0)
                 if stage >= 3:
                     logger.info("Resume: call_id=%d пропуск analyze (stage=%d)", call_id, stage)
@@ -428,31 +437,32 @@ class Orchestrator:
                 if call_id not in segments_map:
                     continue
                 try:
-                    self.repo.update_call_status(call_id, "analyzing")
+                    self.repo.update_call_status(uid, call_id, "analyzing")
                     self._analyze_call(call_id, call, segments_map[call_id])
-                    self.repo.update_pipeline_stage(call_id, 3)
+                    self.repo.update_pipeline_stage(uid, call_id, 3)
                     call["pipeline_stage"] = 3
                 except Exception as exc:
                     logger.error("Ошибка анализа call_id=%d: %s", call_id, exc)
-                    self.repo.update_call_status(call_id, "error", str(exc))
+                    self.repo.update_call_status(uid, call_id, "error", str(exc))
 
         # ── Фаза 4: Deliver ──────────────────────────────────────────
         for call in calls_data:
             call_id = call["call_id"]
+            uid = call["user_id"]
             stage = call.get("pipeline_stage", 0)
             if stage >= 4:
                 continue
             if stage < 3:
                 continue  # analyze не завершён
             try:
-                self.repo.update_call_status(call_id, "delivering")
-                self._deliver_call(call_id, call["user_id"], call.get("contact_id"))
-                self.repo.update_pipeline_stage(call_id, 4)
-                self.repo.update_call_status(call_id, "done")
+                self.repo.update_call_status(uid, call_id, "delivering")
+                self._deliver_call(call_id, uid, call.get("contact_id"))
+                self.repo.update_pipeline_stage(uid, call_id, 4)
+                self.repo.update_call_status(uid, call_id, "done")
                 logger.info("✓ Звонок %d обработан (batch)", call_id)
             except Exception as exc:
                 logger.error("Ошибка доставки call_id=%d: %s", call_id, exc)
-                self.repo.update_call_status(call_id, "error", str(exc))
+                self.repo.update_call_status(uid, call_id, "error", str(exc))
 
         logger.info("Batch завершён: %d звонков", len(call_ids))
 
@@ -549,8 +559,8 @@ class Orchestrator:
         """
         call_id = call["call_id"]
         user_id = call["user_id"]
-        self.repo.update_pipeline_stage(call_id, 4)
-        self.repo.update_call_status(call_id, "done")
+        self.repo.update_pipeline_stage(user_id, call_id, 4)
+        self.repo.update_call_status(user_id, call_id, "done")
         transcript_text = " ".join(s.text for s in segments if s.text).strip()
         bind_status = self._maybe_bind_note_to_contact(user_id, call, transcript_text)
         if self.telegram is not None:
@@ -781,7 +791,7 @@ class Orchestrator:
 
                 for call in group:
                     call_id = call["call_id"]
-                    self.repo.update_call_status(call_id, "diarizing")
+                    self.repo.update_call_status(call["user_id"], call_id, "diarizing")
                     try:
                         turns = self.pyannote_runner.diarize(call["_norm_path"]) or []
                         turns_map[call_id] = turns
@@ -919,11 +929,11 @@ class Orchestrator:
                 )
             except Exception as exc:
                 logger.error("Ошибка анализа call_id=%d: %s", call_id, exc)
-                self.repo.update_call_status(call_id, "error", str(exc))
+                self.repo.update_call_status(user_id, call_id, "error", str(exc))
                 return
 
         # Сохранить анализ в БД
-        self.repo.save_analysis(call_id, analysis)
+        self.repo.save_analysis(user_id, call_id, analysis)
 
         # Сохранить обещания
         if analysis.promises and contact_id:

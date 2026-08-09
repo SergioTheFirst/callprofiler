@@ -204,10 +204,10 @@ def bulk_load(
             )
 
             # Обновить статус в 'done'
-            repo.update_call_status(call_id, "done")
+            repo.update_call_status(user_id, call_id, "done")
 
             # Сохранить транскрипт
-            repo.save_transcripts(call_id, segments)
+            repo.save_transcripts(user_id, call_id, segments)
 
             log.debug(
                 "[bulk_load] Загружен файл: %s (call_id=%d, segments=%d, phone=%s)",

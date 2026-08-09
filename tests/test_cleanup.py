@@ -48,10 +48,10 @@ def _add_call(repo, user_id="user1", md5="m", text="уникальноеслов
         audio_path=f"/tmp/{md5}.mp3",
     )
     repo.save_transcripts(
-        call_id, [Segment(start_ms=0, end_ms=500, text=text, speaker="OWNER")]
+        user_id, call_id, [Segment(start_ms=0, end_ms=500, text=text, speaker="OWNER")]
     )
     if with_analysis:
-        repo.save_analysis(call_id, Analysis(priority=10, risk_score=5, summary="ok"))
+        repo.save_analysis(user_id, call_id, Analysis(priority=10, risk_score=5, summary="ok"))
     return call_id, contact_id
 
 
@@ -60,20 +60,20 @@ def _add_call(repo, user_id="user1", md5="m", text="уникальноеслов
 def test_delete_calls_dryrun_changes_nothing(repo):
     _add_user(repo)
     call_id, _ = _add_call(repo)
-    counts = repo.delete_calls([call_id], apply=False)
+    counts = repo.delete_calls([call_id], apply=False, user_id=None)
     assert counts["calls"] == 1
     assert counts["transcripts"] == 1
     assert counts["analyses"] == 1
     # Ничего не удалено
-    assert repo.get_transcript(call_id)
+    assert repo.get_transcript("user1", call_id)
     assert repo.search_transcripts("user1", "уникальноеслово")
 
 
 def test_delete_calls_apply_removes_all_and_fts(repo):
     _add_user(repo)
     call_id, _ = _add_call(repo)
-    repo.delete_calls([call_id], apply=True)
-    assert repo.get_transcript(call_id) == []
+    repo.delete_calls([call_id], apply=True, user_id=None)
+    assert repo.get_transcript("user1", call_id) == []
     assert repo.get_analysis("user1", call_id) is None
     # FTS пересобран → удалённый текст не находится
     assert repo.search_transcripts("user1", "уникальноеслово") == []
@@ -82,8 +82,8 @@ def test_delete_calls_apply_removes_all_and_fts(repo):
 def test_delete_calls_idempotent(repo):
     _add_user(repo)
     call_id, _ = _add_call(repo)
-    repo.delete_calls([call_id], apply=True)
-    counts = repo.delete_calls([call_id], apply=True)
+    repo.delete_calls([call_id], apply=True, user_id=None)
+    counts = repo.delete_calls([call_id], apply=True, user_id=None)
     assert counts["calls"] == 0  # уже удалён — второй проход = 0
 
 
@@ -91,7 +91,7 @@ def test_delete_calls_keeps_other_calls_fts(repo):
     _add_user(repo)
     keep_id, _ = _add_call(repo, md5="keep", text="остаётсятекст")
     drop_id, _ = _add_call(repo, md5="drop", text="удаляемыйтекст")
-    repo.delete_calls([drop_id], apply=True)
+    repo.delete_calls([drop_id], apply=True, user_id=None)
     # Оставшийся звонок ищется, удалённый — нет
     assert repo.search_transcripts("user1", "остаётсятекст")
     assert repo.search_transcripts("user1", "удаляемыйтекст") == []
@@ -102,13 +102,13 @@ def test_delete_calls_handles_many_ids_no_param_limit(repo):
     _add_user(repo)
     call_id, _ = _add_call(repo)
     ids = list(range(5000)) + [call_id]  # 5001 id, реальный один
-    counts = repo.delete_calls(ids, apply=True)
+    counts = repo.delete_calls(ids, apply=True, user_id=None)
     assert counts["calls"] == 1
-    assert repo.get_transcript(call_id) == []
+    assert repo.get_transcript("user1", call_id) == []
 
 
 def test_delete_calls_empty_noop(repo):
-    counts = repo.delete_calls([], apply=True)
+    counts = repo.delete_calls([], apply=True, user_id=None)
     assert counts == {"calls": 0, "transcripts": 0, "analyses": 0, "events": 0, "promises": 0}
 
 
@@ -128,7 +128,7 @@ def test_purge_user_apply_removes_everything(repo):
     call_id, _ = _add_call(repo)
     repo.purge_user("user1", apply=True)
     assert repo.get_user("user1") is None
-    assert repo.get_transcript(call_id) == []
+    assert repo.get_transcript("user1", call_id) == []
     assert repo.search_transcripts("user1", "уникальноеслово") == []
 
 
@@ -141,7 +141,7 @@ def test_purge_user_isolated(repo):
     # u1 снесён, u2 цел (включая FTS)
     assert repo.get_user("u1") is None
     assert repo.get_user("u2") is not None
-    assert repo.get_transcript(c2)
+    assert repo.get_transcript("u2", c2)
     assert repo.search_transcripts("u2", "второйюзер")
     assert repo.search_transcripts("u1", "первыйюзер") == []
 
@@ -196,7 +196,7 @@ def test_purge_other_users_keeps_only_keeper(repo):
     result = repo.purge_other_users("me", apply=True)
     assert set(result) == {"serhio", "junk"}  # keeper не в отчёте
     assert [u["user_id"] for u in repo.get_all_users()] == ["me"]
-    assert repo.get_transcript(c_me)  # данные keeper целы
+    assert repo.get_transcript("me", c_me)  # данные keeper целы
     assert repo.search_transcripts("me", "мояработа")
     assert repo.search_transcripts("serhio", "чужое") == []
 

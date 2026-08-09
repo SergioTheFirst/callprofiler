@@ -71,7 +71,7 @@ def _save_v2_analysis(repo: Repository, call_id: int, raw: dict) -> None:
         call_type="business",
         hook=None,
     )
-    repo.save_analysis(call_id, analysis)
+    repo.save_analysis("u1", call_id, analysis)
     conn = repo._get_conn()
     conn.execute(
         "UPDATE analyses SET schema_version='v2' WHERE call_id=?", (call_id,)

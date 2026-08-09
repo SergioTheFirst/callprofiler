@@ -123,7 +123,7 @@ class GraphReplayer:
             # Get transcript for this call (fallback to None if not available)
             transcript_text = None
             try:
-                segments = self._db_repo.get_transcript(call_id)
+                segments = self._db_repo.get_transcript(user_id, call_id)
                 if segments:
                     transcript_text = " ".join(seg.text for seg in segments if seg.text)
             except Exception as e:

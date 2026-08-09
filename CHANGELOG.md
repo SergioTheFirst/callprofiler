@@ -6,6 +6,41 @@
 
 ---
 
+### Fixed — T-03: tenant ownership во всех мутаторах (S0/S1) (2026-08-08)
+- **P-TEN-02 (S0):** мутаторы `db/repository.py` работали по голому ID. `update_call_status`,
+  `update_pipeline_stage`, `set_role_fragile`, `update_call_paths`, `reset_call`,
+  `save_transcripts`, `get_transcript`, `save_analysis`, `set_feedback`, `update_event_status`,
+  `save_events`, `save_promises`, `save_batch`, `update_contact_guessed_name`,
+  `save_contact_summary` — везде добавлен обязательный `user_id`, предикат владельца в SQL
+  (или join к `calls`, где владельца нет в самой таблице) и постусловие по `rowcount`.
+  Чужой/несуществующий id → `False` + warning, БЕЗ утечки факта существования строки.
+- **P-TEN-04 (S0):** `deliver/reminders.py::close_item` принимал `user_id`, но звал
+  `update_event_status` без него — Telegram-callback закрывал чужое событие. Теперь владелец
+  доходит до SQL; на callback-пути несовпадение логируется явно, а не тихо игнорируется.
+- **P-TEN-06 (S1):** новый `identity.py` — `validate_user_id` (allowlist
+  `[A-Za-z0-9][A-Za-z0-9_-]{0,63}`, применён в `add_user`) и `user_profile_dir()` с проверкой
+  containment через `realpath`. Все 4 места сырой сборки `data_dir/users/{user_id}/...`
+  (`orchestrator` ×2, `watcher`, `ingester`) переведены на него.
+- **Правка оркестратора поверх агента:** `delete_calls` получил `user_id: str | None = None` —
+  дефолт означал кросс-тенантное удаление ПО УМОЛЧАНИЮ (тот же класс fail-open, что и сторож
+  отпечатка в T-10; докстринг при этом уже утверждал «нет неявного дефолта»). Параметр сделан
+  обязательным keyword-only; единственный админский вызов (`cleanup.py::cmd_orphans`, orphans
+  собираются по всем профилям) пишет `user_id=None` явно.
+- **Осознанно НЕ сделано:** типы-значения `UserId`/`CallId` из спеки — NewType-обёртки,
+  протекающие в сотни файлов при нулевом выигрыше поверх обязательного параметра + предиката +
+  `rowcount`. Суть дефекта — отсутствие владельца в запросе, а не отсутствие типа.
+- Тесты: `tests/test_tenant_ownership.py` (36) — матрица владелец/чужой/несуществующий по
+  каждому мутатору, побайтовый снимок данных первого профиля после серии атак от второго,
+  `close_item` с чужим владельцем, 10 отклоняемых `user_id`, path containment. Главный
+  долгоживущий — **inventory-тест по интроспекции**: ломается, если новый публичный метод
+  примет tenant-owned id без `user_id`. Проверен на невакуумность оркестратором самостоятельно:
+  29 из 48 публичных методов несут id-параметр и реально попадают под проверку, инъекция
+  небезопасного метода детектируется (урок `decisions.md` 2026-06-06 — метрику агента
+  пересчитывать самому). ADMIN-исключение ровно одно: `purge_other_users`.
+- Известное ограничение: `save_batch(items: list[dict])` не имеет id-параметра в сигнатуре,
+  поэтому статический inventory-тест его не покроет — там работает только runtime-проверка
+  владельца на каждый элемент.
+
 ### Fixed — T-10: reference embedding не переиспользуется между профилями (S0) (2026-08-08)
 - `diarize/pyannote_runner.py::load()` был идемпотентен «по факту загрузки», а не «по ref»:
   ранний `return` при `self.pipeline is not None` пропускал `_build_ref_embedding()`, стоящий

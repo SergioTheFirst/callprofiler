@@ -25,6 +25,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from callprofiler.identity import user_profile_dir
 from callprofiler.ingest.filename_parser import parse_filename
 
 if TYPE_CHECKING:
@@ -200,7 +201,7 @@ class Ingester:
             RuntimeError  — если копирование упало
         """
         # Построить путь назначения с год/месяц бакетингом
-        base = Path(self.config.data_dir) / "users" / user_id / "audio" / "originals"
+        base = user_profile_dir(self.config.data_dir, user_id, "audio", "originals")
         if call_datetime is not None:
             dt = call_datetime if isinstance(call_datetime, datetime) else datetime.fromisoformat(str(call_datetime))
             dest_dir = base / str(dt.year) / f"{dt.month:02d}"

@@ -108,7 +108,7 @@ def test_guessed_name_guard(repo: Repository) -> None:
         source_md5=phone,
         audio_path="/tmp/test.wav",
     )
-    assert repo.update_contact_guessed_name(cid, "Guessed-A", "test", call_id, "high") is True
+    assert repo.update_contact_guessed_name("user1", cid, "Guessed-A", "test", call_id, "high") is True
 
     row = (
         repo._get_conn()
@@ -127,7 +127,7 @@ def test_guessed_name_guard(repo: Repository) -> None:
     )
 
     # Now update_contact_guessed_name must return False and leave name unchanged
-    assert repo.update_contact_guessed_name(cid, "Guessed-B", "test", 1, "high") is False
+    assert repo.update_contact_guessed_name("user1", cid, "Guessed-B", "test", 1, "high") is False
 
     row = (
         repo._get_conn()

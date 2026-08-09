@@ -227,21 +227,21 @@ def _flush_batch(repo: Repository, batch: list[dict]) -> int:
         # Сохранить события отдельно (save_batch их не трогает)
         for item in batch:
             if item.get("events"):
-                repo.save_events(item["call_id"], item["events"])
+                repo.save_events(item["user_id"], item["call_id"], item["events"])
         return 0
     except Exception as e:
         log.error("[enricher] Ошибка batch-записи: %s — пробуем по одному", e)
         failed = 0
         for item in batch:
             try:
-                repo.save_analysis(item["call_id"], item["analysis"])
+                repo.save_analysis(item["user_id"], item["call_id"], item["analysis"])
                 if item.get("promises") and item.get("contact_id") is not None:
                     repo.save_promises(
                         item["user_id"], item["contact_id"],
                         item["call_id"], item["promises"],
                     )
                 if item.get("events"):
-                    repo.save_events(item["call_id"], item["events"])
+                    repo.save_events(item["user_id"], item["call_id"], item["events"])
             except Exception as ie:
                 log.error("[enricher] ERR call_id=%d: ошибка записи: %s", item["call_id"], ie)
                 failed += 1
@@ -359,7 +359,7 @@ def bulk_enrich(
             call_start = time.time()
 
             try:
-                segments = repo.get_transcript(call_id)
+                segments = repo.get_transcript(user_id, call_id)
                 if not segments:
                     log.warning("[enricher] call_id=%d: транскрипт пустой, пропускаем", call_id)
                     stats["skipped"] += 1

@@ -44,7 +44,7 @@ def cmd_graph_backfill(args: argparse.Namespace) -> int:
         try:
             transcript_text = None
             try:
-                segments = repo.get_transcript(call_id)
+                segments = repo.get_transcript(args.user_id, call_id)
                 if segments:
                     transcript_text = " ".join(seg.text for seg in segments if seg.text)
             except Exception as exc:

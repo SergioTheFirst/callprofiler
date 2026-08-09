@@ -43,7 +43,7 @@ def _save_v2(repo: Repository, call_id: int, raw: dict) -> None:
         raw_response=json.dumps(raw, ensure_ascii=False),
         model="test", prompt_version="v2", call_type="business", hook=None,
     )
-    repo.save_analysis(call_id, a)
+    repo.save_analysis("u1", call_id, a)
     conn = repo._get_conn()
     conn.execute("UPDATE analyses SET schema_version='v2' WHERE call_id=?", (call_id,))
     conn.commit()

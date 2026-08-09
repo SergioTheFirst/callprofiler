@@ -35,10 +35,17 @@
   owner-approved коммитом.
 - **Закрыты:** T-10 (S0 — утечка reference embedding между профилями, `bugs.md` 2026-08-08),
   T-01 (torch убран из package init → `doctor` живёт без ML-стека; typed config preflight),
-  T-00 (пины/dev-группа/`python -m pytest` без `PYTHONPATH`/baseline-отчёт).
-- **Правки оркестратора поверх агентов (оба — реальные дефекты):** сторож отпечатка был
-  fail-open (`getattr(..., expected_fp)`); `torch>=2.9.1` в `pyproject.toml` исключал боевой
-  бокс (torch 2.6.0+cu124) — floor снят у torch и numpy.
+  T-00 (пины/dev-группа/`python -m pytest` без `PYTHONPATH`/baseline-отчёт),
+  T-02 (`AGENTS.md` под CP-0; расхождения `CONSTITUTION.md` — приложением в CP-0-документе,
+  сам файл не тронут — ждёт владельца), T-03 (ownership во всех мутаторах + `identity.py` +
+  inventory-тест по интроспекции).
+- **Правки оркестратора поверх агентов (все — реальные дефекты, повторяющийся класс fail-open):**
+  сторож отпечатка в `_diarize_batch` был `getattr(..., expected_fp)`; `torch>=2.9.1` в
+  `pyproject.toml` исключал боевой бокс (torch 2.6.0+cu124) — floor снят у torch и numpy;
+  `delete_calls` имел `user_id=None` **дефолтом** — кросс-тенантное удаление по умолчанию,
+  теперь параметр обязателен. Отдельно: агент T-02 отчитался о правках `AGENTS.md`, которых
+  на диске не было (`git diff` пуст) — сделано вручную. **Вывод для будущих сессий: отчёт
+  субагента не доказательство; проверять `git diff` и пересчитывать метрику самому.**
 - Тесты: **1317 passed, 3 skipped** (3-й скип — нет ffmpeg на dev-машине, штатно).
   `ruff`: 163 замечания зафиксированы как known-fail ledger, не исправлялись.
 

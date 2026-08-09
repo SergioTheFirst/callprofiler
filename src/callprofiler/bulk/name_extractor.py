@@ -160,7 +160,7 @@ class NameExtractor:
 
             for call in calls:
                 call_id = call["call_id"]
-                segments = self._repo.get_transcript(call_id)
+                segments = self._repo.get_transcript(user_id, call_id)
                 for name in _extract_candidates(segments):
                     name_votes.setdefault(name, []).append(call_id)
 
@@ -213,6 +213,7 @@ class NameExtractor:
                 )
             else:
                 self._repo.update_contact_guessed_name(
+                    user_id=user_id,
                     contact_id=contact_id,
                     guessed_name=candidate.name,
                     guess_source=candidate.source,

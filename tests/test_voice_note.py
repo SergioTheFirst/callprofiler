@@ -211,7 +211,7 @@ def test_process_call_note_skips_diarize_forces_owner_done(tmp_path, monkeypatch
     assert call["pipeline_stage"] == 4
     assert orch.pyannote_runner is None  # диаризация не тронута
 
-    rows = repo.get_transcript(call_id)
+    rows = repo.get_transcript("me", call_id)
     assert len(rows) == 1
     assert rows[0]["speaker"] == "OWNER"
 
@@ -237,7 +237,7 @@ def test_process_call_regular_still_diarizes(tmp_path, monkeypatch):
     assert ok is True
     call = repo.get_call("me", call_id)
     assert call["status"] == "transcribed"  # обычный Stage-1 путь, не 'done'
-    rows = repo.get_transcript(call_id)
+    rows = repo.get_transcript("me", call_id)
     assert rows[0]["speaker"] == "UNKNOWN"  # НЕ форсится в OWNER для обычных звонков
 
 
@@ -280,7 +280,7 @@ def test_process_batch_note_and_regular_mixed(tmp_path, monkeypatch):
     note_call = repo.get_call("me", note_call_id)
     assert note_call["status"] == "done"
     assert note_call["pipeline_stage"] == 4
-    note_rows = repo.get_transcript(note_call_id)
+    note_rows = repo.get_transcript("me", note_call_id)
     assert note_rows[0]["speaker"] == "OWNER"
 
     regular_call = repo.get_call("me", regular_call_id)
