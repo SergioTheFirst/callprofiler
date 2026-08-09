@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 
+from callprofiler.db.uow import commit_unless_uow
 from callprofiler.graph.config import BS_FORMULA_VERSION
 from callprofiler.graph.repository import GraphRepository
 
@@ -185,7 +186,7 @@ class EntityMetricsAggregator:
             emotional_pattern=emotional_pattern,
             last_interaction=last_dt,
         )
-        conn.commit()
+        commit_unless_uow(conn)
 
         return {
             "entity_id": entity_id,

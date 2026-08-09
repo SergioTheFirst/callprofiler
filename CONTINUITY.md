@@ -38,7 +38,12 @@
   T-00 (пины/dev-группа/`python -m pytest` без `PYTHONPATH`/baseline-отчёт),
   T-02 (`AGENTS.md` под CP-0; расхождения `CONSTITUTION.md` — приложением в CP-0-документе,
   сам файл не тронут — ждёт владельца), T-03 (ownership во всех мутаторах + `identity.py` +
-  inventory-тест по интроспекции).
+  inventory-тест по интроспекции), T-04 (`db/connection.py` + `db/uow.py`, границы транзакций
+  в сценариях, `busy_timeout` на writer), T-08 (`artifacts.py` — атомарная публикация;
+  транскрипты больше не перезаписываются между профилями).
+- **Остаток T-04 (осознанный, не потерян):** ~60 мест вне `repository.py` коммитят безусловно
+  (`biography/repo.py`, `insight/*`, `graph/repository.py` ×3, `deliver/reminders.py`, `ask.py`,
+  `llm_cache.py`, `dashboard/tools.py`, CLI) — не на пер-звонковом пути, список в CHANGELOG.
 - **Правки оркестратора поверх агентов (все — реальные дефекты, повторяющийся класс fail-open):**
   сторож отпечатка в `_diarize_batch` был `getattr(..., expected_fp)`; `torch>=2.9.1` в
   `pyproject.toml` исключал боевой бокс (torch 2.6.0+cu124) — floor снят у torch и numpy;

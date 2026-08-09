@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from callprofiler.dashboard import labels_ru
-from callprofiler.dashboard.config import DB_QUERY_TIMEOUT_SEC
+from callprofiler.db.connection import ConnectionFactory
 
 log = logging.getLogger(__name__)
 
@@ -48,14 +48,11 @@ class DashboardDBReader:
         блокирует: много читателей + 1 писатель работают параллельно.
         """
         if self._conn is None:
-            self._conn = sqlite3.connect(
-                self.db_path,
-                timeout=DB_QUERY_TIMEOUT_SEC,
-                check_same_thread=False,
+            # T-04: единая точка создания соединений — ConnectionFactory.
+            # query_only=ON + не-?mode=ro сохранены (см. докстринг выше).
+            self._conn = ConnectionFactory(self.db_path).reader(
+                busy_timeout_ms=3000
             )
-            self._conn.row_factory = sqlite3.Row
-            self._conn.execute("PRAGMA query_only=ON")   # read-only на уровне SQL
-            self._conn.execute("PRAGMA busy_timeout=3000")
 
     def close(self):
         """Close connection."""

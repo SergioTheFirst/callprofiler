@@ -14,6 +14,8 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 
+from callprofiler.db.uow import commit_unless_uow
+
 log = logging.getLogger(__name__)
 
 
@@ -114,7 +116,7 @@ def apply_graph_schema(conn: sqlite3.Connection) -> None:
         )
         log.info("[graph] migration: idx_analyses_schema added")
 
-    conn.commit()
+    commit_unless_uow(conn)
 
 
 _GRAPH_DDL = """

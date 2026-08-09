@@ -20,11 +20,11 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from callprofiler.artifacts import atomic_copy_file
 from callprofiler.identity import user_profile_dir
 from callprofiler.ingest.filename_parser import parse_filename
 
@@ -232,9 +232,11 @@ class Ingester:
                     dest_path.name,
                 )
 
-        # Скопировать
+        # Скопировать атомарно (tmp-в-той-же-папке → fsync → os.replace) с
+        # верификацией хеша/размера на лету — file_md5 уже посчитан для
+        # дедупликации выше, второй проход по файлу не нужен.
         try:
-            shutil.copy2(src_path, dest_path)
+            atomic_copy_file(src_path, dest_path, expected_hash=file_md5)
             logger.debug(
                 "Оригинал скопирован: %s → %s (MD5=%s)",
                 src_path.name,

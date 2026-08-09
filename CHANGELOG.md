@@ -6,6 +6,48 @@
 
 ---
 
+### Changed — T-04: ConnectionFactory и Unit of Work (P-DB-02/05) (2026-08-08)
+- `db/connection.py` — единственное место создания соединений: `.writer()` и `.reader()`
+  (`query_only=ON`). Оба ставят WAL, `foreign_keys=ON`, `busy_timeout`, `row_factory`.
+  **`busy_timeout` на writer'е раньше не выставлялся вообще** — был только у reader'а дашборда.
+  WAL и `foreign_keys` НЕ переоткрывались: они уже были и являются load-bearing (real-time
+  дашборда, `bugs.md` 2026-06-04; чек `db-wal` в `doctor.py`) — на это добавлен регресс-тест.
+- `db/uow.py` — `uow_for(conn)` (commit на выходе, rollback+re-raise на исключении,
+  реентерабелен) и `commit_unless_uow(conn)` — ОДИН общий страж вместо проверки в каждом
+  методе: 22 бывших `conn.commit()` в `repository.py` заменены на `self._commit(conn)`.
+- Границы транзакций перенесены в сценарии, где частичная запись реально вредна:
+  `orchestrator._analyze_call` (analysis + promises + summary + graph), `enricher._flush_batch`
+  (batch + все `save_events`; per-item fallback получает СВОЙ UoW, чтобы один плохой элемент
+  не откатывал соседей), `enricher._update_graph`. Дашборд-ридер переведён на фабрику.
+- **Правка оркестратора поверх агента (агент сам её пометил как невыполненную):** дедуп по MD5
+  в `create_call` вызывал голый `conn.rollback()`. Внутри чужого UoW это откатило бы ВЕСЬ
+  внешний сценарий, после чего UoW спокойно сделал бы commit — вызывающий получил бы «успех»
+  при потерянных ранних записях, ровно тот класс тихой частичной записи, ради которого T-04 и
+  делается. Добавлен симметричный `rollback_unless_uow`. Локальное восстановление внутри UoW
+  не нужно: SQLite при нарушении UNIQUE применяет ABORT к ОДНОМУ оператору, транзакция жива.
+  Регресс-тест проверен на невакуумность: со старым `conn.rollback()` он падает.
+- Архитектурный инвариант «ML вне транзакции» закреплён тестом (`conn.in_transaction is False`
+  во время ASR/LLM-заглушки).
+- **Остаток (следующая задача):** ~60 мест вне `repository.py` по-прежнему коммитят
+  безусловно — `biography/repo.py` (~26), `insight/*` (~20), `graph/repository.py` (3),
+  `deliver/reminders.py`, `ask.py`, `llm_cache.py`, `dashboard/tools.py`, CLI. Они не на
+  пер-звонковом пути; список зафиксирован, чтобы не потеряться.
+
+### Fixed — T-08: атомарная публикация артефактов и tenant-safe экспорт (P-DATA-02/03) (2026-08-08)
+- `artifacts.py` — `atomic_write_bytes/text` и `atomic_copy_file`: запись во временный файл
+  **в том же каталоге назначения** → `fsync` → `os.replace`. Каталог важен: на Windows
+  `os.replace` атомарен только в пределах тома, временный файл в `%TEMP%` сломал бы гарантию.
+  Хеш считается ПОТОКОВО во время копирования — второго прохода по аудио нет.
+- `ingest/ingester.py`: `shutil.copy2` (не атомарно, без верификации — прерывание оставляло
+  частичный «оригинал», который дальше считается источником истины) → `atomic_copy_file` с
+  `expected_hash`, переиспользующим уже посчитанный для дедупа MD5.
+- `transcribe/text_export.py`: путь был `text_dir/{имя_исходника}.txt` в ОБЩЕМ каталоге —
+  два профиля с одинаковым именем файла перезаписывали транскрипт друг друга. Теперь
+  `text_dir/users/{user_id}/{call_id}__{stem}.txt` через `identity.user_profile_dir`
+  (realpath-containment). Старые файлы не мигрируются, но находятся новым `find_transcript`.
+- Побочная находка агента: два существующих теста ingester'а передавали выдуманные MD5
+  (`"abc123"`) — параметр был декоративным. Теперь он несущий, тесты используют реальный хеш.
+
 ### Fixed — T-03: tenant ownership во всех мутаторах (S0/S1) (2026-08-08)
 - **P-TEN-02 (S0):** мутаторы `db/repository.py` работали по голому ID. `update_call_status`,
   `update_pipeline_stage`, `set_role_fragile`, `update_call_paths`, `reset_call`,

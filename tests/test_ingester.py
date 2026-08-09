@@ -38,7 +38,7 @@ def test_copy_original_with_datetime_creates_year_month(ingester):
     src = _make_src(tmp_path)
     dt = datetime(2025, 3, 14)
 
-    dest = obj._copy_original("user1", src, "abc123", call_datetime=dt)
+    dest = obj._copy_original("user1", src, _md5(src.read_bytes()), call_datetime=dt)
 
     dest_path = Path(dest)
     assert dest_path.exists()
@@ -51,7 +51,7 @@ def test_copy_original_without_datetime_uses_flat(ingester):
     obj, tmp_path = ingester
     src = _make_src(tmp_path, "call2.mp3")
 
-    dest = obj._copy_original("user1", src, "def456", call_datetime=None)
+    dest = obj._copy_original("user1", src, _md5(src.read_bytes()), call_datetime=None)
 
     dest_path = Path(dest)
     assert dest_path.exists()

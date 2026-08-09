@@ -23,6 +23,7 @@ from callprofiler.analyze.llm_client import LLMClient
 from callprofiler.analyze.prompt_builder import PromptBuilder
 from callprofiler.analyze.response_parser import parse_llm_response
 from callprofiler.audio.normalizer import get_duration_sec, normalize
+from callprofiler.db.uow import uow_for
 from callprofiler.deliver.card_generator import CardGenerator
 from callprofiler.deliver.telegram_bot import TelegramNotifier
 from callprofiler.diarize.role_assigner import assign_speakers, is_role_fragile
@@ -509,10 +510,10 @@ class Orchestrator:
     def _export_text(self, call: dict, segments: list[Segment]) -> None:
         """Записать читабельный .txt транскрипт (по ролям).
 
-        Путь: ``pipeline.text_export_dir / <имя_исходника>.txt`` — имя равно
-        имени исходного аудиофайла, расширение меняется на ``.txt``.
-        Роли: OWNER→[me], OTHER→[s2], UNKNOWN→[?]. На Stage-1 (без диаризации)
-        все строки идут с ``[?]``.
+        Путь (T-08): ``pipeline.text_export_dir/users/{user_id}/{call_id}__
+        <имя_исходника>.txt`` — уникален между профилями и между звонками с
+        одинаковым именем исходника. Роли: OWNER→[me], OTHER→[s2],
+        UNKNOWN→[?]. На Stage-1 (без диаризации) все строки идут с ``[?]``.
 
         Не фатально: сбой логируется, pipeline продолжается.
         """
@@ -523,7 +524,9 @@ class Orchestrator:
             from callprofiler.transcribe.text_export import write_transcript
 
             src_name = call.get("source_filename") or f"call_{call.get('call_id')}"
-            out_path = write_transcript(text_dir, src_name, segments)
+            out_path = write_transcript(
+                text_dir, call["user_id"], call["call_id"], src_name, segments
+            )
             logger.info("Текст сохранён: %s (%d строк)", out_path, len(segments))
         except Exception as exc:  # noqa: BLE001 — экспорт не валит pipeline
             logger.warning(
@@ -932,39 +935,44 @@ class Orchestrator:
                 self.repo.update_call_status(user_id, call_id, "error", str(exc))
                 return
 
-        # Сохранить анализ в БД
-        self.repo.save_analysis(user_id, call_id, analysis)
+        # T-04: анализ + обещания + summary + граф — одна граница транзакции.
+        # Раньше каждый save_* коммитил отдельно; крах между ними оставлял
+        # частично записанное состояние (analyses без promises, граф без
+        # свежих analyses — P-DB-02/P-DB-05).
+        conn = self.repo._get_conn()
+        with uow_for(conn):
+            # Сохранить анализ в БД
+            self.repo.save_analysis(user_id, call_id, analysis)
 
-        # Сохранить обещания
-        if analysis.promises and contact_id:
-            self.repo.save_promises(user_id, contact_id, call_id, analysis.promises)
+            # Сохранить обещания
+            if analysis.promises and contact_id:
+                self.repo.save_promises(user_id, contact_id, call_id, analysis.promises)
 
-        # Rebuild contact summary after analysis (Sprint 4)
-        if contact_id:
+            # Rebuild contact summary after analysis (Sprint 4)
+            if contact_id:
+                try:
+                    from callprofiler.aggregate.summary_builder import SummaryBuilder
+
+                    SummaryBuilder(self.repo).rebuild_contact(user_id, contact_id)
+                    logger.debug(
+                        "Summary rebuilt: user=%s, contact_id=%d", user_id, contact_id
+                    )
+                except Exception as _sbe:
+                    logger.warning(
+                        "Summary rebuild failed (non-fatal): %s", _sbe
+                    )
+
+            # Обновить Knowledge Graph (non-fatal)
             try:
-                from callprofiler.aggregate.summary_builder import SummaryBuilder
+                from callprofiler.graph.builder import GraphBuilder
+                from callprofiler.graph.repository import apply_graph_schema
 
-                SummaryBuilder(self.repo).rebuild_contact(user_id, contact_id)
-                logger.debug(
-                    "Summary rebuilt: user=%s, contact_id=%d", user_id, contact_id
-                )
-            except Exception as _sbe:
+                apply_graph_schema(conn)
+                GraphBuilder(conn).update_from_call(call_id)
+            except Exception as _graph_exc:
                 logger.warning(
-                    "Summary rebuild failed (non-fatal): %s", _sbe
+                    "graph update failed for call_id=%d: %s", call_id, _graph_exc
                 )
-
-        # Обновить Knowledge Graph (non-fatal)
-        try:
-            from callprofiler.graph.builder import GraphBuilder
-            from callprofiler.graph.repository import apply_graph_schema
-
-            conn = self.repo._get_conn()
-            apply_graph_schema(conn)
-            GraphBuilder(conn).update_from_call(call_id)
-        except Exception as _graph_exc:
-            logger.warning(
-                "graph update failed for call_id=%d: %s", call_id, _graph_exc
-            )
 
         logger.info(
             "Анализ: call_id=%d, priority=%d, risk=%d, parse_status=%s",

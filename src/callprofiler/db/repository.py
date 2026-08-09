@@ -11,6 +11,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from callprofiler.db.connection import ConnectionFactory
+from callprofiler.db.uow import commit_unless_uow, rollback_unless_uow
 from callprofiler.identity import validate_user_id
 from callprofiler.models import Analysis, Segment
 
@@ -28,13 +30,16 @@ class Repository:
 
     def _get_conn(self) -> sqlite3.Connection:
         if self._conn is None:
-            if self._db_path != ":memory:":
-                Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
-            self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
-            self._conn.row_factory = sqlite3.Row
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.execute("PRAGMA foreign_keys=ON")
+            self._conn = ConnectionFactory(self._db_path).writer()
         return self._conn
+
+    def _commit(self, conn: sqlite3.Connection) -> None:
+        """Коммит, подавляемый внутри UnitOfWork (db.uow.uow_for) — T-04.
+
+        Единственное место проверки ``conn.in_uow``, чтобы не пришлось
+        отдельно править семантику каждого из ~22 бывших ``conn.commit()``
+        вызовов в этом файле."""
+        commit_unless_uow(conn)
 
     def init_db(self) -> None:
         """РЎРѕР·РґР°С‚СЊ РІСЃРµ С‚Р°Р±Р»РёС†С‹ РїРѕ schema.sql + РїСЂРёРјРµРЅРёС‚СЊ РјРёРіСЂР°С†РёРё."""
@@ -43,7 +48,7 @@ class Repository:
             sql = f.read()
         conn = self._get_conn()
         conn.executescript(sql)
-        conn.commit()
+        self._commit(conn)
         self._migrate()
 
     def _migrate(self) -> None:
@@ -156,7 +161,7 @@ class Repository:
         except Exception:
             pass  # Index may already exist or duplicate data prevents it
 
-        conn.commit()
+        self._commit(conn)
 
     def close(self) -> None:
         if self._conn:
@@ -191,7 +196,7 @@ class Repository:
                 ref_audio,
             ),
         )
-        conn.commit()
+        self._commit(conn)
 
     def get_user(self, user_id: str) -> dict | None:
         row = (
@@ -232,7 +237,7 @@ class Repository:
                        WHERE contact_id = ?""",
                     (display_name, contact_id),
                 )
-                conn.commit()
+                self._commit(conn)
             return contact_id
         # РЎРѕР·РґР°С‚СЊ РЅРѕРІС‹Р№ РєРѕРЅС‚Р°РєС‚
         cur = conn.execute(
@@ -240,7 +245,7 @@ class Repository:
                VALUES (?, ?, ?, ?)""",
             (user_id, phone_e164, display_name, 1 if display_name else 0),
         )
-        conn.commit()
+        self._commit(conn)
         return cur.lastrowid
 
     def find_contact_by_name(
@@ -384,7 +389,7 @@ class Repository:
                  AND (name_confirmed = 0 OR name_confirmed IS NULL)""",
             (guessed_name, guess_source, guess_call_id, guess_confidence, contact_id, user_id),
         )
-        conn.commit()
+        self._commit(conn)
         return row.rowcount > 0
 
     # ------------------------------------------------------------------
@@ -436,7 +441,7 @@ class Repository:
             "error_message=NULL WHERE call_id=? AND user_id=?",
             (call_id, user_id),
         )
-        conn.commit()
+        self._commit(conn)
         return row.rowcount > 0
 
     def create_call(
@@ -472,12 +477,12 @@ class Repository:
                     call_type,
                 ),
             )
-            conn.commit()
+            self._commit(conn)
             return cur.lastrowid
         except Exception as exc:
             # РЈРЅРёРєР°Р»СЊРЅС‹Р№ РёРЅРґРµРєСЃ idx_calls_user_md5 РїСЂРµРґРѕС‚РІСЂР°С‰Р°РµС‚ РґСѓР±Р»РёРєР°С‚
             if "UNIQUE constraint failed" in str(exc) and source_md5:
-                conn.rollback()
+                rollback_unless_uow(conn)
                 row = conn.execute(
                     "SELECT call_id FROM calls WHERE user_id=? AND source_md5=?",
                     (user_id, source_md5),
@@ -508,7 +513,7 @@ class Repository:
                 "WHERE call_id=? AND user_id=?",
                 (status, call_id, user_id),
             )
-        conn.commit()
+        self._commit(conn)
         return row.rowcount > 0
 
     def update_pipeline_stage(self, user_id: str, call_id: int, stage: int) -> bool:
@@ -519,7 +524,7 @@ class Repository:
             "WHERE call_id=? AND user_id=?",
             (stage, call_id, user_id),
         )
-        conn.commit()
+        self._commit(conn)
         return row.rowcount > 0
 
     def set_role_fragile(self, user_id: str, call_id: int, fragile: bool) -> bool:
@@ -529,7 +534,7 @@ class Repository:
             "UPDATE calls SET role_fragile=? WHERE call_id=? AND user_id=?",
             (1 if fragile else 0, call_id, user_id),
         )
-        conn.commit()
+        self._commit(conn)
         return row.rowcount > 0
 
     def update_call_paths(
@@ -541,7 +546,7 @@ class Repository:
             "WHERE call_id=? AND user_id=?",
             (norm_path, duration_sec, call_id, user_id),
         )
-        conn.commit()
+        self._commit(conn)
         return row.rowcount > 0
 
     def get_pending_calls(self, user_id: str | None = None) -> list[dict]:
@@ -705,7 +710,7 @@ class Repository:
                 )
                 for tbl in ("events", "promises", "analyses", "transcripts", "calls"):
                     conn.execute(f"DELETE FROM {tbl} WHERE call_id {in_set}")
-                conn.commit()
+                self._commit(conn)
         finally:
             conn.execute("DROP TABLE IF EXISTS _del_ids")
         return counts
@@ -801,7 +806,7 @@ class Repository:
             for tbl in graph_tables + ["contact_summaries", "contacts", "users"]:
                 if self._table_exists(conn, tbl):
                     conn.execute(f"DELETE FROM {tbl} WHERE user_id=?", (user_id,))
-            conn.commit()
+            self._commit(conn)
         return counts
 
     def purge_other_users(
@@ -885,7 +890,7 @@ class Repository:
             "INSERT INTO transcripts (call_id, start_ms, end_ms, text, speaker) VALUES (?,?,?,?,?)",
             [(call_id, s.start_ms, s.end_ms, s.text, s.speaker) for s in segments],
         )
-        conn.commit()
+        self._commit(conn)
         return True
 
     def get_transcript(self, user_id: str, call_id: int) -> list[dict]:
@@ -982,7 +987,7 @@ class Repository:
             f"ON CONFLICT(call_id) DO UPDATE SET {update_sets}",
             vals,
         )
-        conn.commit()
+        self._commit(conn)
         return True
 
     def get_analysis(self, user_id: str, call_id: int) -> dict | None:
@@ -1055,7 +1060,7 @@ class Repository:
                (SELECT call_id FROM calls WHERE user_id=?)""",
             (feedback, analysis_id, user_id),
         )
-        conn.commit()
+        self._commit(conn)
         return row.rowcount > 0
 
     # ------------------------------------------------------------------
@@ -1152,7 +1157,7 @@ class Repository:
                         for p in promises
                     ],
                 )
-        conn.commit()
+        self._commit(conn)
 
     def save_promises(
         self, user_id: str, contact_id: int | None, call_id: int, promises: list[dict]
@@ -1186,7 +1191,7 @@ class Repository:
                 for p in promises
             ],
         )
-        conn.commit()
+        self._commit(conn)
 
     def get_open_promises(self, user_id: str) -> list[dict]:
         rows = (
@@ -1260,7 +1265,7 @@ class Repository:
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
-        conn.commit()
+        self._commit(conn)
         return True
 
     def get_open_events(
@@ -1309,7 +1314,7 @@ class Repository:
             "UPDATE events SET status = ? WHERE id = ? AND user_id = ?",
             (status, event_id, user_id),
         )
-        conn.commit()
+        self._commit(conn)
         return row.rowcount > 0
 
     # ------------------------------------------------------------------
@@ -1369,7 +1374,7 @@ class Repository:
                 advice,
             ),
         )
-        conn.commit()
+        self._commit(conn)
         return True
 
     def get_contact_summary(self, user_id: str, contact_id: int) -> dict | None:

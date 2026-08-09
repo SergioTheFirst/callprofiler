@@ -19,6 +19,7 @@ from callprofiler.analyze.profanity_detector import count_profanity
 from callprofiler.analyze.response_parser import parse_llm_response
 from callprofiler.config import load_config
 from callprofiler.db.repository import Repository
+from callprofiler.db.uow import uow_for
 from callprofiler.analyze.prompt_budget import estimate_tokens, clip_transcript_for_llm
 from callprofiler.analyze.output_budget import output_budget
 from callprofiler.models import Analysis
@@ -218,30 +219,39 @@ def _stub_analysis() -> Analysis:
 
 
 def _flush_batch(repo: Repository, batch: list[dict]) -> int:
-    """Записать батч в БД одной транзакцией. Возвращает кол-во ошибок."""
+    """Записать батч в БД одной транзакцией. Возвращает кол-во ошибок.
+
+    T-04: весь батч (analyses+promises из save_batch + все save_events)
+    коммитится ОДИН раз на выходе из uow_for — раньше save_events коммитил
+    per-item, крах посреди батча оставлял часть событий незаписанной при
+    уже зафиксированных analyses (P-DB-05).
+    """
     if not batch:
         return 0
+    conn = repo._get_conn()
     try:
-        repo.save_batch(batch)
-        log.debug("[enricher] Батч записан (%d элементов)", len(batch))
-        # Сохранить события отдельно (save_batch их не трогает)
-        for item in batch:
-            if item.get("events"):
-                repo.save_events(item["user_id"], item["call_id"], item["events"])
+        with uow_for(conn):
+            repo.save_batch(batch)
+            log.debug("[enricher] Батч записан (%d элементов)", len(batch))
+            # Сохранить события отдельно (save_batch их не трогает)
+            for item in batch:
+                if item.get("events"):
+                    repo.save_events(item["user_id"], item["call_id"], item["events"])
         return 0
     except Exception as e:
         log.error("[enricher] Ошибка batch-записи: %s — пробуем по одному", e)
         failed = 0
         for item in batch:
             try:
-                repo.save_analysis(item["user_id"], item["call_id"], item["analysis"])
-                if item.get("promises") and item.get("contact_id") is not None:
-                    repo.save_promises(
-                        item["user_id"], item["contact_id"],
-                        item["call_id"], item["promises"],
-                    )
-                if item.get("events"):
-                    repo.save_events(item["user_id"], item["call_id"], item["events"])
+                with uow_for(conn):
+                    repo.save_analysis(item["user_id"], item["call_id"], item["analysis"])
+                    if item.get("promises") and item.get("contact_id") is not None:
+                        repo.save_promises(
+                            item["user_id"], item["contact_id"],
+                            item["call_id"], item["promises"],
+                        )
+                    if item.get("events"):
+                        repo.save_events(item["user_id"], item["call_id"], item["events"])
             except Exception as ie:
                 log.error("[enricher] ERR call_id=%d: ошибка записи: %s", item["call_id"], ie)
                 failed += 1
@@ -252,16 +262,18 @@ def _update_graph(repo: Repository, call_ids: list[int]) -> None:
     """Update Knowledge Graph for a list of call_ids (only v2 analyses).
 
     Lazily imported to avoid circular dependency and to keep graph module optional.
+    T-04: весь батч call_ids — одна транзакция (был commit на каждый call_id).
     """
+    conn = repo._get_conn()
     try:
         from callprofiler.graph.builder import GraphBuilder
         from callprofiler.graph.repository import apply_graph_schema
 
-        conn = repo._get_conn()
-        apply_graph_schema(conn)
-        builder = GraphBuilder(conn)
-        for call_id in call_ids:
-            builder.update_from_call(call_id)
+        with uow_for(conn):
+            apply_graph_schema(conn)
+            builder = GraphBuilder(conn)
+            for call_id in call_ids:
+                builder.update_from_call(call_id)
     except Exception as e:
         log.warning("[enricher] graph update failed (non-fatal): %s", e)
 

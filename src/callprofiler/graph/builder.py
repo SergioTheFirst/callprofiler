@@ -15,6 +15,7 @@ import json
 import logging
 import sqlite3
 
+from callprofiler.db.uow import commit_unless_uow
 from callprofiler.graph.aggregator import EntityMetricsAggregator
 from callprofiler.graph.config import (
     FACT_ID_ALGORITHM,
@@ -231,7 +232,7 @@ class GraphBuilder:
             self._aggregator.recalc_for_entities(
                 list(entity_id_by_key.values()), user_id
             )
-            self._conn.commit()
+            commit_unless_uow(self._conn)
             log.debug(
                 "[graph] call_id=%d: wrote %d entities, committed",
                 call_id, len(entity_id_by_key),
