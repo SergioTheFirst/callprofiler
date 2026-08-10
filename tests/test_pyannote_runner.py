@@ -10,6 +10,14 @@ import sys
 import os
 from unittest.mock import MagicMock, patch, PropertyMock
 
+import pytest
+
+# Файл тестирует САМ ML-runner, поэтому torch здесь нужен по существу.
+# В облачном/CI-прогоне без ML-стека (extra "cloud") файл пропускается целиком,
+# а не падает. Логика пайплайна и сторож reference-эмбеддинга покрыты
+# отдельно — в test_orchestrator_roles.py, который torch не требует.
+pytest.importorskip("torch", reason="ML-стек недоступен (cloud-прогон)")
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 

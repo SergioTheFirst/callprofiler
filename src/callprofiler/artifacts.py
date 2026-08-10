@@ -19,6 +19,22 @@ def _tmp_path(dest: Path) -> Path:
     return dest.with_name(f".{dest.name}.tmp{os.getpid()}")
 
 
+def file_fingerprint(path: str | Path) -> str:
+    """Дешёвый детерминированный отпечаток файла: путь + размер + mtime_ns.
+
+    Не читает файл целиком. Живёт здесь, а не в ``diarize/pyannote_runner``,
+    потому что это чистая работа с файловой системой: держать её рядом с
+    моделью означало бы тянуть torch ради сравнения двух путей — и делать
+    сторож reference-эмбеддинга (T-10) непроверяемым там, где ML-стека нет.
+    """
+    p = os.path.abspath(os.path.normpath(str(path)))
+    try:
+        st = os.stat(path)
+        return f"{p}|{st.st_size}|{st.st_mtime_ns}"
+    except OSError:
+        return f"{p}|missing"
+
+
 def atomic_write_bytes(dest: str | Path, data: bytes) -> Path:
     """Write ``data`` to ``dest`` atomically: tmp file → fsync → os.replace.
 

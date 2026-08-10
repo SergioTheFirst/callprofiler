@@ -29,15 +29,23 @@ from callprofiler.deliver.telegram_bot import TelegramNotifier
 from callprofiler.diarize.role_assigner import assign_speakers, is_role_fragile
 from callprofiler.identity import user_profile_dir
 from callprofiler.models import Segment
-from callprofiler.transcribe.whisper_runner import WhisperRunner
 
 
 def _make_asr_runner(config: "Config"):
-    """Factory: return ASR runner based on config.models.asr_backend."""
+    """Factory: return ASR runner based on config.models.asr_backend.
+
+    ОБА runner'а импортируются ЛЕНИВО. Раньше `WhisperRunner` тянулся на
+    верхнем уровне модуля, а он делает `import torch` — из-за этого весь
+    orchestrator (и любой тест/CLI, его импортирующий) требовал ML-стек даже
+    при `asr_backend: gigaam`, когда Whisper вообще не используется. Тот же
+    класс дефекта, что P-OPS-03 в `__init__.py`: ленивость в одной ветке
+    фабрики и eager-импорт в другой — защита, которая не работает.
+    """
     backend = getattr(config.models, "asr_backend", "whisper")
     if backend == "gigaam":
         from callprofiler.transcribe.gigaam_runner import GigaAMRunner
         return GigaAMRunner(config)
+    from callprofiler.transcribe.whisper_runner import WhisperRunner
     return WhisperRunner(config)
 
 if TYPE_CHECKING:
@@ -114,7 +122,11 @@ class Orchestrator:
         self.repo = repo
 
         # Компоненты ASR/diarize (лениво загружаются)
-        self.asr_runner = _make_asr_runner(config)
+        # ASR-runner создаётся ЛЕНИВО, при первом обращении (см. property ниже) —
+        # симметрично pyannote. Создание в __init__ означало бы, что сам факт
+        # конструирования Orchestrator требует ML-стек: любой тест/CLI/облачный
+        # прогон без torch падал бы, не дойдя до реальной работы.
+        self._asr_runner = None
         # pyannote создаётся лениво при первой диаризации — Stage-1 его не требует
         self.pyannote_runner = None
         # Диагностика: каждую отдельную причину сбоя диаризации логируем ОДИН раз
@@ -127,6 +139,17 @@ class Orchestrator:
         self.telegram = telegram
 
         logger.info("Orchestrator инициализирован")
+
+    @property
+    def asr_runner(self):
+        """ASR-runner по требованию. Сеттер сохранён — тесты подменяют фейком."""
+        if self._asr_runner is None:
+            self._asr_runner = _make_asr_runner(self.config)
+        return self._asr_runner
+
+    @asr_runner.setter
+    def asr_runner(self, runner) -> None:
+        self._asr_runner = runner
 
     def process_call(self, call_id: int) -> bool:
         """Обработать один звонок от начала до конца.
@@ -778,8 +801,8 @@ class Orchestrator:
                 # Постусловие: эмбеддинг загруженного runner'а обязан
                 # соответствовать ЭТОЙ ref-группе (bugs.md — utечка эмбеддинга
                 # между профилями при смене ref без выгрузки модели).
-                from callprofiler.diarize.pyannote_runner import _ref_fingerprint
-                expected_fp = _ref_fingerprint(ref_audio)
+                from callprofiler.artifacts import file_fingerprint
+                expected_fp = file_fingerprint(ref_audio)
                 # Fail-closed: отсутствие атрибута — тоже несоответствие. Дефолт
                 # expected_fp сделал бы сторожа бесшумно бесполезным для любого
                 # другого runner'а (тест-дубль, будущий ECAPA — план Б C-03).

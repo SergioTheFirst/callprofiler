@@ -11,6 +11,14 @@ import os
 import sys
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+# S0-регресс (T-10) на уровне САМОГО runner'а — требует torch по существу.
+# ВАЖНО: часть той же защиты (сторож отпечатка в _diarize_batch) продублирована
+# в test_orchestrator_roles.py, который torch НЕ требует и потому работает и в
+# облаке. Полное покрытие S0 — только там, где ML-стек установлен.
+pytest.importorskip("torch", reason="ML-стек недоступен (cloud-прогон)")
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from callprofiler.config import Config

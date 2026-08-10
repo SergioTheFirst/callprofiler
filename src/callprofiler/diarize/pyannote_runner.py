@@ -50,20 +50,12 @@ _MAX_OWNER_EMB_SEC = 30.0
 os.environ.setdefault("OTEL_SDK_DISABLED", "true")
 
 
-def _ref_fingerprint(path: str) -> str:
-    """Дешёвый детерминированный отпечаток ref-файла: путь+размер+mtime.
+from callprofiler.artifacts import file_fingerprint as _ref_fingerprint  # noqa: E402
 
-    Не читает файл целиком (ref может быть большим). Используется, чтобы
-    ``load()`` был идемпотентен ПО REF, а не по факту загрузки модели —
-    иначе второй ``load()`` с ДРУГИМ ref молча оставлял бы эмбеддинг от
-    первого профиля (голос владельца A назначался бы OWNER в звонках B).
-    """
-    p = os.path.abspath(os.path.normpath(path))
-    try:
-        st = os.stat(path)
-        return f"{p}|{st.st_size}|{st.st_mtime_ns}"
-    except OSError:
-        return f"{p}|missing"
+# ``_ref_fingerprint`` намеренно живёт в ``callprofiler.artifacts`` (чистая
+# работа с ФС, без torch): сторож reference-эмбеддинга в orchestrator (T-10)
+# обязан проверяться и там, где ML-стека нет. Алиас сохранён — на это имя
+# ссылаются orchestrator и регресс-тесты.
 
 
 def _load_pretrained(loader, model_id: str, token: str):

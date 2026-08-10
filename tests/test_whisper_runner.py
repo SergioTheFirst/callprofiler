@@ -10,6 +10,12 @@ import sys
 import os
 from unittest.mock import MagicMock
 
+import pytest
+
+# Тестирует сам Whisper-runner — torch нужен по существу; в cloud-прогоне
+# без ML-стека файл пропускается целиком, а не падает.
+pytest.importorskip("torch", reason="ML-стек недоступен (cloud-прогон)")
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 

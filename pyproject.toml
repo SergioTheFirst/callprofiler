@@ -36,6 +36,37 @@ dev = [
     "ruff>=0.15.5",
 ]
 
+# Набор для облачного/CI-прогона БЕЗ ML-стека (нет GPU, нет моделей, нет аудио).
+# Ставить: pip install -e ".[cloud]"
+#
+# Что реально происходит без torch/pyannote.audio/faster-whisper/librosa/soundfile:
+# suite ЗЕЛЁНЫЙ — измерено: 1415 passed, 7 skipped, 0 failed. Три файла
+# (test_pyannote_runner, test_whisper_runner, test_pyannote_ref_isolation) не
+# собираются вовсе — module-level pytest.importorskip: они тестируют сами
+# ML-runner'ы, там torch нужен по существу. Всё остальное,
+# включая пайплайн, БД, дашборд, LLM-транспорт и сторож reference-эмбеддинга
+# (test_orchestrator_roles), проходит: ML-импорты ленивые (P-OPS-03/T-01, ленивая
+# фабрика ASR-runner'ов, отпечаток файла вынесен в artifacts.py).
+#
+# ЗНАЙ ОБ ЭТОМ: полное покрытие S0-регресса утечки reference-эмбеддинга (T-10)
+# есть только там, где ML-стек установлен. В облаке работает лишь его часть.
+#
+# Цена вопроса: ~40МБ и секунды установки вместо нескольких гигабайт и минут —
+# существенно при запуске раз в 6 часов.
+cloud = [
+    "pytest>=8.4.2",
+    "ruff>=0.15.5",
+    "pyyaml>=6.0.3",
+    "numpy",
+    "requests>=2.34.2",
+    "httpx",              # нужен fastapi.testclient
+    "fastapi>=0.122.0",
+    "uvicorn>=0.38.0",
+    "jinja2>=3.1.6",
+    "python-telegram-bot>=22.6",
+    "psutil>=7.2.2",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
