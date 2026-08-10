@@ -41,7 +41,7 @@ CallProfiler — локальная мультипользовательская
 
 ### 2.4. GPU — узкое горлышко
 
-RTX 3060 12GB. Две модели одновременно в VRAM запрещены, кроме пар, которые помещаются вместе (Whisper ~3GB + pyannote ~1.5GB = OK). Перед загрузкой LLM (~10GB) обязательна выгрузка всех остальных моделей.
+RTX 3060 12GB. Две модели одновременно в VRAM запрещены, кроме пар, которые помещаются вместе (GigaAM + pyannote ≈ 5GB = OK). Перед загрузкой LLM (~10GB) обязательна выгрузка всех остальных моделей.
 
 ### 2.5. Данные пользователей изолированы
 
@@ -52,7 +52,7 @@ RTX 3060 12GB. Две модели одновременно в VRAM запрещ
 ## Статья 3. Что система делает
 
 - Принимает аудиозаписи телефонных звонков от нескольких пользователей.
-- Транскрибирует русскую речь (faster-whisper large-v3).
+- Транскрибирует русскую речь (GigaAM-v3-RNNT; faster-whisper large-v3 — fallback).
 - Разделяет на двух спикеров (pyannote + ref embedding → OWNER / OTHER).
 - Анализирует локальной LLM (llama-server, llama.cpp): саммари, priority, risk, action items, обещания.
 - Генерирует caller cards ({phone}.txt) для overlay на Android.
@@ -89,8 +89,8 @@ RTX 3060 12GB. Две модели одновременно в VRAM запрещ
 
 | Компонент | Решение | Замена допускается при |
 |-----------|---------|----------------------|
-| ASR | faster-whisper large-v3 | WER > 25% на реальных звонках |
-| Диаризация | pyannote 3.3.2 + ref embedding | Ошибка ролей > 15% |
+| ASR | GigaAM-v3-RNNT (основной); faster-whisper large-v3 (fallback, `asr_backend: whisper`) | WER > 25% на реальных звонках |
+| Диаризация | runtime `pyannote-audio` 4.0.4; модель `pyannote/speaker-diarization-3.1` + ref embedding | Ошибка ролей > 15% / DER > 15% на своём корпусе |
 | LLM | llama-server (llama.cpp) + Qwen3.5-9B.Q8_0 | Качество JSON < 70% |
 | БД | SQLite + FTS5 | Contention при > 100K записей |
 | Бот | python-telegram-bot | — |
@@ -175,20 +175,20 @@ data/
 ```
 1. Ingest     — парсинг имени файла, MD5, дедупликация, контакт, запись call
 2. Normalize  — ffmpeg → WAV 16kHz mono
-3. Transcribe — faster-whisper (GPU)
+3. Transcribe — GigaAM-v3-RNNT (GPU; fallback faster-whisper)
 4. Diarize    — pyannote + ref embedding (GPU) → OWNER/OTHER
-5. Analyze    — llama-server LLM (GPU, после выгрузки Whisper+pyannote)
+5. Analyze    — llama-server LLM (GPU, после выгрузки GigaAM+pyannote)
 6. Deliver    — карточка + Telegram
 ```
 
 ### 9.2. Batch-оптимизация
 
-Загрузить Whisper + pyannote один раз → обработать все pending файлы (шаги 1-4) → выгрузить → загрузить LLM → обработать все (шаг 5) → доставить (шаг 6).
+Загрузить GigaAM + pyannote один раз → обработать все pending файлы (шаги 1-4) → выгрузить → загрузить LLM → обработать все (шаг 5) → доставить (шаг 6).
 
 ### 9.3. GPU-дисциплина
 
 ```
-Whisper (~3GB) + pyannote (~1.5GB) = ~4.5GB  → помещаются вместе → OK
+GigaAM + pyannote ≈ 5GB                      → помещаются вместе → OK
 llama-server Qwen3.5-9B.Q8_0 (~10GB)                    → только один → выгрузить остальное
 ```
 
@@ -207,7 +207,10 @@ torch.cuda.empty_cache()
 
 ### 10.1. Принцип
 
-ПК генерирует `{phone_e164}.txt` (≤500 символов) → FolderSync синхронизирует на телефон → MacroDroid при входящем звонке читает файл → показывает overlay.
+ПК генерирует `{phone_e164}.txt` (**≤512 байт в UTF-8**) → FolderSync синхронизирует на телефон → MacroDroid при входящем звонке читает файл → показывает overlay.
+
+Лимит измеряется в БАЙТАХ, а не в символах: файл читает MacroDroid на Android, и бюджет там
+байтовый. «≤500 символов» непроверяемо на стороне потребителя (решение C-02).
 
 ### 10.2. Формат карточки
 
@@ -302,9 +305,15 @@ _torch.load = _patched_load
 ```
 
 ```python
-# pyannote 3.3.2 — использовать use_auth_token=, НЕ token=
-Model.from_pretrained("pyannote/embedding", use_auth_token=HF_TOKEN)
-Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token=HF_TOKEN)
+# Имя аргумента токена РАЗЛИЧАЕТСЯ по версиям: pyannote 3.3.x ждёт use_auth_token=,
+# 3.4+/4.x переименовали его в token=. Жёстко зашивать один вариант нельзя —
+# _load_pretrained пробует оба (иначе TypeError при полностью рабочем токене).
+Model.from_pretrained("pyannote/embedding", use_auth_token=HF_TOKEN)          # 3.3.x
+Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", token=HF_TOKEN)  # 4.x
+
+# pyannote 4.x: аудио подавать ТОЛЬКО в памяти ({waveform, sample_rate}) — по пути
+# оно декодируется через torchcodec, чьи DLL на Windows не грузятся, и роли молча
+# становятся UNKNOWN при исправном ASR.
 ```
 
 ---
@@ -362,7 +371,7 @@ Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token=HF_T
 | Один промпт < 70% качества | Multi-agent |
 | FTS5 не хватает | Векторный поиск |
 | MacroDroid не работает на целевом Android | Своё приложение или notification fallback |
-| faster-whisper WER > 25% | WhisperX или другая модель |
+| GigaAM WER > 25% на своём корпусе | faster-whisper (уже поддержан как fallback) или другая локальная модель; WhisperX остаётся запрещён (Ст. 4) |
 
 До появления измерения — текущая архитектура не меняется.
 
