@@ -71,21 +71,44 @@
 - Тесты: **1317 passed, 3 skipped** (3-й скип — нет ffmpeg на dev-машине, штатно).
   `ruff`: 163 замечания зафиксированы как known-fail ledger, не исправлялись.
 
-☁ **Готово к автономному облачному прогону (2026-08-08).** Routine раз в 6 часов при выключенной
-машине владельца; промпт и подготовка — `docs/routines/continue-sintezdiharea.md`.
+☁ **Автономный облачный прогон ИДЁТ (routine раз в 6 часов, машина владельца выключена).**
+Промпт/подготовка — `docs/routines/continue-sintezdiharea.md`.
 - Установка в облаке: `pip install -e ".[cloud]"` (~40МБ, без ML-стека).
-- **Две базовые линии:** облако — `1415 passed, 7 skipped`; локально с ML — `1459 passed, 3 skipped`.
-  Разница — три файла ML-тестов, которые в облаке не собираются (`pytest.importorskip`). Это норма.
-- Для этого убраны три eager-импорта ML: `WhisperRunner` на верхнем уровне `orchestrator`,
-  создание ASR-runner в `Orchestrator.__init__` (теперь ленивое свойство), `_ref_fingerprint`
-  вынесен в `artifacts.py`. Мерилось заглушкой torch, а не предполагалось: до правок было
-  5 несобираемых файлов и 57 падений.
+- Для cloud-совместимости убраны три eager-импорта ML: `WhisperRunner` на верхнем уровне
+  `orchestrator`, создание ASR-runner в `Orchestrator.__init__` (теперь ленивое свойство),
+  `_ref_fingerprint` вынесен в `artifacts.py`.
 - **Ограничение:** S0-регресс утечки reference-эмбеддинга в облаке покрыт частично — сторож
   в `_diarize_batch` проверяется, сам runner нет.
 
-**Следующие по критическому пути:** T-02 (документные ревизии под CP-0) → T-03 (tenant identity
-и ownership API) → T-04 (SQLite UoW) → T-20 (verified backup) → T-05 (versioned schema).
-Порядок обязателен: T-05 не запускать на боевых данных до рабочего T-20.
+**State (2026-08-10) — первый реальный автономный прогон, baseline пересчитан с чистого venv:**
+- **Прежнее число «1415 passed, 7 skipped, 0 failed» НЕ было воспроизведено с нуля** — на
+  ЧИСТОМ `pip install -e ".[cloud]"` (не унаследованном venv) обнаружено 14 failed. Все три
+  причины — реальные дефекты, не флейки (детали и root cause — CHANGELOG 2026-08-10):
+  1. **CRITICAL, исправлено:** `ops/backup.py::restore_backup` реплеил stale `-wal`/`-shm`
+     sidecar живой БД поверх свежевосстановленного файла — восстановление молча откатывалось
+     к старому содержимому. T-20-гейт («T-05 на боевых данных без верифицированного backup
+     не запускать») фактически не работал с момента закрытия T-20. Fix: unlink sidecar-файлов
+     после `os.replace`, ДО первого открытия восстановленного файла.
+  2. **Исправлено:** `pytest-asyncio` не был объявлен в `dev`/`cloud` extras — 12 async-тестов
+     падали на любой машине без глобально предустановленного пакета. Добавлен в оба extra.
+  3. **Исправлено (тест, не код):** `test_path_traversal_confined_to_incoming_dir` (M5)
+     кодировал Windows-специфичную нормализацию `\`-traversal как платформонезависимую —
+     реальной уязвимости нет ни на одной платформе (containment держится отдельным
+     platform-independent тестом), помечен `skipif` не-Windows.
+- **НОВЫЙ воспроизводимый baseline (чистый venv, `pip install -e ".[cloud]"`):
+  `1458 passed, 4 skipped, 0 failed`.** Полный ML-стек не переустанавливался в эту сессию
+  (не требуется для облачных задач) — соотношение к локальному прогону не переизмерено.
+- **T-07 (durable jobs/attempts/retry state machine) — следующая задача critical path,
+  НЕ взята в этот прогон** (блокеры T-04/T-05/T-08/T-10 закрыты, но сама задача — полная
+  замена integer-stage-as-truth на state machine с lease/heartbeat/retry-scheduler — слишком
+  велика для одного вертикального среза после починки baseline). Следующий запуск routine
+  должен начать именно с T-07: transition table + `next_retry_at`/backoff+jitter в
+  `retry_errors()` (сейчас `get_error_calls`/`retry_errors` — immediate retry без backoff,
+  ровно симптом, названный в T-07 Why) — хороший первый вертикальный срез, не требует полной
+  замены `pipeline_stage`.
+
+**Следующие по критическому пути:** T-07 (durable jobs/retry, backbone уже свободен) → T-08/T-11
+параллельно → T-12 (GPU coordinator) → T-13..T-16 (LLM/analysis chain, T-13 уже закрыт) → T-17/T-18.
 
 ---
 

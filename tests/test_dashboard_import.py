@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -46,6 +47,17 @@ class TestSaveIncomingAudio:
         assert (incoming / "call.mp3").read_bytes() == b"fake audio bytes"
         assert not (incoming / "call.mp3.part").exists()
 
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason=(
+            "backslash-as-separator normalization is native-Windows behavior "
+            "(pathlib.WindowsPath); on POSIX '\\' is a literal filename "
+            "character, so Path(name).name does not strip it. Production "
+            "target is Windows-only (CLAUDE.md Hard Constraints) — the "
+            "containment invariant itself (test_path_traversal_unix_style) "
+            "is platform-independent and still runs everywhere."
+        ),
+    )
     def test_path_traversal_confined_to_incoming_dir(self, db_and_incoming):
         db_path, incoming = db_and_incoming
         result = save_incoming_audio(db_path, "me", "..\\..\\evil.mp3", b"x")

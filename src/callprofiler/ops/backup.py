@@ -319,6 +319,15 @@ def restore_backup(
     tmp = to_p.with_name(to_p.name + ".part")
     shutil.copyfile(backup_path, tmp)
     os.replace(tmp, to_p)
+    # os.replace only swaps the main db file. A `-wal`/`-shm` sidecar left
+    # over from whatever was previously at to_p belongs to that OLD file's
+    # WAL generation, not to the just-restored content — but WAL mode
+    # (connection.py: every connection sets journal_mode=WAL) replays any
+    # `-wal` file it finds next to the db file regardless of whether it
+    # actually matches, silently reverting the restore back to the old
+    # content on first open. Drop both before anything reads to_p.
+    Path(str(to_p) + "-wal").unlink(missing_ok=True)
+    Path(str(to_p) + "-shm").unlink(missing_ok=True)
 
     problems: list[str] = []
     try:

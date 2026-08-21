@@ -6,6 +6,57 @@
 
 ---
 
+### Fixed — restore_backup молча откатывал восстановление (stale WAL sidecar); baseline верифицирован с нуля (2026-08-10)
+- **Задача:** первый автономный прогон `docs/sintezdiharea.md` в облаке. Перед выбором задачи по
+  critical path (§9.1) поднял `pip install -e ".[cloud]"` в ЧИСТОМ venv (не унаследованном от
+  предыдущей сессии) — сам T-00 требует, чтобы baseline был воспроизводим, а не измерен на
+  ручном состоянии одной машины. На чистом venv: **14 failed** вместо задокументированных
+  «1415 passed, 7 skipped, 0 failed». Три независимых дефекта, все — реальные, не флейки.
+- **CRITICAL — `ops/backup.py::restore_backup` не восстанавливал файл** (найдено тестом
+  `test_backup.py::test_restore_overwrite_snapshots_current_state_first`, само не флейк —
+  воспроизводится 100% детерминированно). Root cause (non-obvious): `restore_backup` делает
+  `os.replace(tmp, to_p)`, заменяя ТОЛЬКО главный файл БД. Если на месте `to_p` до этого стояла
+  live БД в WAL-режиме (а `connection.py` включает `journal_mode=WAL` на КАЖДОМ соединении,
+  включая read-only reader) — её `-wal`/`-shm` sidecar-файлы остаются на диске нетронутыми.
+  SQLite при следующем открытии `to_p` видит `-wal` рядом и реплеит его поверх свежевосстановленных
+  страниц — восстановление молча откатывается обратно к СТАРОМУ содержимому. Тест это ловил:
+  `result.ok=False` (собственная post-restore верификация `restore_backup` детектирует
+  несовпадение counts), но сам факт, что restore ломается на каждом реальном overwrite-сценарии
+  с живой WAL-БД, означает: **T-20 «verified backup/restore» гейт для T-05-миграций на боевых
+  данных был неработающим** с момента закрытия T-20 (never caught — CI/локальный прогон никогда
+  не пересобирал venv с нуля, только PIP-кэш той же машины, где sidecar-файлов могло не быть
+  случайно). Fix: после `os.replace` явно `unlink(missing_ok=True)` `to_p`-wal/-shm ПЕРЕД любым
+  открытием восстановленного файла — 3 строки, `src/callprofiler/ops/backup.py`. Regression:
+  существующий тест (не добавлял новый — он уже был написан правильно, просто никогда не
+  проходил на чистом окружении); проверено revert-ом фикса — падает предсказуемо тем же assertion.
+- **`pytest-asyncio` не был объявлен зависимостью** (12 из 14 failed) — `tests/test_event_bus.py`
+  (6) и `tests/test_dashboard_tools.py::TestAsyncOperations` (4) + 2 в `test_dashboard_request_scoped.py`
+  используют `@pytest.mark.asyncio`, но ни `dev`, ни `cloud` extra в `pyproject.toml` его не
+  перечисляли — на любой машине, где пакет НЕ стоит глобально по случайности, весь async-тест-класс
+  падает с "async def functions are not natively supported". Тот же класс проблемы, что и сам
+  T-00 (окружение как ручное состояние машины, не манифест). Fix: `pytest-asyncio>=0.24.0` добавлен
+  в `dev` и `cloud` extras.
+- **`test_path_traversal_confined_to_incoming_dir` (M5, security-sensitive) кодирует
+  Windows-специфичную нормализацию как платформонезависимую.** `_resolve_incoming_dst` режет
+  traversal через `Path(filename).name` — на Windows (`WindowsPath`) `\` это разделитель, тест
+  ожидает `"..\\..\\evil.mp3"` → `"evil.mp3"`. На POSIX (эта cloud-машина) `\` — литеральный
+  символ имени файла, `.name` возвращает строку целиком. **Реальной уязвимости это НЕ создаёт**
+  (без `/` строка не может выйти за пределы `incoming_dir` ни на одной платформе — единственный
+  path-separator, который имеет значение на POSIX, это `/`, и он покрыт отдельным
+  `test_path_traversal_unix_style`, который проходит везде). Production — Windows-only (Hard
+  Constraint), поэтому защита реальна на целевой платформе. Fix: `@pytest.mark.skipif(sys.platform
+  != "win32", ...)` — платформенно-специфичная часть теста, не удалена, не ослаблена; инвариант
+  containment (`saved_file.resolve().parent == incoming.resolve()`) остаётся частью того же теста
+  и запускался бы на Windows-раннере, если бы он был.
+- **Итог, воспроизведено на чистом venv (`pip install -e ".[cloud]"`, ноль ML-пакетов):
+  1458 passed, 4 skipped, 0 failed** (было в CONTINUITY «1415/7/0» — то число НЕ было
+  воспроизведено с нуля перед публикацией; текущее — воспроизведено). Пропущено: 3 ML-runner-теста
+  (`pytest.importorskip("torch")`) + 1 новый Windows-only skip выше.
+- **Осознанно НЕ взято в этот прогон:** T-07 (durable jobs/attempts/retry state machine,
+  critical path после T-05) — задача слишком велика для одного вертикального среза с оставшимся
+  бюджетом сессии после починки baseline; следующий запуск routine должен начать именно с неё
+  (T-04/T-05/T-08/T-10 её блокеры уже закрыты).
+
 ### Changed — подготовка к автономному облачному прогону без ML-стека (2026-08-08)
 - Задача: routine раз в 6 часов в облаке при **выключенной** машине владельца. Измерено, а не
   предположено: с заглушкой, ломающей импорт `torch`, suite падал — **5 файлов не собирались,

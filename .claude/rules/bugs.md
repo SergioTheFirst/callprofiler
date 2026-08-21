@@ -116,6 +116,42 @@ None currently identified.
 
 ## Recent Fixes (Closed)
 
+✅ **CRITICAL: `restore_backup` молча откатывал восстановление — stale `-wal`/`-shm` sidecar реплеился поверх свежего файла** (2026-08-10)
+- **Root cause (non-obvious):** `connection.py::ConnectionFactory._base_connect` ставит
+  `PRAGMA journal_mode=WAL` на КАЖДОМ соединении, включая read-only reader. `restore_backup`
+  (`ops/backup.py`) заменяет БД-файл через `shutil.copyfile(backup_path, tmp); os.replace(tmp,
+  to_p)` — это трогает ТОЛЬКО главный файл. Если на месте `to_p` раньше стояла live БД в
+  WAL-режиме, её `-wal`/`-shm` sidecar-файлы остаются на диске нетронутыми (`os.replace`
+  переименовывает один конкретный inode, не трогает соседние файлы). При первом же открытии
+  восстановленного `to_p` (в т.ч. собственной пост-restore верификацией `_inspect`) SQLite видит
+  рядом `-wal` и реплеит его кадры поверх свежих страниц — восстановление тихо откатывается
+  к СТАРОМУ содержимому. Не крэш, а неверный результат — `restore_backup` его всё-таки ловил
+  (`result.ok=False` из-за несовпадения `table_counts` с манифестом бэкапа), но это означает,
+  что T-20-гейт («T-05 на боевых данных без верифицированного backup не запускать»,
+  decisions.md) был фактически неработающим — любой overwrite-restore живой БД проваливался.
+- **Почему не ловилось раньше:** тест (`test_backup.py::test_restore_overwrite_snapshots_current_state_first`)
+  существовал и был написан верно, но ни один прогон до 2026-08-10 не пересобирал venv с нуля —
+  локальный/CI venv, где пакет уже был установлен когда-то, мог случайно не иметь sidecar-файлов
+  на месте (например если ОС уже успела checkpoint'нуть и удалить `-wal` живой БД к моменту
+  теста). Найдено ТОЛЬКО когда `pip install -e ".[cloud]"` был выполнен в гарантированно пустой
+  venv (T-00 требует именно этого — «CONTINUITY.md counters воспроизводимы только на одной
+  машине» — ровно тот класс проблемы, которым сам этот баг и оказался).
+- **Fix:** после `os.replace(tmp, to_p)` — явный `Path(str(to_p)+"-wal").unlink(missing_ok=True)`
+  + `-shm` аналогично, ДО любого чтения `to_p` (включая собственную пост-restore верификацию).
+  3 строки, `src/callprofiler/ops/backup.py::restore_backup`.
+- **Regression:** существующий `test_backup.py::test_restore_overwrite_snapshots_current_state_first`
+  (не добавлял новый тест — он уже проверял ровно это, просто никогда не проходил на чистом
+  окружении). Проверено revert-ом фикса: падает предсказуемо тем же assertion mismatch.
+- **Status:** RESOLVED (2026-08-10), полный suite на чистом venv 1458 passed/4 skipped/0 failed.
+
+✅ **`pytest-asyncio` не объявлен зависимостью — 12 async-тестов падают на чистом venv** (2026-08-10)
+- **Root cause:** `tests/test_event_bus.py` + `tests/test_dashboard_tools.py::TestAsyncOperations` +
+  2 теста в `test_dashboard_request_scoped.py` используют `@pytest.mark.asyncio`, но ни `dev`,
+  ни `cloud` extra в `pyproject.toml` пакет не перечисляли — работало только там, где он стоял
+  глобально по случайности той конкретной машины.
+- **Fix:** `pytest-asyncio>=0.24.0` добавлен в `dev` и `cloud` extras (`pyproject.toml`).
+- **Status:** RESOLVED (2026-08-10).
+
 ✅ **S0: reference embedding протекал между профилями — `load()` был идемпотентен «по факту загрузки», а не «по ref»** (2026-08-08)
 - **Root cause (non-obvious):** `pyannote_runner.load()` начинался с `if self.pipeline is not None: return`,
   а `self.ref_embedding = self._build_ref_embedding(...)` стоял в САМОМ КОНЦЕ метода. Отдельно каждая
