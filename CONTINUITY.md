@@ -48,6 +48,11 @@ workflow наконец ставит пакет (`pip install -e ".[cloud]"`) п
 `5c0cb79`, 13 call sites остались → `biography-run` падал NameError на каждом проходе (bugs.md
 2026-08-21, regression `test_biography_prompts_smoke.py`). CI-гейт F821 теперь держать зелёным.
 
+**CLAUDE.md + AGENTS.md переписаны 2026-08-21** под текущее дерево (были: «15 шагов», «90 тестов»,
+`RISKS.md`, `serhio`, глобальный torch-патч, T1=sonnet vs Opus-противоречие). Теперь: входная точка
+`docs/sintezdiharea.md`, CP-0, миграции через `ALL_MIGRATIONS`, `[dev,full]`/`[cloud]`, ruff-гейт F821,
+правило «один PR/одна сессия» + revert-протокол. `db.md` схема-правило приведено к T-05.
+
 **Аудит статуса плана 2026-08-21 (16 агентов по коду, не по ledger; T-01/T-02/T-10/T-13 —
 ручная сверка):** 11/26 закрыты подтверждено (42%), 15 осталось. Три «закрытых» с дырками:
 - **T-18:** `dashboard/tools.py::_reprocess_sync` → `repo.get_error_calls(max_retries)` БЕЗ

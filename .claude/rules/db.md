@@ -3,7 +3,11 @@
 - SQLite only. No ORM. Use `sqlite3` directly.
 - Every SELECT/UPDATE/DELETE MUST have `WHERE user_id = ?`.
 - contact_id can be NULL (unknown callers) — handle gracefully, no FK crash.
-- Schema changes: ALTER TABLE, never recreate. Update schema.sql to match.
+- Schema changes (T-05, 2026-08-08): новая запись в `db/migrations.py::ALL_MIGRATIONS`
+  (ordered, checksummed, журнал в БД; `Repository._migrate()` зовёт `apply_migrations`). Применённую
+  миграцию НЕ править — checksum-mismatch падает громко намеренно. `schema.sql` держать в sync
+  (свежая БД = schema.sql + все миграции no-op). Recreate таблиц запрещён.
+  Restore боевой БД — только `backup`/`verify-backup`/`restore` (`ops/backup.py`, T-20).
 - Transactions for batch operations (bulk-load, bulk-enrich).
 - FTS5 index on transcripts for full-text search.
 - Integer milliseconds for all timestamps in segments.
