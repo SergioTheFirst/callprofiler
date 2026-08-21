@@ -38,19 +38,34 @@ ML-стека» (2026-08-08) была измерена НЕВЕРНО.** `pip in
 0 failed**. Числа не изменились относительно заявленных 2026-08-08, но теперь действительно
 верны — раньше были недоказаны.
 
-**PR #18 (эта работа) открыт против `main`, CI `test (3.10)`/`test (3.11)` красные — НЕ из-за
-диффа PR.** `.github/workflows/ci.yml:27`: `apt-get install -y ffmpeg ffprobe` падает
-(`E: Unable to locate package ffprobe`) — `ffprobe` не отдельный apt-пакет, идёт внутри `ffmpeg`.
-Подтверждено идентично на `origin/main` (файл не в диффе PR) — сломано для ЛЮБОГО будущего
-PR/push, не регресс этой сессии. Однострочный фикс предложен в комментарии PR, НЕ запушен в
-рамках этого PR (вне его скоупа). Следующая сессия: если владелец не против — отдельным
-маленьким коммитом снять `ffprobe` из строки 27.
+**PR #18 ВЛИТ в `main` 2026-08-21 (`b17629c`), PR #17 закрыт как superseded** (две облачные
+сессии в один день сделали один и тот же WAL-sidecar фикс; #18 — строгое надмножество #17:
++ extra `full`, + `tools.py` traversal-нормализация). Ветка `claude/adoring-mendel-b281nh`
+больше не нужна. CI `test (3.10)`/`test (3.11)` красные НЕ из-за диффа:
+`.github/workflows/ci.yml:27` `apt-get install -y ffmpeg ffprobe` — `ffprobe` не apt-пакет,
+идёт внутри `ffmpeg`; сломано для любого PR/push. Однострочный фикс ещё не запушен (owner
+decision: починить или удалить workflow, если его заменил routine).
 
-T-07 (durable jobs/attempts/retry-backoff, следующая задача критического пути §9.1 —
-зависимости T-04/T-05 закрыты) **не начата**: вся ёмкость сессии ушла на закрытие найденных
-дефектов (протокол ПРОВЕРКА — «нашёл, чини сам» важнее взятия новой задачи). T-06 (purge
-manifest, design-параллель W1) тоже не начата. Следующая сессия: либо взять T-07 (P0, крупная —
-job/attempt state machine поверх `pipeline_stage`, брать вертикальным срезом), либо T-06.
+**Аудит статуса плана 2026-08-21 (16 агентов по коду, не по ledger; T-01/T-02/T-10/T-13 —
+ручная сверка):** 11/26 закрыты подтверждено (42%), 15 осталось. Три «закрытых» с дырками:
+- **T-18:** `dashboard/tools.py::_reprocess_sync` → `repo.get_error_calls(max_retries)` БЕЗ
+  `user_id` + `Orchestrator.retry_errors()` без user-scope → кнопка «Reprocess» в дашборде
+  ретраит error-звонки ВСЕХ профилей. На одно-профильном боксе безвредно, DoD T-18 («только
+  выбранный call/user») нарушен. Маленький фикс: прокинуть `user_id` в оба.
+- **T-08:** `deliver/card_generator.py:332` пишет карточку `Path.write_text` напрямую, мимо
+  `artifacts.atomic_write_text` — частичный артефакт виден при краше; теста нет.
+- **T-20/T-04 (ledger сам признаёт):** чек backup в `doctor` не добавлен; ~60 безусловных
+  `commit()` вне `repository.py`.
+Частичная подложка у «незакрытых» (не ноль): T-06 `purge_user` покрывает 12 таблиц, но нет
+манифеста артефактов/удаления файлов, `llm_calls`/`ask_log`/`reminders` не чистятся; T-07
+`retry_errors` = immediate retry, нет `next_retry_at`/backoff; T-12 только `_unload_models()`,
+нет координатора/state machine; T-14 `prompt_budget.py` клип есть, нет `PromptInput`/envelope/
+owner-alias из профиля; T-15 парсер tolerant-repair (обратное strict-схеме). T-11/T-16/T-17/
+T-19/T-21/T-22/T-23/T-24/T-25 ≈ ноль.
+
+**Следующий шаг: T-07** (durable jobs/attempts/retry-backoff, P0, зависимости T-04/T-05 закрыты;
+брать вертикальным срезом — transition table + `next_retry_at`/backoff+jitter в `retry_errors()`),
+попутно закрыть T-18 `user_id` в reprocess (тот же `retry_errors`). Альтернатива — T-06.
 
 **State (2026-08-08) — ИСПОЛНЕНИЕ `docs/sintezdiharea.md`, оркестрация:**
 
