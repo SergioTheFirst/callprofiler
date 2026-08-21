@@ -320,6 +320,15 @@ def restore_backup(
     shutil.copyfile(backup_path, tmp)
     os.replace(tmp, to_p)
 
+    # Stale -wal/-shm sidecars belong to whatever was PREVIOUSLY at to_p (the
+    # file we just discarded), not to the freshly restored content. Opening
+    # to_p with them still present risks SQLite replaying the old WAL frames
+    # onto the new file — observed as counts silently reverting to the
+    # pre-restore state (bugs.md WAL class, .claude/rules/db.md). Drop them so
+    # the restored file starts a brand-new WAL on next open.
+    for suffix in ("-wal", "-shm"):
+        Path(str(to_p) + suffix).unlink(missing_ok=True)
+
     problems: list[str] = []
     try:
         inspection = _inspect(to_p)

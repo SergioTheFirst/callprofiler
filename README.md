@@ -55,8 +55,12 @@ cd callprofiler
 ### 2. Установка пакета
 
 ```bash
-pip install -e . --break-system-packages
+pip install -e ".[full]" --break-system-packages
 ```
+
+`full` = ML/audio-стек (torch/faster-whisper/pyannote.audio/soundfile/librosa) — нужен
+только на боевом боксе. Для облачного/CI-прогона без GPU есть extra `cloud`
+(без ML-стека) — см. `pyproject.toml`.
 
 ### 3. Переменные окружения
 

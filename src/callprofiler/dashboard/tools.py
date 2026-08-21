@@ -34,7 +34,12 @@ def _resolve_incoming_dst(db_path: str, user_id: str, filename: str) -> Path | d
     """
     import sqlite3
 
-    name = Path(filename).name
+    # Backslash is a path separator on Windows (prod target) but a plain
+    # character on POSIX — Path(filename).name alone only strips it on
+    # Windows. Normalize first so traversal like "..\\..\\evil.mp3" is
+    # contained to its basename on every platform this runs on (dev/CI/cloud
+    # are POSIX; only the box is Windows — dev/run split, CLAUDE.md).
+    name = Path(filename.replace("\\", "/")).name
     if not name:
         return {"error": "invalid filename"}
     if Path(name).stem.upper() in _WINDOWS_RESERVED_NAMES:
