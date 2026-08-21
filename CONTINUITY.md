@@ -41,10 +41,12 @@ ML-стека» (2026-08-08) была измерена НЕВЕРНО.** `pip in
 **PR #18 ВЛИТ в `main` 2026-08-21 (`b17629c`), PR #17 закрыт как superseded** (две облачные
 сессии в один день сделали один и тот же WAL-sidecar фикс; #18 — строгое надмножество #17:
 + extra `full`, + `tools.py` traversal-нормализация). Ветка `claude/adoring-mendel-b281nh`
-больше не нужна. CI `test (3.10)`/`test (3.11)` красные НЕ из-за диффа:
-`.github/workflows/ci.yml:27` `apt-get install -y ffmpeg ffprobe` — `ffprobe` не apt-пакет,
-идёт внутри `ffmpeg`; сломано для любого PR/push. Однострочный фикс ещё не запушен (owner
-decision: починить или удалить workflow, если его заменил routine).
+удалена (remote+local). **CI на `main` ЗЕЛЁНЫЙ впервые за всю историю** (`40c2435`, run
+32521306660, все 5 jobs): починен `apt-get install ffprobe` (не пакет, внутри `ffmpeg`) +
+workflow наконец ставит пакет (`pip install -e ".[cloud]"`) перед pytest. Как только CI дошёл
+до `flake8 F821` — нашёл реальный прод-баг: `BUDGETS` в `biography/prompts.py` удалён в
+`5c0cb79`, 13 call sites остались → `biography-run` падал NameError на каждом проходе (bugs.md
+2026-08-21, regression `test_biography_prompts_smoke.py`). CI-гейт F821 теперь держать зелёным.
 
 **Аудит статуса плана 2026-08-21 (16 агентов по коду, не по ledger; T-01/T-02/T-10/T-13 —
 ручная сверка):** 11/26 закрыты подтверждено (42%), 15 осталось. Три «закрытых» с дырками:
