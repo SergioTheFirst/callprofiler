@@ -98,6 +98,19 @@
 - **НОВЫЙ воспроизводимый baseline (чистый venv, `pip install -e ".[cloud]"`):
   `1458 passed, 4 skipped, 0 failed`.** Полный ML-стек не переустанавливался в эту сессию
   (не требуется для облачных задач) — соотношение к локальному прогону не переизмерено.
+- **PR #17 открыт, а не прямой push в `main`** — эта cloud-сессия работает под харнесс-требованием
+  `Develop on branch claude/adoring-mendel-b281nh` + обязательный PR-workflow (конфликтует с
+  «push в main без веток», решает специфика запуска, не CLAUDE.md-политика проекта). PR подписан
+  на события (`subscribe_pr_activity`), CI на нём смотрится автоматически.
+- **`.github/workflows/ci.yml` красный на `main` абсолютно на каждом коммите** (проверено —
+  десятки последних ranов, все `conclusion: failure`), НЕ вина этой сессии: `apt-get install
+  ffmpeg ffprobe` падает (`ffprobe` не apt-пакет, он внутри `ffmpeg`) ДО того, как Python вообще
+  стартует; сам workflow к тому же никогда не делал `pip install -e .` перед `pytest` — выглядит
+  заброшенным, написан до перехода на `pyproject.toml`-экстры/cloud-baseline. Не чинил — не
+  относится к диффу этой сессии, а оживление мёртвого workflow это отдельное решение. Кандидат
+  для отдельной T0/T1-задачи: заменить на `pip install -e ".[cloud]"` + `pytest -q` + починка
+  apt-строки, ЛИБО удалить workflow если он больше не нужен (owner decision — возможно replaced
+  by routine).
 - **T-07 (durable jobs/attempts/retry state machine) — следующая задача critical path,
   НЕ взята в этот прогон** (блокеры T-04/T-05/T-08/T-10 закрыты, но сама задача — полная
   замена integer-stage-as-truth на state machine с lease/heartbeat/retry-scheduler — слишком
