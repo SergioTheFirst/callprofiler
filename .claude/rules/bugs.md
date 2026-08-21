@@ -116,6 +116,22 @@ None currently identified.
 
 ## Recent Fixes (Closed)
 
+✅ **biography-run падал NameError на КАЖДОМ проходе — `BUDGETS` удалён как «legacy», 13 call sites остались** (2026-08-21)
+- **Root cause (non-obvious):** коммит `5c0cb79` («tech-debt cleanup») снёс словарь `BUDGETS`
+  (`biography/prompts.py`, помечен TODO «удалить после миграции на `calculate_dynamic_budget`»),
+  но миграции не было — все 9 `build_*_prompt` по-прежнему делают `BUDGETS[pass].trim_one/
+  allocate/max_chars`. `calculate_dynamic_budget()` — отдельный опциональный скейлер, не замена.
+- **Почему не ловилось:** ни один тест не импортировал `biography.prompts` (passes тестируются
+  через моки LLM выше по стеку) → suite зелёный, а реальный `biography-run` на боксе упал бы на
+  первом же промпте. Найдено ТОЛЬКО когда CI впервые дошёл до `flake8 --select F821` (до
+  2026-08-21 workflow умирал на `apt-get install ffprobe`, см. CONTINUITY). Тот же класс, что
+  «зелёные тесты ≠ доказательство» (decisions.md 2026-06-06).
+- **Fix:** словарь восстановлен из `5c0cb79^` как есть. Regression: `tests/test_biography_prompts_smoke.py`
+  (ключи `BUDGETS` == `PASS_OUTPUT_RESERVES` + реальные вызовы 4 билдеров; проверено revert-ом).
+  Попутно `bulk/name_extractor.py:211` `logger.info` → `log.info` (второй F821, dry-run путь).
+- **Урок:** CI-гейт `F821` теперь реально работает — держать зелёным, он ловит именно этот класс.
+- **Status:** RESOLVED (2026-08-21).
+
 ✅ **T-20: restore_backup не чистил -wal/-shm назначения — restore молча откатывал данные к состоянию ДО restore** (2026-08-21)
 - **Root cause (non-obvious):** `restore_backup()` подменяет основной файл БД атомарно
   (`shutil.copyfile` во временный `.part` + `os.replace`), но `os.replace` трогает только один

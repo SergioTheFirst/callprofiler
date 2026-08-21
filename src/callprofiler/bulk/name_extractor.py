@@ -208,7 +208,7 @@ class NameExtractor:
         updated = 0
         for contact_id, candidate in guesses.items():
             if dry_run:
-                logger.info(
+                log.info(
                     "[dry-run] contact_id=%d → '%s' (%d)", contact_id, candidate.name, candidate.confidence
                 )
             else:
