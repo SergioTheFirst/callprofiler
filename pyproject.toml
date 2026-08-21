@@ -7,21 +7,8 @@ name = "callprofiler"
 version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
-    # ВНИМАНИЕ: torch и numpy НАМЕРЕННО без нижней границы.
-    # Целевая машина (GPU-бокс) работает на Python 3.12 + torch==2.6.0+cu124
-    # (CLAUDE.md Hard Constraints, requirements-gigaam.txt, bugs.md B1 2026-06-03).
-    # Floor, снятый с dev-машины (torch 2.9.1, CPU-only), ИСКЛЮЧИЛ БЫ боевое
-    # окружение: `pip install -e .` на боксе потянул бы апгрейд torch и снёс бы
-    # CUDA-сборку — ровно тот класс отказа, который стоил целого прогона.
-    # numpy связан с torch-сборкой, поэтому тоже не ограничиваем здесь.
-    # Точные версии рантайма фиксирует requirements-gigaam.txt, не этот манифест.
-    "torch",
-    "faster-whisper",
-    "pyannote.audio",
     "pyyaml>=6.0.3",
     "numpy",
-    "soundfile",
-    "librosa",
     "requests>=2.34.2",
     "fastapi>=0.122.0",
     "uvicorn>=0.38.0",
@@ -33,28 +20,44 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.4.2",
+    "pytest-asyncio>=0.24",
     "ruff>=0.15.5",
+]
+
+# ML/audio-стек боевого GPU-бокса (ASR/диаризация). Ставить: pip install -e ".[full]"
+#
+# ВНИМАНИЕ: torch НАМЕРЕННО без нижней границы. Целевая машина (GPU-бокс) работает
+# на Python 3.12 + torch==2.6.0+cu124 (CLAUDE.md Hard Constraints,
+# requirements-gigaam.txt, bugs.md B1 2026-06-03). Floor, снятый с dev-машины
+# (torch 2.9.1, CPU-only), ИСКЛЮЧИЛ БЫ боевое окружение: установка на боксе потянула
+# бы апгрейд torch и снесла бы CUDA-сборку — ровно тот класс отказа, который стоил
+# целого прогона. Точные версии рантайма фиксирует requirements-gigaam.txt, не этот extra.
+full = [
+    "torch",
+    "faster-whisper",
+    "pyannote.audio",
+    "soundfile",
+    "librosa",
 ]
 
 # Набор для облачного/CI-прогона БЕЗ ML-стека (нет GPU, нет моделей, нет аудио).
 # Ставить: pip install -e ".[cloud]"
 #
-# Что реально происходит без torch/pyannote.audio/faster-whisper/librosa/soundfile:
-# suite ЗЕЛЁНЫЙ — измерено: 1415 passed, 7 skipped, 0 failed. Три файла
-# (test_pyannote_runner, test_whisper_runner, test_pyannote_ref_isolation) не
-# собираются вовсе — module-level pytest.importorskip: они тестируют сами
-# ML-runner'ы, там torch нужен по существу. Всё остальное,
-# включая пайплайн, БД, дашборд, LLM-транспорт и сторож reference-эмбеддинга
-# (test_orchestrator_roles), проходит: ML-импорты ленивые (P-OPS-03/T-01, ленивая
-# фабрика ASR-runner'ов, отпечаток файла вынесен в artifacts.py).
+# ВАЖНО (T-01-fix, 2026-08-21): extras в pip ТОЛЬКО ДОБАВЛЯЮТ пакеты к обязательным
+# `dependencies` — они не могут ИСКЛЮЧИТЬ базовую зависимость. Пока torch/pyannote.audio/
+# faster-whisper/soundfile/librosa жили в `dependencies` (см. `full` выше), сам факт
+# существования extra `cloud` был бессилен их убрать: `pip install -e ".[cloud]"`
+# всё равно тянул полный ML-стек. Прежняя заметка "измерено: 1415 passed..." была
+# измерена СИМУЛЯЦИЕЙ отсутствия torch (заглушка импорта), а не реальной установкой
+# через эту команду — поэтому расхождение не всплыло. Перепроверено реальным
+# `pip install -e ".[cloud]"` в чистом venv (2026-08-21): pyproject ниже действительно
+# не тянет ML/audio-пакеты, только когда они убраны из `dependencies`.
 #
-# ЗНАЙ ОБ ЭТОМ: полное покрытие S0-регресса утечки reference-эмбеддинга (T-10)
-# есть только там, где ML-стек установлен. В облаке работает лишь его часть.
-#
-# Цена вопроса: ~40МБ и секунды установки вместо нескольких гигабайт и минут —
-# существенно при запуске раз в 6 часов.
+# Этот extra сам по себе избыточен (то же самое, что база + `dev`), оставлен явным
+# для читаемости команды и на случай, если в `dependencies` позже вернётся что-то тяжёлое.
 cloud = [
     "pytest>=8.4.2",
+    "pytest-asyncio>=0.24",
     "ruff>=0.15.5",
     "pyyaml>=6.0.3",
     "numpy",
@@ -73,3 +76,5 @@ where = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+asyncio_mode = "strict"
+markers = ["unit: fast, no I/O", "asyncio: pytest-asyncio-run test"]

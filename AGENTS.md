@@ -139,7 +139,9 @@ callprofiler/
 
 ```bash
 # Установка зависимостей (целевая машина — Windows, системный Python)
-pip install -e . --break-system-packages
+# full = ML/audio-стек (torch/faster-whisper/pyannote.audio/soundfile/librosa);
+# для облачного/CI-прогона без GPU используется extra cloud вместо full (pyproject.toml).
+pip install -e ".[full]" --break-system-packages
 
 # Запуск всех тестов (должно быть 90 pass)
 pytest tests/ -v

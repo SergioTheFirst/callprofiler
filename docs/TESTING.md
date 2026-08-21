@@ -3,16 +3,23 @@
 ## Setup from zero
 
 ```
-python -m pip install -e .[dev]
+python -m pip install -e .[dev,full]
 ```
 
-`torch`/`pyyaml`/`numpy`/etc. install from `pyproject.toml` lower bounds (pinned
-to what's verified working — see `requirements-lock.txt` for the exact dev-machine
-snapshot). `pytest`/`ruff` come from the `dev` extra.
+`torch`/`pyannote.audio`/`faster-whisper`/`soundfile`/`librosa` come from the `full`
+extra (pinned to what's verified working — see `requirements-lock.txt` for the exact
+dev-machine snapshot); `pyyaml`/`numpy`/etc. are unconditional `dependencies`.
+`pytest`/`ruff` come from the `dev` extra. `full` is a separate extra (not part of
+`dependencies`) precisely so a cloud/CI runner can skip it — see `.[cloud]` below;
+pip extras only ADD packages, they cannot subtract from `dependencies`, so the ML
+stack had to live in its own extra rather than the base list.
 
 GPU-box only (ASR/diarization roles) — NOT needed to run the test suite, which
 runs fully mocked/offline: see `requirements-gigaam.txt` (needs Python 3.12 for
-CUDA wheels).
+CUDA wheels). Without `full`, module-level `pytest.importorskip("torch")` skips the
+3 files that test the ML runners themselves (`test_pyannote_runner`,
+`test_whisper_runner`, `test_pyannote_ref_isolation`) — everything else runs.
+Cloud/CI without GPU: `python -m pip install -e .[cloud]` (~40MB, no ML/audio deps).
 
 ## Run tests
 
