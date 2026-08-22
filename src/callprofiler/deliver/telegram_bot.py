@@ -1067,8 +1067,8 @@ class TelegramNotifier:
 
         def run_polling():
             try:
-                logger.info("Запуск Telegram-бота (long polling, token: %s...)",
-                           self.token[:10])
+                logger.info("Запуск Telegram-бота (long polling, token: %s)",
+                           "задан" if self.token else "ПУСТОЙ")  # T-17: ни фрагмента токена в логах
 
                 self.app = (
                     Application.builder().token(self.token)
