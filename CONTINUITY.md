@@ -35,6 +35,11 @@ BS-research — отложен владельцем (справка `docs/resear
 bs-research-sol.md`).
 
 **Next:**
+0. **BS-v2 (T-26) — `docs/100bsindex.md`** (2026-08-22): владелец дал `docs/GPT90-execution-plan.md` как
+   авторитетный план радикального обновления BS-индекса + уверенности; план сверен с кодом (§0.1: migration
+   11→**12**, prompt-candidate v002→**v003**, purge-совместимый snapshot-trigger + 11 якорных правок) и
+   переписан как план прямого исполнения R-01…R-52. Старт — **Phase A, R-01** (M12 schema, T2). Параллельно
+   с п.1 (канарейка) не запускать на боксе — R-42 расширит чек-лист.
 1. **Бокс — канарейка серии:** `docs/ops/box-canary-checklist.md` по шагам (backup → миграции → canary
    v002 → строгий анализ 50 звонков → ASR-покрытие → GPU-барьер → backoff → purge на копии → rollback).
 2. По результатам канарейки — пороги `asr_min_coverage`/`gpu_unload_barrier_mb`/`prompt_max_chars` в
