@@ -20,6 +20,26 @@
 - `data_dir = C:\calls\data`. Лог: `C:\calls\callprofiler.log`.
 - **GPU sequential (Hard Constraint):** ASR+pyannote и LLM НИКОГДА одновременно (12GB RTX 3060).
 
+**State (2026-08-22) — BS-research (`docs/routines/bs-research-fable.md`), checkpoint по лимиту сессии:**
+
+Выполнены раунды 1–3 частично, всё в `docs/research/bs/` (индекс `00-README.md`). Главные выводы:
+(1) `bs_index` в проде = `20·min(contradictions/calls,1)` — 4 из 5 членов структурно ≡ 0
+(`graph/repository.py:399-402` схлопывает типы в `'fact'`, `broken_promise` никто не производит),
+`who='UNKNOWN'` у всех structured_facts, verbatim-проверка цитат только в replay (не в боевом пути);
+(2) решение — BS заморозить (LEGACY_UNVERIFIED), ввести CR «частота исполнения обязательств в диаде»
+(Beta-binomial по `promise_outcomes` с измеряемым шумом ярлыков) и CI 1–100 = масса posterior в окне
+±0.1 вокруг медианы, число показывается только после ≥150 ✓/✗-исходов; admiralty/trait-паттерны удалить.
+План `90-execution-plan.md` R-01…R-30 написан, **враждебной рецензии ещё не проходил**.
+
+**Next (та же входная точка `bs-research-fable.md`, продолжить с round 3):**
+1. Hostile review плана (Workflow: stat / deception / arch / ethics / red → закрыть правкой или открытым
+   риском с экспериментом) → правки `90-execution-plan.md`.
+2. `box-package/`: README (backup→verify-backup→копия `C:\callsesearch\`), `hypotheses.md`,
+   `protocol.md`, `decision-rules.md`, `adjudication-request.md` (≤40, рандомизированно, без CI/метода),
+   скрипты 01–08 с `--synth` smoke (боевую БД не открывают).
+3. Проходы доведения + `superpowers:verification-before-completion` → `decisions.md` абзац →
+   CONTINUITY/CHANGELOG → commit+push. Затем запуск box-package на боксе (R-01).
+
 **State (2026-08-21) — облачный routine, первый реальный запуск: extras-баг + WAL-restore баг:**
 
 ☁ **Первый реальный автономный прогон в облаке нашёл, что предпосылка «облако дёшево, без
