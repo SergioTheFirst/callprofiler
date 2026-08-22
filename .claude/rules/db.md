@@ -13,6 +13,24 @@
 - Integer milliseconds for all timestamps in segments.
 - MD5 hash for deduplication (per user_id).
 
+## Purge (T-06, 2026-08-22)
+
+- `Repository.purge_user(user_id, apply)` — **introspection, не список**: каждая таблица `sqlite_master`
+  (кроме `schema_migrations`, `transcripts_fts*`) обязана иметь правило: колонка `user_id` → `user_id=?`;
+  без неё → `CHILD_RULES` (`transcripts`/`analyses` по `call_id IN (calls юзера)`, `bio_scene_entities`
+  по `scene_id IN (bio_scenes юзера)`); иначе `RuntimeError` (fail-loud, тест
+  `test_purge_user_introspection_classifies_all_tables` собирает ПОЛНУЮ схему всех `apply_*_schema`).
+  Новая таблица без `user_id` → добавить правило в `CHILD_RULES`, иначе purge громко падает.
+- `apply=True`: `PRAGMA foreign_keys=OFF` на время транзакции (RESTRICT/порядок не важны), порядок
+  DELETE: CHILD_RULES → OWNED → `users`; перед commit `PRAGMA foreign_key_check` обязан быть пустым
+  (иначе rollback + RuntimeError — сироты невозможны). Нельзя звать внутри открытой транзакции/UoW.
+- Файлы: `ops/purge_files.py::purge_user_files(config, user_id, apply)` — ОДИН `shutil.move` корня
+  (`data_dir/users/{uid}`, `text_export_dir/users/{uid}`, `sync_dir/{uid}`) в
+  `data_dir/trash/{uid}-{ts}/{i}-{parent}/{uid}` (восстановление = move обратно; rmtree нигде);
+  гарды: `validate_user_id` (нет `..`/разделителей), корень строго внутри своей базы, корень-симлинк
+  пропускается, назначение внутри trash. `cleanup.py purge-user|keep-only --apply` зовёт после DB-purge
+  (`--config` для путей; `load_config(validate=False)`).
+
 ## Idempotency
 
 All operations must be idempotent:

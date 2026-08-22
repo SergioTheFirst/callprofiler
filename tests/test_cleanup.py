@@ -185,6 +185,44 @@ def test_purge_user_removes_bio_rows(repo):
     assert conn.execute("SELECT COUNT(*) FROM bio_scene_entities").fetchone()[0] == 0
 
 
+def test_purge_user_introspection_classifies_all_tables(repo):
+    """purge_user (introspection) корректно классифицирует ВСЕ таблицы при полной схеме."""
+    from callprofiler.graph.repository import apply_graph_schema
+    from callprofiler.biography.schema import apply_biography_schema
+    from callprofiler.insight.repository import apply_insight_schema
+    from callprofiler.insight.risk_calibration import apply_risk_schema
+    from callprofiler.insight.tiers import apply_tiers_schema
+    from callprofiler.llm_cache import apply_llm_cache_schema
+    from callprofiler.ask import apply_ask_schema
+
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+    apply_biography_schema(conn)
+    apply_insight_schema(conn)
+    apply_risk_schema(conn)
+    apply_tiers_schema(conn)
+    apply_llm_cache_schema(conn)
+    apply_ask_schema(conn)
+    conn.commit()
+
+    _add_user(repo)
+    _add_call(repo)
+
+    # Должно работать БЕЗ RuntimeError (все таблицы классифицированы)
+    counts = repo.purge_user("user1", apply=False)
+
+    # Проверим что считаны хотя бы основные таблицы
+    assert counts["calls"] == 1
+    assert counts["transcripts"] == 1
+    assert counts["analyses"] == 1
+    assert counts["users"] == 1
+
+    # Проверим что нет KeyError при итерации (значит все таблицы в результате)
+    for table_name, count in counts.items():
+        assert isinstance(count, int)
+        assert count >= 0
+
+
 # ── purge_other_users (keep-only) ───────────────────────────────────────────
 
 def test_purge_other_users_keeps_only_keeper(repo):

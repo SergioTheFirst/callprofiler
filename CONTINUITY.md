@@ -20,25 +20,23 @@
 - `data_dir = C:\calls\data`. Лог: `C:\calls\callprofiler.log`.
 - **GPU sequential (Hard Constraint):** ASR+pyannote и LLM НИКОГДА одновременно (12GB RTX 3060).
 
-**State (2026-08-22) — T-07 slice сделан (после BS-research, отложенного владельцем):**
+**State (2026-08-22) — T-07 slice и T-06 сделаны (оркестрация + личная верификация):**
 
-- **T-07 (вертикальный срез) + T-18 user_id:** `next_retry_at` (миграция 10) + exp-backoff/jitter,
-  `get_error_calls` по `next_retry_at`, терминальный гард `done/transcribed` (`force=`), dashboard
-  Reprocess и `retry_errors(user_id=)` user-scoped. Карта — `pipeline.md` «Retry/backoff». НЕ сделано из
-  T-07 (осознанно, один writer): lease/heartbeat, таблица attempts, artifact reconciler, error taxonomy.
-  Suite: см. CHANGELOG/последний прогон (ожидается 1466+ passed).
-- **BS-research** (`docs/research/bs/`) — ОТЛОЖЕН владельцем, не применять (справка). Урок — memory
-  `research-build-on-existing`. Попутный факт: `aggregator` BS-счётчики мертвы (bugs.md 🔴 2026-08-22) —
-  фикс «оживить формулу» (fact_type/who/verbatim) — обычная T1/T2-задача, в очередь по решению владельца.
-- Режим работы (владелец, 2026-08-22): оркестрация Workflow с адаптивным распределением моделей/усилия
-  (Opus implement / Haiku test-gate / Sonnet review / Fable дизайн+верификация), ponytail **ultra**,
-  нужные skills по задаче. Отчёт агента ≠ доказательство: дифф и suite проверять лично (в T-07 агент
-  отклонился от спеки дважды — первая ошибка без задержки, конфиг не подключён).
+- **T-07 (срез) + T-18:** `next_retry_at` + exp-backoff/jitter, терминальный гард, user-scoped
+  reprocess (`pipeline.md` «Retry/backoff»). Не сделано осознанно: lease/attempts/reconciler (один writer).
+- **T-06:** `purge_user` по introspection + fail-loud + `foreign_key_check`; карантин файлов
+  `ops/purge_files.py` (move в `trash/`, никогда rmtree); `cleanup.py` wiring (`db.md` «Purge»).
+  Уроки оркестрации (3 подряд): агент (1) оставил ручной список порядка удаления, (2) переносил файлы
+  по одному с «hardlink-защитой», (3) вызвал несуществующий `Config.load()` — тесты не импортируют
+  cleanup.py, gate зелёный. Правило подтверждено: дифф и API-вызовы проверять лично, не по отчёту.
+- **BS-research** — отложен владельцем; промпт для Sol переписан (`docs/routines/bs-research-sol.md`,
+  индекс из существующих сигналов, new-user-ready). `aggregator` BS-счётчики мертвы (bugs.md 🔴).
+- Suite: см. CHANGELOG/последний прогон.
 
-**Next (по `docs/sintezdiharea.md`):** **T-06** (purge/retention manifest: `purge_user` не чистит
-`llm_calls`/`ask_log`/`reminders`/файлы; манифест артефактов) — T3-гейт (удаление данных): дизайн лично,
-реализация оркестрацией. Альтернатива: остаток T-07 (attempts/reconciler) — только при появлении второго
-писателя. Затем T-08 (`card_generator` через `artifacts.atomic_write_text`).
+**Next (по `docs/sintezdiharea.md`):** **T-08** — `deliver/card_generator.py:332` пишет карточку
+`Path.write_text` мимо `artifacts.atomic_write_text` (частичный артефакт при краше; теста нет) —
+маленький T1; затем остаток T-08 (atomic ingest/original archive/tenant-safe exports) по спеке. Режим тот
+же: Workflow (Opus implement / Haiku gate / Sonnet review) + личная верификация диффа, ponytail ultra.
 
 **State (2026-08-21) — облачный routine, первый реальный запуск: extras-баг + WAL-restore баг:**
 

@@ -695,8 +695,9 @@ class Repository:
         """Полностью удалить пользователя и ВСЕ его данные (FTS-safe, introspection-based).
 
         ``apply=False`` — только счётчики. ``apply=True`` — удаляет в одной транзакции.
-        Таблицы открыты через introspection (PRAGMA table_info), но удаляются в
-        безопасном FK-порядке (дети до родителей).
+        Таблицы — introspection (PRAGMA table_info): user_id → OWNED, иначе CHILD_RULES,
+        иначе RuntimeError. Порядок DELETE не важен: foreign_keys=OFF на время purge +
+        PRAGMA foreign_key_check перед commit.
         """
         conn = self._get_conn()
         counts: dict[str, int] = {}
@@ -722,103 +723,55 @@ class Repository:
             "bio_scene_entities": "scene_id IN (SELECT scene_id FROM bio_scenes WHERE user_id=?)",
         }
 
-        # Deletion order (FK-safe, children before parents)
-        # Defined here (not in if apply:) so count loop can filter to only these tables
-        delete_order = [
-            "transcripts", "analyses",  # children of calls
-            "events", "promises",  # user_id FKs
-            "bio_checkpoints", "bio_checkpoint_items", "bio_llm_calls",
-            "bio_threads", "bio_portraits", "bio_behavior_patterns",
-            "bio_contradictions", "bio_arcs", "bio_chapters", "bio_books",
-            "bio_scene_entities",  # child of bio_scenes
-            "bio_scenes", "bio_entities",  # parents of above
-            "contact_notes",  # user_id FK
-            "ask_log",  # user_id FK
-            "entity_profiles",  # user_id FK (graph)
-            "contact_summaries",  # user_id FK
-            "calls",  # user_id FK, parent of transcripts/analyses/bio_scenes
-            "mention_edges", "contact_archetypes", "contact_features", "archetype_models",  # user_id FKs (insight)
-            "contact_tiers",  # user_id FK
-            "entity_contact_map", "graph_replay_runs",  # user_id FKs
-            "promise_outcomes", "deep_facts",  # user_id FKs (but no FK constraint)
-            "llm_calls",  # user_id FK
-            "bs_thresholds",  # user_id FK
-            "reminders",  # user_id FK
-            "report_state", "owner_mirror",  # user_id FKs
-            "contacts",  # user_id FK, parent of calls
-            "entity_merges_log", "entity_metrics", "relations", "entities",  # user_id FKs (graph)
-            "risk_thresholds",  # user_id FK (insight)
-            "users",  # PK, delete last
-        ]
-
-        # Count rows before apply
+        # Классификация: user_id → OWNED; без user_id → CHILD_RULES; иначе — fail-loud
+        # (новая таблица без правила ломает purge громко, а не оставляет сироты).
+        rules: dict[str, str] = {}
         for tbl in all_tables:
             if tbl in PROTECTED_TABLES:
                 continue
-            # Only count tables that will actually be deleted (in delete_order)
-            if tbl not in delete_order:
-                continue
-
             cols = {row[1] for row in conn.execute(f"PRAGMA table_info({tbl})")}
-            has_user_id = "user_id" in cols
-
-            if has_user_id:
-                counts[tbl] = _count(f"SELECT COUNT(*) FROM {tbl} WHERE user_id=?")
+            if "user_id" in cols:
+                rules[tbl] = "user_id=?"
             elif tbl in CHILD_RULES:
-                rule = CHILD_RULES[tbl]
-                counts[tbl] = _count(f"SELECT COUNT(*) FROM {tbl} WHERE {rule}")
+                rules[tbl] = CHILD_RULES[tbl]
             else:
                 raise RuntimeError(
-                    f"purge_user: таблица '{tbl}' не имеет user_id и нет правила в CHILD_RULES. "
-                    f"Добавьте правило перед использованием."
+                    f"purge_user: таблица '{tbl}' без user_id и без правила в CHILD_RULES — "
+                    "добавьте правило перед purge."
                 )
+        for tbl, rule in rules.items():
+            counts[tbl] = _count(f"SELECT COUNT(*) FROM {tbl} WHERE {rule}")
 
         if apply:
-            # Defer FK checks until all deletes complete
-            conn.execute("PRAGMA defer_foreign_keys=ON")
-
-            # FTS-строки убираем ДО удаления transcripts
-            sub = "(SELECT call_id FROM calls WHERE user_id=?)"
-            fts_rows = conn.execute(
-                f"SELECT segment_id, text, speaker, call_id FROM transcripts "
-                f"WHERE call_id IN {sub}",
-                (user_id,),
-            ).fetchall()
-            self._fts_delete_rows(
-                conn,
-                [
-                    (r["segment_id"], r["text"], r["speaker"], r["call_id"])
-                    for r in fts_rows
-                ],
-            )
-
-            # Удаления в FK-безопасном порядке (дети перед родителями):
-            # FTS уже удалены; transcripts/analyses (дети calls) → events/promises →
-            # bio_* (дети bio_scenes/bio_entities) → calls → contact_summaries →
-            # contacts → граф (entities/relations/entity_metrics) → users
-
-            for tbl in delete_order:
-                if tbl not in all_tables or tbl in PROTECTED_TABLES:
-                    continue
-
-                cols = {row[1] for row in conn.execute(f"PRAGMA table_info({tbl})")}
-                has_user_id = "user_id" in cols
-
-                if has_user_id:
-                    conn.execute(f"DELETE FROM {tbl} WHERE user_id=?", (user_id,))
-                elif tbl in CHILD_RULES:
-                    rule = CHILD_RULES[tbl]
-                    conn.execute(f"DELETE FROM {tbl} WHERE {rule}", (user_id,))
-
-            # Fail-safe: check for unmapped tables (guard against schema drift)
-            unmapped = set(all_tables) - set(delete_order) - PROTECTED_TABLES
-            if unmapped:
-                raise RuntimeError(
-                    f"purge_user: tables exist but not in delete_order: {sorted(unmapped)}. "
-                    f"Add them to delete_order in repository.py before purging."
+            # FK выключены на время purge (RESTRICT-связи bio_* проверяются немедленно даже при
+            # defer_foreign_keys) → порядок DELETE не важен; целостность доказывается
+            # foreign_key_check ДО commit (нарушение = rollback + RuntimeError, сироты невозможны).
+            if conn.in_transaction:
+                raise RuntimeError("purge_user: нельзя вызывать внутри открытой транзакции")
+            conn.execute("PRAGMA foreign_keys=OFF")
+            try:
+                sub = "(SELECT call_id FROM calls WHERE user_id=?)"
+                fts_rows = conn.execute(
+                    f"SELECT segment_id, text, speaker, call_id FROM transcripts "
+                    f"WHERE call_id IN {sub}",
+                    (user_id,),
+                ).fetchall()
+                self._fts_delete_rows(
+                    conn,
+                    [(r["segment_id"], r["text"], r["speaker"], r["call_id"]) for r in fts_rows],
                 )
-
-            self._commit(conn)
+                # CHILD_RULES зависят от строк родителя (подзапрос по calls/bio_scenes) →
+                # сначала они, затем OWNED, users — последней.
+                order = {tbl: (0 if tbl in CHILD_RULES else 2 if tbl == "users" else 1) for tbl in rules}
+                for tbl in sorted(rules, key=order.get):
+                    conn.execute(f"DELETE FROM {tbl} WHERE {rules[tbl]}", (user_id,))
+                bad = conn.execute("PRAGMA foreign_key_check").fetchall()
+                if bad:
+                    conn.rollback()
+                    raise RuntimeError(f"purge_user: FK-нарушения после удаления: {[tuple(b) for b in bad[:5]]}")
+                self._commit(conn)
+            finally:
+                conn.execute("PRAGMA foreign_keys=ON")
 
         return counts
 

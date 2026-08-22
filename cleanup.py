@@ -37,6 +37,7 @@ except Exception:
     pass
 
 DEFAULT_DB = r"C:\calls\data\db\callprofiler.db"
+DEFAULT_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs", "base.yaml")
 _ALL_RETRIES = 10**9  # get_error_calls(max_retries) — взять ВСЕ error, без фильтра retry
 
 
@@ -50,6 +51,13 @@ def _repo(db_path: str):
     repo = Repository(db_path)
     repo.init_db()  # идемпотентно (CREATE IF NOT EXISTS) — схема гарантирована
     return repo
+
+
+def _cfg(args):
+    """Config без validate (cleanup не требует ffmpeg/GPU): нужны только data_dir/text_export_dir/sync_dir."""
+    from callprofiler.config import load_config
+
+    return load_config(args.config, validate=False)
 
 
 def _print_counts(counts: dict) -> int:
@@ -100,10 +108,19 @@ def cmd_prune_missing(args) -> int:
 
 
 def cmd_purge_user(args) -> int:
-    """Полностью удалить юзера и все его данные."""
+    """Полностью удалить юзера и все его данные (БД + файлы в trash)."""
     if not args.user:
         print("[ОШИБКА] purge-user требует --user <id>.")
         return 2
+
+    # Validate user_id to prevent path traversal
+    from callprofiler.ops.purge_files import validate_user_id
+    try:
+        validate_user_id(args.user)
+    except ValueError as e:
+        print(f"[ОШИБКА] Недопустимый user_id: {e}")
+        return 2
+
     repo = _repo(args.db)
     user = repo.get_user(args.user)
     print(f"== purge-user (user={args.user}) ==")
@@ -113,9 +130,20 @@ def cmd_purge_user(args) -> int:
     print(f"  display_name: {user.get('display_name')}  incoming: {user.get('incoming_dir')}")
 
     counts = repo.purge_user(args.user, apply=args.apply)
-    print("  " + ("УДАЛЕНО:" if args.apply else "БУДЕТ удалено (dry-run):"))
+    print("  БД " + ("УДАЛЕНО:" if args.apply else "БУДЕТ удалено (dry-run):"))
     total = _print_counts(counts)
-    if not args.apply and total:
+
+    # Purge файлы (переместить в trash)
+    from callprofiler.ops.purge_files import purge_user_files
+    cfg = _cfg(args)
+    file_counts = purge_user_files(cfg, args.user, apply=args.apply)
+    if file_counts:
+        print("  Файлы " + ("ПЕРЕМЕЩЕНЫ в trash:" if args.apply else "БУДУТ перемещены в trash (dry-run):"))
+        for path, n in file_counts.items():
+            if n:
+                print(f"    {path:50}: {n} files")
+
+    if not args.apply and (total or any(file_counts.values())):
         print(f"  → Повторите с --apply, чтобы НЕОБРАТИМО снести юзера '{args.user}'.")
     return 0
 
@@ -125,8 +153,16 @@ def cmd_keep_only(args) -> int:
 
     Инверсия purge-user: для прогона «все работы в одном профиле». Защита —
     keeper ОБЯЗАН существовать (иначе отказ, чтобы не снести всех)."""
-    repo = _repo(args.db)
+    # Validate keeper user_id to prevent path traversal
+    from callprofiler.ops.purge_files import validate_user_id
     keeper = args.user
+    try:
+        validate_user_id(keeper)
+    except ValueError as e:
+        print(f"[ОШИБКА] Недопустимый keeper user_id: {e}")
+        return 2
+
+    repo = _repo(args.db)
     print(f"== keep-only (оставить ТОЛЬКО '{keeper}', снести остальных) ==")
     ids = sorted(u["user_id"] for u in repo.get_all_users())
     print(f"  Юзеров в БД: {len(ids)} → {', '.join(ids) or '(нет)'}")
@@ -142,6 +178,8 @@ def cmd_keep_only(args) -> int:
         print(f"  Только '{keeper}' и есть — удалять некого. ✓")
         return 0
 
+    from callprofiler.ops.purge_files import purge_user_files
+    cfg = _cfg(args)
     grand: dict[str, int] = {}
     for uid in sorted(result):
         counts = result[uid]
@@ -149,6 +187,14 @@ def cmd_keep_only(args) -> int:
         _print_counts(counts)
         for k, v in counts.items():
             grand[k] = grand.get(k, 0) + v
+
+        # Purge файлы каждого юзера
+        file_counts = purge_user_files(cfg, uid, apply=args.apply)
+        if file_counts and any(file_counts.values()):
+            print(f"    Файлы " + ("перемещены в trash:" if args.apply else "будут перемещены в trash (dry-run):"))
+            for path, n in file_counts.items():
+                if n:
+                    print(f"      {path:40}: {n} files")
 
     print("\n  ── ИТОГО по удаляемым юзерам ──")
     _print_counts(grand)
@@ -166,6 +212,7 @@ def main(argv=None) -> int:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--db", default=DEFAULT_DB, help=f"путь к БД (default: {DEFAULT_DB})")
     common.add_argument("--apply", action="store_true", help="реально удалить (иначе dry-run)")
+    common.add_argument("--config", default=DEFAULT_CONFIG, help=f"путь к base.yaml (default: {DEFAULT_CONFIG})")
 
     p = argparse.ArgumentParser(description="Безопасная чистка БД CallProfiler (dry-run по умолчанию).")
     sub = p.add_subparsers(dest="cmd", required=True)
