@@ -358,6 +358,7 @@ class Orchestrator:
                         call["_skip"] = True
 
         calls_data = [c for c in calls_data if not c.get("_skip")]
+        gpu_clear = True  # T-12: результат VRAM-барьера после Фазы 2
 
         # ── Фаза 2: Transcribe + Diarize ─────────────────────────────
         # stage >= 2 → сегменты уже в БД
@@ -426,7 +427,7 @@ class Orchestrator:
                 # Qwen 9B Q8_0 (~10GB) > 12GB на RTX 3060 → OOM. Ко-резидентность
                 # GigaAM+pyannote сохраняется ВНУТРИ Фазы 2 (грузятся раз на
                 # батч, а не на каждый звонок) — выигрыш без риска для VRAM.
-                self._unload_models()
+                gpu_clear = self._unload_models()
 
         # ── Фаза 2.5: Завершить голосовые заметки (F4, без анализа/доставки) ──
         # Ставим pipeline_stage=4 сразу — Фазы 3/4 ниже гейтятся по stage и
@@ -437,7 +438,12 @@ class Orchestrator:
                 call["pipeline_stage"] = 4
 
         # ── Фаза 3: Analyze (LLM) ────────────────────────────────────
-        if not self.config.features.enable_llm_analysis:
+        if not gpu_clear:
+            logger.error(
+                "[gpu] VRAM-барьер после выгрузки ASR/pyannote НЕ пройден — Фаза 3 (LLM) пропущена "
+                "(OOM-guard, T-12); звонки stage 2 подхватит process_pending после повторной выгрузки"
+            )
+        elif not self.config.features.enable_llm_analysis:
             logger.info("LLM analysis disabled by feature flag; skipping batch analyze phase")
             # Stage-1 terminal: транскрибированные звонки (stage 2) завершаем как
             # 'transcribed'. Иначе они залипают в status='transcribing' (Phase 4
@@ -649,22 +655,44 @@ class Orchestrator:
             logger.warning("Не удалось привязать заметку к контакту %s: %s", target, exc)
             return f"⚠ Ошибка привязки к «{target}»"
 
-    def _unload_models(self) -> None:
-        """Выгрузить pyannote + GigaAM из VRAM. Идемпотентно.
+    def _unload_models(self) -> bool:
+        """Выгрузить pyannote + GigaAM из VRAM. Идемпотентно. True ⇔ обе выгрузки
+        прошли И VRAM-барьер пройден (T-12). False → вызывающий НЕ начинает LLM-фазу.
 
         Модели держатся загруженными между фазами батча (ко-резидентность),
-        экономя 3-6 секунд на каждой перезагрузке. Выгрузка — когда работы
-        в текущем цикле больше нет (батч + pending + retry — всё отработано).
+        экономя 3-6 секунд на каждой перезагрузке.
         """
-        if self.pyannote_runner is not None:
+        ok = True
+        for name, runner in (("pyannote", self.pyannote_runner), ("asr", self.asr_runner)):
+            if runner is None:
+                continue
             try:
-                self.pyannote_runner.unload()
+                runner.unload()
             except Exception:
-                pass
+                logger.exception("[gpu] unload %s failed", name)
+                ok = False
+        ok = self._vram_barrier() and ok
+        self.gpu_state = "EMPTY" if ok else "FAILED"
+        return ok
+
+    def _vram_barrier(self) -> bool:
+        """Измеренный барьер: после gc+empty_cache занято ≤ models.gpu_unload_barrier_mb.
+        Без torch/CUDA (dev-ноутбук, CPU) — барьер считается пройденным."""
         try:
-            self.asr_runner.unload()
-        except Exception:
-            pass
+            import torch
+        except ImportError:
+            return True
+        if not torch.cuda.is_available():
+            return True
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache()
+        used_mb = torch.cuda.memory_allocated() / 2**20
+        limit = getattr(self.config.models, "gpu_unload_barrier_mb", 512)
+        if used_mb > limit:
+            logger.error("[gpu] после выгрузки занято %.0f MB > барьер %d MB", used_mb, limit)
+            return False
+        return True
 
     def _warn_once(self, key: str, msg: str, *args) -> None:
         """Залогировать WARNING ровно один раз на причину (key).

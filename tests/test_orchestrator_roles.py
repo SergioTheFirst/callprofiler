@@ -200,3 +200,31 @@ def test_diarize_batch_no_ref_skips_without_load(tmp_path):
     assert out == {1: []}
     assert fake.load_calls == 0
     assert "no_ref" in o._diag_warned
+
+
+class _ASRUnloadBoom(_ASRFlatOnly):
+    def unload(self):
+        raise RuntimeError("cuda stuck")
+
+
+class _ASRUnloadOk(_ASRFlatOnly):
+    def unload(self):
+        pass
+
+
+def test_unload_failure_returns_false_and_marks_failed():
+    """T-12: сбой выгрузки → False + gpu_state=FAILED (раньше except: pass и LLM стартовал бы)."""
+    o = Orchestrator(Config(), _Repo())
+    o.asr_runner = _ASRUnloadBoom()
+    assert o._unload_models() is False and o.gpu_state == "FAILED"
+    o.asr_runner = _ASRUnloadOk()
+    assert o._unload_models() is True and o.gpu_state == "EMPTY"
+
+
+def test_vram_barrier_failure_blocks_unload_result(monkeypatch):
+    """T-12: барьер VRAM — часть результата выгрузки; на CPU-ноутбуке барьер проходит."""
+    o = Orchestrator(Config(), _Repo())
+    o.asr_runner = _ASRUnloadOk()
+    assert o._vram_barrier() is True  # нет CUDA → барьер тривиально пройден
+    monkeypatch.setattr(o, "_vram_barrier", lambda: False)
+    assert o._unload_models() is False and o.gpu_state == "FAILED"

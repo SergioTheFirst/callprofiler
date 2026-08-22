@@ -55,6 +55,7 @@ class ModelsConfig:
     gigaam_device: str = "cuda"   # "cuda" | "cpu"
     gigaam_chunk_sec: float = 20.0    # длина окна нарезки (<25с, ограничение модели)
     gigaam_overlap_sec: float = 0.0   # перекрытие окон (0 = без дублей на стыках)
+    gpu_unload_barrier_mb: int = 512  # T-12: VRAM после выгрузки ASR/pyannote должна быть ≤ этого, иначе LLM-фаза не стартует
     pyannote_batch_size: int = 32     # батч инференса диаризации (1=серийно/медленно)
 
 
@@ -159,6 +160,7 @@ def load_config(path: str, validate: bool = True) -> Config:
             gigaam_chunk_sec=float(m.get("gigaam_chunk_sec", cfg.models.gigaam_chunk_sec)),
             gigaam_overlap_sec=float(m.get("gigaam_overlap_sec", cfg.models.gigaam_overlap_sec)),
             pyannote_batch_size=int(m.get("pyannote_batch_size", cfg.models.pyannote_batch_size)),
+            gpu_unload_barrier_mb=int(m.get("gpu_unload_barrier_mb", cfg.models.gpu_unload_barrier_mb)),
         )
 
     if "pipeline" in raw:

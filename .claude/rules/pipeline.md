@@ -68,7 +68,7 @@ speaker=OWNER явно; analyze НЕ зовётся никогда (не от ф
 
 **Perf (2026-06-06):** Фаза 1 нормализует ПАРАЛЛЕЛЬНО — `ThreadPoolExecutor(min(8,n))` (ffmpeg I/O-bound, атомарный `.part`-per-file → безопасно). Модели грузятся раз на батч (не на звонок).
 
-**GPU sequential:** в Фазе 2 GigaAM+pyannote КО-РЕЗИДЕНТНЫ (~5GB); `_unload_models()` выгружает ОБА в `finally` Фазы 2 — ДО Фазы 3 (LLM). Иначе 5GB + llama-server Qwen 9B Q8_0 (~10GB) > 12GB (RTX 3060) → OOM. Никогда ASR и LLM одновременно. LLM читает текст из БД, не аудио → удалённый wav ей не нужен.
+**GPU sequential:** в Фазе 2 GigaAM+pyannote КО-РЕЗИДЕНТНЫ (~5GB); `_unload_models()` выгружает ОБА в `finally` Фазы 2 — ДО Фазы 3 (LLM). **T-12 (2026-08-22):** `_unload_models()` → bool: каждая выгрузка логируется (`logger.exception`, не `except: pass`), затем `_vram_barrier()` (gc + `torch.cuda.empty_cache()` + `memory_allocated() ≤ models.gpu_unload_barrier_mb`, дефолт 512; без CUDA — пройден); `gpu_state ∈ {EMPTY, FAILED}`. `False` → Фаза 3 (LLM) НЕ стартует (`logger.error`), звонки остаются stage 2 и реклаймятся `process_pending` — повторная выгрузка в следующем батче. Lease/координатор как state machine — не реализованы (один процесс). Иначе 5GB + llama-server Qwen 9B Q8_0 (~10GB) > 12GB (RTX 3060) → OOM. Никогда ASR и LLM одновременно. LLM читает текст из БД, не аудио → удалённый wav ей не нужен.
 
 **Флаги (configs/):** `features.yaml` = `enable_diarization` / `enable_llm_analysis` (Stage-1: оба false). `base.yaml` `pipeline:` = `remove_source_on_success` / `delete_normalized_after_transcribe` / `text_export_dir`.
 
