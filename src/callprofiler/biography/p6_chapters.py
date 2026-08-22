@@ -272,7 +272,8 @@ def _enrich_portraits_with_graph(portraits: list[dict], graph_conn) -> list[dict
             continue
         try:
             profile = get_entity_profile_from_graph(int(geid), graph_conn)
-            patterns = get_behavioral_patterns(int(geid), graph_conn)
+            user_id = profile.get("user_id", "")
+            patterns = get_behavioral_patterns(int(geid), user_id, graph_conn)
             enriched.append(
                 {
                     **p,

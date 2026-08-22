@@ -80,7 +80,7 @@ class EntityMetricsAggregator:
             last_interaction=last_dt,
         )
 
-    def full_recalc_from_events(self, entity_id: int) -> dict:
+    def full_recalc_from_events(self, entity_id: int, user_id: str) -> dict:
         """INVARIANT: entity_metrics = PURE FUNCTION(events + calls + analyses).
 
         Does NOT read current entity_metrics. Authoritative recalculation
@@ -88,13 +88,12 @@ class EntityMetricsAggregator:
         """
         conn = self._repo._conn
 
-        # Fetch user_id — required for all subsequent queries
+        # Verify entity exists and belongs to user (fail-loud if mismatched)
         row = conn.execute(
-            "SELECT user_id FROM entities WHERE id=?", (entity_id,)
+            "SELECT id FROM entities WHERE id=? AND user_id=?", (entity_id, user_id)
         ).fetchone()
         if not row:
-            raise ValueError(f"entity_id {entity_id} not found in entities table")
-        user_id = row["user_id"]
+            raise ValueError(f"entity_id {entity_id} not found for user_id {user_id}")
 
         # 1. Total distinct calls this entity appears in
         total_calls = int(

@@ -130,30 +130,45 @@ class FactValidator:
             (ratio: float, speaker: str)
             ratio in [0.0, 1.0]; speaker in {'me', 's2', 'unknown'}
         """
-        if not quote or not transcript_text:
-            return 0.0, "unknown"
+        _, ratio, speaker = self.find_best_window(quote, transcript_text)
+        return ratio, speaker
 
-        best_ratio = 0.0
-        best_speaker = "unknown"
+    def find_best_window(
+        self, quote: str, transcript_text: str
+    ) -> tuple[str, float, str]:
+        """Тот же rolling-window поиск, но отдаёт и САМ найденный raw-фрагмент.
+
+        Нужен grounding-контракту §3.2 (R-08/R-16): в ``promises.source_quote``
+        кладём дословный кусок транскрипта, в ``quote_match`` — его ratio.
+        При равных ratio побеждает самый ранний офсет (детерминизм).
+
+        Returns: ``(raw_window, ratio, speaker)``.
+        """
+        if not quote or not transcript_text:
+            return "", 0.0, "unknown"
+
         quote_lower = quote.lower()
         transcript_lower = transcript_text.lower()
 
         # Try exact substring match first (fastest)
-        if quote_lower in transcript_lower:
-            return 1.0, self._detect_speaker_context(quote, transcript_text)
+        idx = transcript_lower.find(quote_lower)
+        if idx >= 0:
+            raw = transcript_text[idx : idx + len(quote)]
+            return raw, 1.0, self._detect_speaker_context(quote, transcript_text)
 
-        # Rolling window search
+        best_ratio = 0.0
+        best_speaker = "unknown"
+        best_window = ""
         quote_len = len(quote)
         for i in range(len(transcript_lower) - quote_len + 1):
             window = transcript_lower[i : i + quote_len]
             ratio = SequenceMatcher(None, quote_lower, window).ratio()
-            if ratio > best_ratio:
+            if ratio > best_ratio:  # строго > → при ничьей остаётся ранний офсет
                 best_ratio = ratio
-                best_speaker = self._detect_speaker_context(
-                    transcript_text[i : i + quote_len], transcript_text
-                )
+                best_window = transcript_text[i : i + quote_len]
+                best_speaker = self._detect_speaker_context(best_window, transcript_text)
 
-        return best_ratio, best_speaker
+        return best_window, best_ratio, best_speaker
 
     def _detect_speaker_context(self, text_snippet: str, full_transcript: str) -> str:
         """Detect speaker attribution from context around text snippet."""

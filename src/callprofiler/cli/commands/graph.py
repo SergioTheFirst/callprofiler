@@ -345,9 +345,18 @@ def cmd_entity_unmerge(args: argparse.Namespace) -> int:
     # Recalculate both entities
     grepo = GraphRepository(conn)
     agg = EntityMetricsAggregator(grepo)
+    # Fetch user_id from one entity (both belong to same user)
+    user_row = conn.execute(
+        "SELECT user_id FROM entities WHERE id=?", (args.canonical_id,)
+    ).fetchone()
+    if not user_row:
+        log.error("[entity-unmerge] entity %d not found", args.canonical_id)
+        return 1
+    user_id = user_row["user_id"]
+
     for eid in (args.canonical_id, args.duplicate_id):
         try:
-            agg.full_recalc_from_events(eid)
+            agg.full_recalc_from_events(eid, user_id)
         except Exception as exc:
             log.warning("[entity-unmerge] recalc failed for %d: %s", eid, exc)
 

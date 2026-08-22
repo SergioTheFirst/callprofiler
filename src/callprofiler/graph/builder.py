@@ -26,6 +26,8 @@ from callprofiler.graph.config import (
 )
 from callprofiler.graph.repository import GraphRepository, apply_graph_schema
 from callprofiler.graph.validator import FactValidator
+from callprofiler.analyze.payload_reader import load_analysis_payload
+from callprofiler.analyze.transcript_format import load_role_tagged
 
 log = logging.getLogger(__name__)
 
@@ -104,33 +106,21 @@ class GraphBuilder:
             log.debug("[graph] call_id=%d: schema_version=%s, skipping", call_id, schema_version)
             return False
 
-        # Gate C: Load transcript_text if not provided
-        # Needed for FactValidator.validate(..., transcript_text) to verify quote verbatimness
+        # Gate C: Load transcript_text if not provided.
+        # R-05: тот же role-tagged формат, что у live/bulk — иначе
+        # FactValidator не видит [me]/[s2] и speaker у всех фактов = unknown.
         if transcript_text is None:
-            transcript_rows = self._conn.execute(
-                """SELECT text FROM transcripts
-                   WHERE call_id = ? ORDER BY start_ms""",
-                (call_id,),
-            ).fetchall()
-            if transcript_rows:
-                transcript_text = "\n".join(row[0] for row in transcript_rows if row[0])
-            else:
-                log.warning("[graph] call_id=%d: no transcript rows found, skipping verbatim check", call_id)
-                # transcript_text remains None → validator will warn about missing transcript
+            transcript_text = load_role_tagged(self._conn, call_id)
+            if transcript_text is None:
+                log.warning(
+                    "[graph] call_id=%d: no transcript rows found, skipping verbatim check",
+                    call_id,
+                )
 
-        # Try canonical_json first (repaired by parser), fallback to raw_response
-        raw = (
-            (row["canonical_json"] if "canonical_json" in row.keys() else "")
-            or row["raw_response"] or ""
-        ).strip()
-        if not raw:
-            log.debug("[graph] call_id=%d: empty response, skipping", call_id)
-            return False
-
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            log.warning("[graph] call_id=%d: invalid JSON in raw_response: %s", call_id, exc)
+        # R-04: canonical_json (починенный парсером) → raw_response → invalid.
+        parsed, reason = load_analysis_payload(self._conn, call_id)
+        if parsed is None:
+            log.warning("[graph] call_id=%d: analysis payload unusable (%s)", call_id, reason)
             return False
 
         user_id = row["user_id"]

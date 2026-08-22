@@ -63,7 +63,7 @@ class GraphReplayer:
                SET entity_id=NULL, fact_id=NULL, quote=NULL,
                    polarity=NULL, intensity=NULL, start_ms=NULL, end_ms=NULL
                WHERE user_id=? AND call_id IN (
-                   SELECT id FROM calls WHERE user_id=? AND id IN (
+                   SELECT call_id FROM calls WHERE user_id=? AND call_id IN (
                        SELECT DISTINCT call_id FROM analyses
                        WHERE schema_version='v2'
                    )
@@ -164,7 +164,7 @@ class GraphReplayer:
 
         for (entity_id,) in all_entity_ids:
             try:
-                self._aggregator.full_recalc_from_events(entity_id)
+                self._aggregator.full_recalc_from_events(entity_id, user_id)
             except Exception as e:
                 log.error(
                     "[replay] entity_id=%d: metrics recalc failed: %s",

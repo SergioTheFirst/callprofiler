@@ -81,8 +81,9 @@ def cmd_book_chapter(args: argparse.Namespace) -> int:
         log.error("[book-chapter] entity_id=%d not found", args.entity_id)
         return 1
 
-    patterns = get_behavioral_patterns(args.entity_id, conn)
-    social = get_social_position(args.entity_id, conn)
+    user_id = profile.get("user_id")
+    patterns = get_behavioral_patterns(args.entity_id, user_id, conn)
+    social = get_social_position(args.entity_id, user_id, conn)
 
     output = {
         "entity_id": args.entity_id,

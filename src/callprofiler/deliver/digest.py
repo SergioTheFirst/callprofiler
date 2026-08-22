@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
+from callprofiler.analyze.roles import side_of
+
 _MAX_ITEM_CHARS = 300  # CLAUDE.md: "Output: ≤300 chars/item"
 _MAX_ITEMS_PER_SECTION = 10
 
@@ -77,11 +79,9 @@ def on_this_day(conn, user_id: str, today: str | None = None) -> list[str]:
 
 
 def _side(who: str | None) -> str | None:
-    if who == "OWNER":
-        return "owner"
-    if who == "OTHER":
-        return "contact"
-    return None  # UNKNOWN/None — исключено (шум-доктрина: не приписываем сторону наугад)
+    # UNKNOWN/None — исключено (шум-доктрина: не приписываем сторону наугад).
+    # R-08: та же каноническая нормализация, что у пайплайна (Me/S2 тоже понимаются).
+    return side_of(who)
 
 
 def _dedup_key(call_id: int, what: str | None) -> tuple:

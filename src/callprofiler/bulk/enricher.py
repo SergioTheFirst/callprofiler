@@ -24,6 +24,8 @@ from callprofiler.db.uow import uow_for
 from callprofiler.analyze.prompt_budget import estimate_tokens
 from callprofiler.analyze.output_budget import output_budget
 from callprofiler.models import Analysis
+from callprofiler.analyze.roles import canonical_who
+from callprofiler.analyze.transcript_format import format_role_tagged
 
 log = logging.getLogger(__name__)
 
@@ -64,11 +66,8 @@ def _extract_events_from_analysis(
             for p in analysis.promises:
                 try:
                     if isinstance(p, dict):
-                        who_raw = p.get("who", "UNKNOWN")
-                        # Map Me→OWNER, S2→OTHER
-                        who_mapped = "OWNER" if who_raw == "Me" else (
-                            "OTHER" if who_raw == "S2" else "UNKNOWN"
-                        )
+                        # R-08: одна нормализация роли на все пути (analyze/roles.py)
+                        who_mapped = canonical_who(p.get("who"))
                         events.append({
                             "user_id": user_id,
                             "contact_id": contact_id,
@@ -166,21 +165,14 @@ def _extract_events_from_analysis(
 
 
 def _format_transcript(segments: list[dict]) -> str:
-    """Форматировать и сжать транскрипт для промпта.
+    """R-05: один role-tagged формат на live/bulk/replay/backfill.
 
-    Убирает пустые и очень короткие сегменты (< 3 символов),
-    оставляя исключения: "да", "ну", "угу".
+    Прежняя bulk-версия писала ``[Я]/[Собеседник]`` и выбрасывала короткие
+    сегменты — из-за первого ``FactValidator`` не видел ролей, из-за второго
+    цитата из выброшенного сегмента не находилась в тексте и факт отвергался
+    как «невербатимный». Оба эффекта — тихие потери, не ошибки.
     """
-    lines = []
-    for seg in segments:
-        text = seg.get("text", "").strip()
-        if not text:
-            continue
-        if len(text) < _MIN_SEG_CHARS and text.lower() not in _KEEP_SHORT_SEGS:
-            continue
-        role = "[Я]" if seg.get("speaker") == "OWNER" else "[Собеседник]"
-        lines.append(f"{role}: {text}")
-    return "\n".join(lines)
+    return format_role_tagged(segments)
 
 
 def _load_prompt_template(prompts_dir: str) -> str:

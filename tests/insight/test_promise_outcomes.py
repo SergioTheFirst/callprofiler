@@ -245,3 +245,108 @@ def test_reliability_phrase_thresholds(tmp_path):
 
     assert contact_reliability(conn, "me", cid2) is None
     repo.close()
+
+
+def test_live_me_s2_promises_preserve_vague_and_enter_outcomes(tmp_path):
+    """R-08: промпт отдаёт who=Me|S2 — раньше это писалось в promises как есть,
+    и `_side` (OWNER|OTHER) отбрасывал ЛЮБОЕ live-обещание, так что outcomes
+    видели только bulk-события. Теперь роль канонизируется один раз, `vague`
+    не теряется, а цитата обещания заземляется в транскрипт."""
+    from callprofiler.analyze.response_parser import (
+        _extract_fields_by_regex,
+        parse_llm_response,
+    )
+    from callprofiler.analyze.roles import canonical_who
+    from callprofiler.insight.promise_outcomes import _side
+
+    repo, conn = _db(tmp_path)
+    contact_id = _contact(conn, "Пётр")
+    call_id = _call(conn, contact_id, "2026-01-10 10:00:00")
+    transcript = (
+        "[me] Когда пришлёшь документы?\n"
+        "[s2] Привезу документы в пятницу утром\n"
+        "[me] Хорошо"
+    )
+    repo.save_promises(
+        "me",
+        contact_id,
+        call_id,
+        [
+            {"who": "S2", "what": "Привезу документы в пятницу утром", "due": "2026-01-16",
+             "vague": False},
+            {"who": "Me", "what": "перезвоню в среду", "due": None, "vague": True},
+            {"who": "Кто-то", "what": "что-то неопределённое", "due": None},
+            {"who": "S2", "what": "текста этого в стенограмме нет совсем", "due": None,
+             "vague": True},
+        ],
+        transcript_text=transcript,
+    )
+    conn.commit()
+
+    rows = {
+        r["what"]: dict(r)
+        for r in conn.execute(
+            "SELECT who, what, vague, source_quote, quote_match FROM promises "
+            "WHERE user_id='me' AND call_id=? ORDER BY promise_id",
+            (call_id,),
+        )
+    }
+    assert len(rows) == 4  # ни одна строка не потеряна
+
+    grounded = rows["Привезу документы в пятницу утром"]
+    assert grounded["who"] == "OTHER"
+    assert grounded["vague"] == 0
+    assert grounded["quote_match"] == 1.0
+    assert grounded["source_quote"] == "Привезу документы в пятницу утром"
+    assert _side(grounded["who"]) == "contact"  # ← попадает в outcomes
+
+    owner = rows["перезвоню в среду"]
+    assert owner["who"] == "OWNER" and owner["vague"] == 1
+    assert _side(owner["who"]) == "owner"
+
+    unknown_role = rows["что-то неопределённое"]
+    assert unknown_role["who"] == "UNKNOWN" and unknown_role["vague"] is None
+    assert _side(unknown_role["who"]) is None  # сторона наугад не приписывается
+
+    unmatched = rows["текста этого в стенограмме нет совсем"]
+    assert unmatched["quote_match"] < 0.72  # не P-eligible, но строка сохранена
+
+    # роль промпта понимается обоими парсерами одинаково
+    full = parse_llm_response(
+        '{"priority":10,"risk_score":0,"summary":"s","call_type":"business",'
+        '"promises":[{"who":"S2","what":"привезу","vague":true}]}',
+        model="m",
+        prompt_version="v002",
+    )
+    regex = _extract_fields_by_regex(
+        'сломанный ответ без валидного json: "promises": '
+        '[{"who": "S2", "what": "привезу", "vague": true}] хвост без закрытия {'
+    )
+    assert full.promises[0]["vague"] is True
+    assert regex and regex["promises"][0]["vague"] is True
+    assert canonical_who(full.promises[0]["who"]) == canonical_who(regex["promises"][0]["who"]) == "OTHER"
+
+    # чужой user не получает ни одной строки
+    assert (
+        conn.execute("SELECT COUNT(*) FROM promises WHERE user_id!='me'").fetchone()[0] == 0
+    )
+    repo.close()
+
+
+def test_short_promise_quote_is_not_grounded(tmp_path):
+    """§3.2: спан короче 8 code points не заземляет обещание (7 символов — reject)."""
+    repo, conn = _db(tmp_path)
+    contact_id = _contact(conn, "Сева")
+    call_id = _call(conn, contact_id, "2026-01-11 10:00:00")
+    repo.save_promises(
+        "me", contact_id, call_id,
+        [{"who": "S2", "what": "верну", "vague": False}],
+        transcript_text="[s2] верну",
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT what, quote_match, source_quote FROM promises WHERE call_id=?", (call_id,)
+    ).fetchone()
+    assert row["what"] == "верну"
+    assert len(row["source_quote"] or "") < 8  # ниже grounding-порога длины
+    repo.close()

@@ -334,6 +334,11 @@ def _extract_fields_by_regex(text: str) -> dict | None:
             what_match = re.search(r'"what"\s*:\s*"([^"]*)"', promise_content)
             if what_match:
                 promise["what"] = what_match.group(1)
+            # R-08: vague — часть контракта промпта v002; regex-путь его тоже сохраняет,
+            # иначе аварийный парсинг молча терял единственный сигнал P (§4.2).
+            vague_match = re.search(r'"vague"\s*:\s*(true|false)', promise_content, re.I)
+            if vague_match:
+                promise["vague"] = vague_match.group(1).lower() == "true"
             if promise:
                 promises.append(promise)
         if promises:

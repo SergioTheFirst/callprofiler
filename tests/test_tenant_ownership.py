@@ -390,3 +390,67 @@ def test_user_profile_dir_deterministic_for_same_user(tmp_path):
     p1 = user_profile_dir(tmp_path, "me", "audio", "normalized")
     p2 = user_profile_dir(tmp_path, "me", "audio", "normalized")
     assert p1 == p2
+
+
+@pytest.mark.tenant
+def test_graph_repository_identity_reads_require_user():
+    """R-02: identity reads take user_id and never serve another owner's row."""
+    from callprofiler.graph.repository import GraphRepository, apply_graph_schema
+
+    repo = _repo()
+    _user(repo, "u1")
+    _user(repo, "u2")
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+    conn.execute(
+        "INSERT INTO entities (user_id, canonical_name, normalized_key, entity_type,"
+        " aliases, attributes) VALUES ('u1','Alice','alice','PERSON','[]','{}')"
+    )
+    entity_id = conn.execute(
+        "SELECT id FROM entities WHERE user_id='u1' AND normalized_key='alice'"
+    ).fetchone()["id"]
+    conn.execute(
+        "INSERT INTO entity_metrics (entity_id, user_id, total_calls, bs_formula_version)"
+        " VALUES (?,?,?,?)",
+        (entity_id, "u1", 5, "v1_linear"),
+    )
+    conn.commit()
+
+    grepo = GraphRepository(conn)
+    assert grepo.get_entity(entity_id, "u1")["canonical_name"] == "Alice"
+    assert grepo.get_entity(entity_id, "u2") is None
+    assert grepo.get_entity_metrics(entity_id, "u1")["total_calls"] == 5
+    assert grepo.get_entity_metrics(entity_id, "u2") is None
+
+    # user_id is mandatory: calling without it is a TypeError, not a silent
+    # cross-tenant read (no compatibility default).
+    with pytest.raises(TypeError):
+        grepo.get_entity(entity_id)
+    with pytest.raises(TypeError):
+        grepo.get_entity_metrics(entity_id)
+
+
+def test_inventory_graph_layer_has_no_bare_tenant_id():
+    """R-02: та же инвентарная проверка распространена на графовый слой.
+
+    ``GraphRepository``/``EntityMetricsAggregator`` работают с entity_id —
+    таким же tenant-owned идентификатором, как call_id/contact_id: метод,
+    принимающий его без user_id, читает чужие строки по номеру.
+    """
+    from callprofiler.graph.aggregator import EntityMetricsAggregator
+    from callprofiler.graph.repository import GraphRepository
+
+    violations = []
+    for cls in (GraphRepository, EntityMetricsAggregator):
+        for name, fn in inspect.getmembers(cls, predicate=inspect.isfunction):
+            if name.startswith("_"):
+                continue
+            sig = inspect.signature(fn)
+            id_params = _id_bearing_params(sig)
+            if not id_params:
+                continue
+            if "user_id" not in sig.parameters:
+                violations.append((cls.__name__, name, id_params))
+    assert violations == [], (
+        f"Графовые методы с bare tenant-owned id без user_id: {violations}"
+    )

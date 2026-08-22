@@ -23,6 +23,7 @@ from callprofiler.analyze.llm_client import LLMClient
 from callprofiler.analyze.prompt_builder import PromptBuilder
 from callprofiler.analyze.response_parser import parse_llm_response
 from callprofiler.analyze.service import PROMPT_VERSION_ANALYZE
+from callprofiler.analyze.transcript_format import format_role_tagged
 from callprofiler.audio.normalizer import get_duration_sec, normalize
 from callprofiler.db.uow import uow_for
 from callprofiler.deliver.card_generator import CardGenerator
@@ -83,17 +84,14 @@ def norm_wav_path(norm_dir: Path, call_id: int, source_filename: str | None) -> 
 
 
 def _format_transcript(segments: list[Segment]) -> str:
-    """Форматировать сегменты в текст стенограммы для LLM.
+    """Стенограмма для LLM и для grounding-гейта — ОДИН формат (R-05).
 
-    Формат: [MM:SS] SPEAKER: текст
+    Раньше здесь был свой формат ``[MM:SS] SPEAKER:``, у bulk-пути свой
+    (``[Я]/[Собеседник]``), а builder склеивал текст вообще без ролей —
+    поэтому ``FactValidator`` (ищет ``[me]``/``[s2]``) в боевом пути никогда
+    не определял говорящего. Теперь формат общий (``analyze/transcript_format``).
     """
-    lines = []
-    for seg in segments:
-        total_sec = seg.start_ms // 1000
-        minutes = total_sec // 60
-        seconds = total_sec % 60
-        lines.append(f"[{minutes:02d}:{seconds:02d}] {seg.speaker}: {seg.text}")
-    return "\n".join(lines)
+    return format_role_tagged(segments)
 
 
 class Orchestrator:

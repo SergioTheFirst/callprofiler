@@ -21,6 +21,8 @@ import statistics
 from datetime import timedelta
 from pathlib import Path
 
+from callprofiler.analyze.roles import side_of
+
 from .age_estimate import _parse_llm_json
 from .features.accommodation import _STOPWORDS
 from .features.base import normalize_lemma, tokenize
@@ -85,11 +87,10 @@ def _norm(s: str) -> str:
 
 
 def _side(who: str | None) -> str | None:
-    if who == "OWNER":
-        return "owner"
-    if who == "OTHER":
-        return "contact"
-    return None
+    """R-08: одна нормализация на все пути — live-обещания промпта (``Me``/``S2``)
+    раньше не попадали в outcomes, потому что здесь понимались только
+    канонические ``OWNER``/``OTHER``."""
+    return side_of(who)
 
 
 def _dedup_key(call_id: int, what: str | None) -> tuple:

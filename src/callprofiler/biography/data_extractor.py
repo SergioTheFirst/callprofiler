@@ -168,6 +168,7 @@ def get_entity_profile_from_graph(entity_id: int, conn: sqlite3.Connection) -> d
     aliases = json.loads(entity_row["aliases"] or "[]")
 
     return {
+        "user_id": user_id,
         "entity_id": entity_id,
         "canonical_name": entity_row["canonical_name"],
         "entity_type": entity_row["entity_type"],
@@ -188,7 +189,7 @@ def get_entity_profile_from_graph(entity_id: int, conn: sqlite3.Connection) -> d
     }
 
 
-def get_behavioral_patterns(entity_id: int, conn: sqlite3.Connection) -> dict:
+def get_behavioral_patterns(entity_id: int, user_id: str, conn: sqlite3.Connection) -> dict:
     """Deterministic behavioral pattern detection from entity_metrics ratios.
 
     Returns dict with boolean/textual pattern labels, derived purely from
@@ -205,7 +206,7 @@ def get_behavioral_patterns(entity_id: int, conn: sqlite3.Connection) -> dict:
     """
     conn.row_factory = sqlite3.Row
     row = conn.execute(
-        "SELECT * FROM entity_metrics WHERE entity_id=?", (entity_id,)
+        "SELECT * FROM entity_metrics WHERE user_id=? AND entity_id=?", (user_id, entity_id)
     ).fetchone()
     if not row:
         return {"entity_id": entity_id, "patterns": [], "raw": {}}
@@ -251,7 +252,7 @@ def get_behavioral_patterns(entity_id: int, conn: sqlite3.Connection) -> dict:
     }
 
 
-def get_social_position(entity_id: int, conn: sqlite3.Connection) -> dict:
+def get_social_position(entity_id: int, user_id: str, conn: sqlite3.Connection) -> dict:
     """Describe this entity's social/org position from relations.
 
     Returns:
@@ -263,11 +264,10 @@ def get_social_position(entity_id: int, conn: sqlite3.Connection) -> dict:
     conn.row_factory = sqlite3.Row
 
     entity_row = conn.execute(
-        "SELECT user_id FROM entities WHERE id=?", (entity_id,)
+        "SELECT id FROM entities WHERE id=? AND user_id=?", (entity_id, user_id)
     ).fetchone()
     if not entity_row:
         return {}
-    user_id = entity_row["user_id"]
 
     # Org links (company/project relations)
     org_rows = conn.execute(

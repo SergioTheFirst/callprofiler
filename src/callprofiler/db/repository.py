@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 repository.py вЂ” РґРѕСЃС‚СѓРї Рє SQLite. Р‘РµР· ORM, С‚РѕР»СЊРєРѕ sqlite3.
 РљР°Р¶РґС‹Р№ РјРµС‚РѕРґ, СЂР°Р±РѕС‚Р°СЋС‰РёР№ СЃ РґР°РЅРЅС‹РјРё РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ, С„РёР»СЊС‚СЂСѓРµС‚ РїРѕ user_id.
@@ -1131,17 +1131,22 @@ class Repository:
             contact_id = item.get("contact_id")
             promises = item.get("promises") or []
             if promises and contact_id is not None:
+                # R-08: та же нормализация роли и тот же контракт vague, что в
+                # save_promises — иначе bulk-путь писал бы 'Me'/'S2' и терял vague.
+                from callprofiler.analyze.roles import canonical_who
+
                 conn.executemany(
-                    """INSERT INTO promises (user_id, contact_id, call_id, who, what, due)
-                       VALUES (?,?,?,?,?,?)""",
+                    """INSERT INTO promises (user_id, contact_id, call_id, who, what, due, vague)
+                       VALUES (?,?,?,?,?,?,?)""",
                     [
                         (
                             item["user_id"],
                             contact_id,
                             call_id,
-                            p.get("who", ""),
+                            canonical_who(p.get("who")),
                             p.get("what", ""),
                             p.get("due"),
+                            None if p.get("vague") is None else (1 if p.get("vague") else 0),
                         )
                         for p in promises
                     ],
@@ -1149,12 +1154,28 @@ class Repository:
         self._commit(conn)
 
     def save_promises(
-        self, user_id: str, contact_id: int | None, call_id: int, promises: list[dict]
+        self,
+        user_id: str,
+        contact_id: int | None,
+        call_id: int,
+        promises: list[dict],
+        transcript_text: str | None = None,
     ) -> None:
         """Save promises. Skip if contact_id is None, no promises, or call_id
-        does not belong to user_id."""
+        does not belong to user_id.
+
+        R-08: роль нормализуется один раз (``Me|S2`` промпта → ``OWNER|OTHER``,
+        иначе ``UNKNOWN``) — иначе live-обещания никогда не попадали в
+        ``promise_outcomes`` (там ``_side`` понимал только канонические формы).
+        ``vague`` больше не теряется, а ``transcript_text`` (role-tagged, R-05)
+        даёт grounding: дословный фрагмент в ``source_quote`` и его ratio в
+        ``quote_match``. Несматченное обещание сохраняется, но в P (§4.2) не
+        входит — решает читатель по ``quote_match``.
+        """
         if not promises or contact_id is None:
             return
+        from callprofiler.analyze.roles import canonical_who
+
         conn = self._get_conn()
         owns = conn.execute(
             "SELECT 1 FROM calls WHERE call_id=? AND user_id=?", (call_id, user_id)
@@ -1165,20 +1186,42 @@ class Repository:
                 call_id, user_id,
             )
             return
+
+        validator = None
+        if transcript_text:
+            from callprofiler.graph.validator import FactValidator
+
+            validator = FactValidator()
+
+        rows = []
+        for p in promises:
+            who = canonical_who(p.get("who"))
+            what = p.get("what", "") or ""
+            vague = p.get("vague")
+            vague_int = None if vague is None else (1 if bool(vague) else 0)
+            source_quote, quote_match = None, None
+            if validator is not None and what.strip():
+                window, ratio, _speaker = validator.find_best_window(what, transcript_text)
+                quote_match = round(float(ratio), 4)
+                if window.strip():
+                    source_quote = window
+            rows.append(
+                (
+                    user_id, contact_id, call_id, who, what, p.get("due"),
+                    vague_int, source_quote, quote_match,
+                    user_id, call_id, who, what,
+                )
+            )
+
         # T-16: идемпотентно по (user_id, call_id, who, what) — повторный анализ звонка не
         # дублирует обещания, существующие строки (и их promise_id / fact_feedback) не трогаются.
         conn.executemany(
-            """INSERT INTO promises (user_id, contact_id, call_id, who, what, due)
-               SELECT ?,?,?,?,?,?
+            """INSERT INTO promises (user_id, contact_id, call_id, who, what, due,
+                                     vague, source_quote, quote_match)
+               SELECT ?,?,?,?,?,?,?,?,?
                WHERE NOT EXISTS (SELECT 1 FROM promises
                                  WHERE user_id=? AND call_id=? AND who=? AND what=?)""",
-            [
-                (
-                    user_id, contact_id, call_id, p.get("who", ""), p.get("what", ""), p.get("due"),
-                    user_id, call_id, p.get("who", ""), p.get("what", ""),
-                )
-                for p in promises
-            ],
+            rows,
         )
         self._commit(conn)
 

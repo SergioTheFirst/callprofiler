@@ -322,9 +322,9 @@ class GraphRepository:
         ).fetchone()
         return row["id"]
 
-    def get_entity(self, entity_id: int) -> dict | None:
+    def get_entity(self, entity_id: int, user_id: str) -> dict | None:
         row = self._conn.execute(
-            "SELECT * FROM entities WHERE id=?", (entity_id,)
+            "SELECT * FROM entities WHERE user_id=? AND id=?", (user_id, entity_id)
         ).fetchone()
         return dict(row) if row else None
 
@@ -531,9 +531,9 @@ class GraphRepository:
              bs_formula_version, emotional_pattern, last_interaction, now),
         )
 
-    def get_entity_metrics(self, entity_id: int) -> dict | None:
+    def get_entity_metrics(self, entity_id: int, user_id: str) -> dict | None:
         row = self._conn.execute(
-            "SELECT * FROM entity_metrics WHERE entity_id=?", (entity_id,)
+            "SELECT * FROM entity_metrics WHERE user_id=? AND entity_id=?", (user_id, entity_id)
         ).fetchone()
         return dict(row) if row else None
 

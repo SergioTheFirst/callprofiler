@@ -225,3 +225,25 @@ def test_replay_empty_user_warning():
     assert stats["calls_processed"] == 0
     assert stats["entities_count"] == 0
     assert len(stats["warnings"]) > 0
+
+
+def test_replay_runs_against_calls_call_id():
+    """R-03: replay selects calls.call_id (there is no calls.id column).
+
+    The old query said `SELECT id FROM calls` — it raised OperationalError,
+    which the caller swallowed, so replay silently processed zero calls.
+    """
+    repo = _make_repo()
+    _add_user(repo, "u1")
+    conn = repo._get_conn()
+    apply_graph_schema(conn)
+    _setup_with_analysis(
+        conn, repo, user_id="u1", md5="abc1",
+        entities=[{"type": "person", "canonical_name": "Alice", "normalized_key": "alice",
+                   "aliases": [], "attributes": {}}],
+        facts=[{"fact_type": "promise", "entity_key": "alice",
+                "quote": "will call tomorrow", "confidence": 0.9}],
+    )
+    stats = GraphReplayer(repo, GraphRepository(conn)).replay("u1", limit=None)
+    assert stats["calls_processed"] == 1
+    assert stats["entities_count"] >= 1

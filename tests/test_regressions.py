@@ -103,7 +103,7 @@ def test_entity_with_no_events_metrics_zero():
 
     eid = grepo.upsert_entity("u1", "person", "Nobody", "nobody")
     agg = EntityMetricsAggregator(grepo)
-    result = agg.full_recalc_from_events(eid)
+    result = agg.full_recalc_from_events(eid, "u1")
 
     assert result["total_calls"] == 0
     assert result["total_promises"] == 0
@@ -224,7 +224,7 @@ def test_metrics_not_drifted_after_fresh_recalc():
     grepo.upsert_entity_metrics(eid, "u1", total_calls=5, bs_index=20.0)
 
     agg = EntityMetricsAggregator(grepo)
-    result = agg.full_recalc_from_events(eid)
+    result = agg.full_recalc_from_events(eid, "u1")
     assert abs(result["bs_index"] - 20.0) <= 20.0
 
 

@@ -477,7 +477,7 @@ class EntityResolver:
             from callprofiler.graph.aggregator import EntityMetricsAggregator
             from callprofiler.graph.repository import GraphRepository
             agg = EntityMetricsAggregator(GraphRepository(self.conn))
-            agg.full_recalc_from_events(canonical_id)
+            agg.full_recalc_from_events(canonical_id, merge_user_id)
 
         # 8. Detect chain duplicates (after transaction — canonical may now be close to others)
         try:
