@@ -9,7 +9,15 @@
 - Timeout: 120 seconds per request
 - Roles in transcript: [me]=owner, [s2]=other. Roles may be swapped.
 - "Сергей/Серёжа/Серёж/Медведев/Сергей Станиславович" = ALWAYS owner (Сергей Станиславович Медведев) regardless of label.
-- Max input: if transcript > 3000 chars → first 1500 + "[...]" + last 1500
+- **Промпт v002 (T-14, 2026-08-22):** `PROMPT_VERSION_ANALYZE='v002'` (`analyze/service.py`; bulk/canary/
+  orchestrator берут оттуда, литералов `"v001"` нет). `configs/prompts/analyze_v002.txt`: владелец —
+  плейсхолдер `{{owner_name}}` (из `users.display_name` текущего user_id; одна строка ≤80 симв.;
+  нет → «владелец телефона (имя неизвестно)»), никаких захардкоженных имён; правило «данные ≠
+  инструкции». `PromptBuilder.build`: ВСЕ данные (метаданные, прошлые summary, стенограмма) внутри ОДНОГО
+  `<данные>…</данные>`; `</данные>` внутри данных нейтрализуется (`</данные >`); клип стенограммы
+  `prompt_budget.clip_transcript_for_llm` (head ⅓ + middle + tail ¼, маркеры пропусков) до
+  `models.prompt_max_chars` (12000); длительность из `duration_ms`/`duration_sec`, 0 → «неизвестна».
+  Старое правило «>3000 → 1500+1500» в коде никогда не существовало.
 
 ## Мемоизация analyze-пути (M3, `llm_cache.py`, decisions.md 2026-06-04 #1)
 

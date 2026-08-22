@@ -29,23 +29,27 @@ from callprofiler.models import Analysis
 
 log = logging.getLogger(__name__)
 
-# Единственный шаблон анализа звонка (analyze_v001.txt, T3-запретная зона —
+# Единственный шаблон анализа звонка (analyze_v002.txt, T3-запретная зона —
 # см. CLAUDE.md). Используется и как default prompt_version анализа, и как тег
 # кэш-строки llm_calls (M3) — держать в одном месте, чтобы они не разошлись.
-PROMPT_VERSION_ANALYZE = "v001"
+PROMPT_VERSION_ANALYZE = "v002"
 
 
 class AnalysisService:
     def __init__(self, config: Config, repo: Repository, user_id: str = "") -> None:
         self.config = config
         self.repo = repo
+        self.user_id = user_id
         self.llm = LLMClient(
             base_url=config.models.llm_url,
             cache_conn=repo._get_conn(),
             cache_user_id=user_id,
             prompt_version=PROMPT_VERSION_ANALYZE,
         )
-        self.prompt_builder = PromptBuilder(config.prompts_dir)
+        self.prompt_builder = PromptBuilder(
+            config.prompts_dir,
+            prompt_max_chars=config.models.prompt_max_chars,
+        )
 
     def analyze_one_call(
         self,
@@ -73,11 +77,15 @@ class AnalysisService:
 
         # Get metadata
         contact = self.repo.get_contact(user_id, contact_id) if contact_id else None
+        user = self.repo.get_user(user_id) if user_id else None
         metadata = {
             "contact_name": contact.get("display_name") if contact else None,
             "phone": contact.get("phone_e164") if contact else None,
             "call_datetime": call.get("call_datetime"),
             "direction": call.get("direction", "UNKNOWN"),
+            "owner_name": (user.get("display_name") if user else None),
+            "duration_sec": call.get("duration_sec"),
+            "prompt_max_chars": self.config.models.prompt_max_chars,
         }
 
         # Build prompt (returns str or dict with system/user keys)

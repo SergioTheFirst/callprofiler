@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 from callprofiler.analyze.llm_client import LLMClient
 from callprofiler.analyze.prompt_builder import PromptBuilder
 from callprofiler.analyze.response_parser import parse_llm_response
+from callprofiler.analyze.service import PROMPT_VERSION_ANALYZE
 from callprofiler.audio.normalizer import get_duration_sec, normalize
 from callprofiler.db.uow import uow_for
 from callprofiler.deliver.card_generator import CardGenerator
@@ -993,7 +994,7 @@ class Orchestrator:
             analysis = parse_llm_response(
                 "",
                 model=self.config.models.llm_model,
-                prompt_version="v001",
+                prompt_version=PROMPT_VERSION_ANALYZE,
             )
             analysis.call_type = "short"
         else:
@@ -1008,7 +1009,7 @@ class Orchestrator:
                 analysis = parse_llm_response(
                     "",
                     model=self.config.models.llm_model,
-                    prompt_version="v001",
+                    prompt_version=PROMPT_VERSION_ANALYZE,
                 )
             except Exception as exc:
                 logger.error("Ошибка анализа call_id=%d: %s", call_id, exc)

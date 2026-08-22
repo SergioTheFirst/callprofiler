@@ -49,6 +49,7 @@ class ModelsConfig:
     # Определяется VRAM на боксе (12GB → 16384 на Q8_0 безопасно). См.
     # DYNAMIC_TOKEN_BUDGET_PLAN.md и analyze/output_budget.py.
     llm_n_ctx: int = 16384
+    prompt_max_chars: int = 12000  # максимум символов в транскрипте перед клипом
     asr_backend: str = "whisper"  # "whisper" | "gigaam"
     gigaam_url: str = ""          # legacy HTTP endpoint (не используется локальной моделью)
     gigaam_model_dir: str = ""    # каталог локальной GigaAM (HF, trust_remote_code)
@@ -154,6 +155,7 @@ def load_config(path: str, validate: bool = True) -> Config:
             llm_model=m.get("llm_model", cfg.models.llm_model),
             llm_url=m.get("llm_url", cfg.models.llm_url),
             llm_n_ctx=int(m.get("llm_n_ctx", cfg.models.llm_n_ctx)),
+            prompt_max_chars=int(m.get("prompt_max_chars", cfg.models.prompt_max_chars)),
             asr_backend=m.get("asr_backend", cfg.models.asr_backend),
             gigaam_url=m.get("gigaam_url", cfg.models.gigaam_url),
             gigaam_model_dir=m.get("gigaam_model_dir", cfg.models.gigaam_model_dir),

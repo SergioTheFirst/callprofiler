@@ -17,10 +17,11 @@ from pathlib import Path
 from callprofiler.analyze.llm_client import LLMClient
 from callprofiler.analyze.profanity_detector import count_profanity
 from callprofiler.analyze.response_parser import parse_llm_response
+from callprofiler.analyze.service import PROMPT_VERSION_ANALYZE
 from callprofiler.config import load_config
 from callprofiler.db.repository import Repository
 from callprofiler.db.uow import uow_for
-from callprofiler.analyze.prompt_budget import estimate_tokens, clip_transcript_for_llm
+from callprofiler.analyze.prompt_budget import estimate_tokens
 from callprofiler.analyze.output_budget import output_budget
 from callprofiler.models import Analysis
 
@@ -212,7 +213,7 @@ def _stub_analysis() -> Analysis:
         key_topics=[],
         raw_response="",
         model="stub",
-        prompt_version="v001",
+        prompt_version=PROMPT_VERSION_ANALYZE,
         call_type="short",
         hook=None,
     )
@@ -341,7 +342,7 @@ def bulk_enrich(
         llm = LLMClient(
             base_url=cfg.models.llm_url, timeout=300,
             cache_conn=repo._get_conn(), cache_user_id=user_id,
-            prompt_version="v001",
+            prompt_version=PROMPT_VERSION_ANALYZE,
         )
         llm.ensure_ready()  # T-13: явная проверка вместо сети в конструкторе
     except ConnectionError as e:

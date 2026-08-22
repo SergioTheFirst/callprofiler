@@ -19,6 +19,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from callprofiler.analyze.prompt_budget import clip_transcript_for_llm
+
 if TYPE_CHECKING:
     pass
 
@@ -33,17 +35,19 @@ class PromptBuilder:
         prompt = builder.build(
             transcript_text="[OWNER]: Привет...",
             metadata={"contact_name": "Иван", "phone": "+79161234567"},
-            version="v001"
+            version="v002"
         )
     """
 
-    def __init__(self, prompts_dir: str) -> None:
+    def __init__(self, prompts_dir: str, prompt_max_chars: int = 12000) -> None:
         """Инициализировать PromptBuilder.
 
         Параметры:
             prompts_dir  — директория с шаблонами (например, "configs/prompts")
+            prompt_max_chars  — максимум символов транскрипта перед клипом (default 12000)
         """
         self.prompts_dir = Path(prompts_dir)
+        self.prompt_max_chars = prompt_max_chars
         self._cache: dict[str, str] = {}
         if not self.prompts_dir.exists():
             raise FileNotFoundError(f"Директория prompts не найдена: {prompts_dir}")
@@ -70,8 +74,24 @@ class PromptBuilder:
         Returns:
             {"system": str, "user": str}  — для OpenAI-совместимого API.
         """
-        system_prompt = self._load_template(version)
+        # Clip transcript if needed
+        max_chars = metadata.get("prompt_max_chars") or self.prompt_max_chars
+        clipped = clip_transcript_for_llm(transcript_text, max_chars)
+        final_transcript = clipped["text"]
+        if clipped["truncated"]:
+            logger.info(
+                "Transcript clipped: %d → %d chars",
+                clipped["original_chars"],
+                clipped["final_chars"],
+            )
 
+        # Load template and substitute owner_name
+        system_prompt = self._load_template(version)
+        # T-14: имя владельца — одна строка ≤80 символов (display_name не может внести инструкции)
+        owner_name = " ".join(str(metadata.get("owner_name") or "").split())[:80] or "владелец телефона (имя неизвестно)"
+        system_prompt = system_prompt.replace("{{owner_name}}", owner_name)
+
+        # Build context block
         context_block = "\n\n".join(
             (
                 f"Предыдущий анализ: {s}"
@@ -82,25 +102,43 @@ class PromptBuilder:
             if s
         )
 
+        # Metadata
         contact_name = metadata.get("contact_name") or "Неизвестно"
         phone = metadata.get("phone") or ""
         call_datetime = str(metadata.get("call_datetime") or "")
         direction = str(metadata.get("direction") or "")
-        duration_ms = int(metadata.get("duration_ms", 0) or 0)
-        duration_str = f"{duration_ms / 1000:.1f} сек"
 
-        user_parts = [
-            "Метаданные звонка:",
+        # Duration: prefer duration_ms, fallback to duration_sec, then 0
+        duration_ms = int(metadata.get("duration_ms", 0) or 0)
+        if not duration_ms:
+            duration_sec = int(metadata.get("duration_sec", 0) or 0)
+            duration_ms = duration_sec * 1000
+
+        if duration_ms > 0:
+            duration_str = f"{duration_ms / 1000:.1f} сек"
+        else:
+            duration_str = "неизвестна"
+
+        # Build user message wrapped in <данные>…</данные>
+        data_lines = [
             f"Контакт: {contact_name} ({phone})",
             f"Дата/время: {call_datetime}",
             f"Направление: {direction}",
             f"Длительность: {duration_str}",
         ]
-        if context_block:
-            user_parts.append(f"\nКонтекст (предыдущие звонки):\n{context_block}")
-        user_parts.append(f"\nСтенограмма:\n{transcript_text or '(пусто)'}")
 
-        user_message = "\n".join(user_parts)
+        if context_block:
+            data_lines.append(f"\nКонтекст (предыдущие звонки):\n{context_block}")
+
+        data_lines.append(f"\nСтенограмма:\n{final_transcript or '(пусто)'}")
+
+        # T-14: данные не могут закрыть конверт — закрывающий тег внутри данных нейтрализуется
+        data_block = "\n".join(data_lines).replace("</данные>", "</данные >")
+
+        user_message = (
+            "Метаданные звонка:\n"
+            f"<данные>\n{data_block}\n</данные>"
+        )
 
         logger.debug(
             "Built prompt: system=%d chars, user=%d chars",
