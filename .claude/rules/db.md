@@ -37,6 +37,6 @@ All operations must be idempotent:
 - **bulk-load:** skip files with existing MD5 hash (per user_id)
 - **bulk-enrich:** skip calls that already have analysis
 - **extract-names:** skip contacts that already have guessed_name
-- **save_events:** check for duplicate (call_id + event_type + payload) before insert
+- **save_events / save_promises (T-16, 2026-08-22):** `INSERT … WHERE NOT EXISTS` по (user_id, call_id, event_type, who, payload[, fact_id IS NULL]) / (user_id, call_id, who, what) — повторный анализ не дублирует строки и НЕ меняет rowid (на них ссылается `fact_feedback.item_key`); графовые факты (`fact_id`) дедупятся отдельно через `idx_events_factid`; `save_analysis` — UPSERT по `analyses.call_id`
 
 Repeated runs must never duplicate data.

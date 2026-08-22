@@ -432,3 +432,23 @@ def test_stalled_isolated_by_user(repo):
     repo.update_call_status("u1", c1, "normalizing")
     repo.update_call_status("u2", c2, "normalizing")
     assert [c["call_id"] for c in repo.get_stalled_calls(user_id="u1")] == [c1]
+
+
+def test_save_promises_and_events_idempotent_ids_preserved(repo):
+    """T-16: повторное сохранение того же анализа не дублирует строки и не меняет rowid."""
+    add_user(repo)
+    call_id, _ = add_call(repo)
+    conn = repo._get_conn()
+    conn.execute("INSERT INTO contacts(contact_id, user_id, phone_e164, display_name) VALUES (7,'user1','+7','C')")
+    conn.commit()
+    promises = [{"who": "OTHER", "what": "перезвонит", "due": None}]
+    events = [{"event_type": "promise", "who": "OTHER", "payload": "перезвонит", "contact_id": 7}]
+    repo.save_promises("user1", 7, call_id, promises)
+    repo.save_events("user1", call_id, events)
+    ids1 = [r[0] for r in conn.execute("SELECT id FROM events WHERE call_id=?", (call_id,))]
+    repo.save_promises("user1", 7, call_id, promises)
+    repo.save_events("user1", call_id, events)
+    assert conn.execute("SELECT COUNT(*) FROM promises WHERE call_id=?", (call_id,)).fetchone()[0] == 1
+    assert [r[0] for r in conn.execute("SELECT id FROM events WHERE call_id=?", (call_id,))] == ids1
+    repo.save_events("user1", call_id, [{"event_type": "promise", "who": "OTHER", "payload": "другое"}])
+    assert conn.execute("SELECT COUNT(*) FROM events WHERE call_id=?", (call_id,)).fetchone()[0] == 2

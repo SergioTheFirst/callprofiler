@@ -1153,17 +1153,17 @@ class Repository:
                 call_id, user_id,
             )
             return
+        # T-16: идемпотентно по (user_id, call_id, who, what) — повторный анализ звонка не
+        # дублирует обещания, существующие строки (и их promise_id / fact_feedback) не трогаются.
         conn.executemany(
             """INSERT INTO promises (user_id, contact_id, call_id, who, what, due)
-               VALUES (?,?,?,?,?,?)""",
+               SELECT ?,?,?,?,?,?
+               WHERE NOT EXISTS (SELECT 1 FROM promises
+                                 WHERE user_id=? AND call_id=? AND who=? AND what=?)""",
             [
                 (
-                    user_id,
-                    contact_id,
-                    call_id,
-                    p.get("who", ""),
-                    p.get("what", ""),
-                    p.get("due"),
+                    user_id, contact_id, call_id, p.get("who", ""), p.get("what", ""), p.get("due"),
+                    user_id, call_id, p.get("who", ""), p.get("what", ""),
                 )
                 for p in promises
             ],
@@ -1231,6 +1231,9 @@ class Repository:
                 e.get("confidence", 1.0),
                 e.get("deadline"),
                 e.get("status", "open"),
+                # T-16 dedup key (db.md Idempotency): call_id + event_type + payload (+who);
+                # графовые факты (fact_id IS NOT NULL) в проверке не участвуют.
+                user_id, call_id, e.get("event_type", "fact"), e.get("who", "UNKNOWN"), e.get("payload", ""),
             )
             for e in events
             if e.get("user_id", user_id) == user_id
@@ -1239,7 +1242,10 @@ class Repository:
             """INSERT INTO events
                (user_id, contact_id, call_id, event_type, who, payload,
                 source_quote, confidence, deadline, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+               WHERE NOT EXISTS (SELECT 1 FROM events
+                                 WHERE user_id=? AND call_id=? AND event_type=? AND who=?
+                                   AND payload=? AND fact_id IS NULL)""",
             rows,
         )
         self._commit(conn)
