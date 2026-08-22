@@ -19,10 +19,12 @@
    - **Почему не ловилось:** `tests/test_graph.py:380-399` кормят `_bs_v1_linear` рукописными счётчиками
      (`vagueness=5…`) — формула зелёная на входах, которых прод не порождает («зелёные тесты ≠
      доказательство», decisions.md 2026-06-06/2026-08-21).
-   - **Solution:** НЕ чинить маппинг (оживление членов без внешнего критерия = ложная точность) —
-     план `docs/research/bs/90-execution-plan.md`: R-02 (отключить потребителей), R-03 (verbatim в боевом
-     пути: builder сам грузит транскрипт), R-12/R-13 (убрать admiralty/паттерны), CR/CI вместо BS.
-     Проверка на боксе: `box-package/scripts/01_bs_dead_terms.py` (MAX(bs_index)≤20).
+   - **Solution (после решения владельца 2026-08-22 — развивать существующее, не заменять):** оживить
+     формулу: писать `events.fact_type` (колонка есть, `repository.py:62`) в `insert_fact_event` и
+     считать `count_facts_by_type` по `COALESCE(fact_type, event_type)`; `broken_promise` выводить из
+     `promise_outcomes.status='broken'`/`promises.status`; `who` — добавить поле в промпт при следующем
+     `PROMPT_VERSION` bump; verbatim — builder сам грузит транскрипт. Всё это — обычные T1/T2-задачи,
+     без перепроектирования. Исследование `docs/research/bs/` — отложено, справка.
    - **Status:** ACTIVE (план написан, код не менялся). **Priority:** 🔴 High (владелец видит ранговый
      ярлык «надёжности» на мёртвой формуле).
 

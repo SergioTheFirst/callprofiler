@@ -20,25 +20,20 @@
 - `data_dir = C:\calls\data`. Лог: `C:\calls\callprofiler.log`.
 - **GPU sequential (Hard Constraint):** ASR+pyannote и LLM НИКОГДА одновременно (12GB RTX 3060).
 
-**State (2026-08-22) — BS-research (`docs/routines/bs-research-fable.md`) ЗАВЕРШЁН: план готов, box-package готов:**
+**State (2026-08-22) — BS-research ОТЛОЖЕН решением владельца; код не менялся:**
 
-Всё в `docs/research/bs/` (индекс `00-README.md`; deliverable — `90-execution-plan.md`, R-01…R-30, 3 раунда,
-≈18.4M токенов субагентов). Главное: (1) `bs_index` в проде = `20·min(contradictions/calls,1)` — 4 из 5
-членов ≡ 0, `who='UNKNOWN'`, verbatim только в replay (bugs.md 🔴 2026-08-22); (2) решение — BS заморозить,
-ввести CR (Beta-binomial по `promise_outcomes`) + CI (масса posterior в окне 0.2, число только после ≥150
-✓/✗), описательные фразы прошедшего времени, admiralty/trait-паттерны удалить (decisions.md 2026-08-22);
-(3) план прошёл враждебную рецензию (4 позиции, 19 принятых возражений), маркеры уверенности сняты
-(C-09 retracted). Код НЕ менялся. Suite baseline: 1462 passed / 3 skipped (`.[dev,full]`).
+`docs/research/bs/` (план R-01…R-30, box-package) — **в архив, не применять**: владелец оценил
+результат как не отвечающий задаче (нужен был индекс пиздежа ИЗ имеющихся наработок, без
+калибровки на реальной БД, работающий для нового пользователя; план же предлагал заморозить/убрать
+существующее и зависел от adjudication). Факт из реконструкции остаётся полезным: в `aggregator` 4 из 5
+счётчиков BS никогда не заполняются из-за схлопывания типов в `'fact'` (bugs.md 🔴 2026-08-22 — фикс
+счётчиков = маленькая задача «оживить формулу», не перепроектирование). Suite baseline: 1462 passed /
+3 skipped (`.[dev,full]`).
 
-**Next:**
-1. **Бокс (R-01):** `watch` стоп → `backup` → `verify-backup` → копия в `C:\calls\research\` →
-   `docs/research/bs/box-package/scripts/{01,02,03}_*.py --db <копия>` → `results/E0a*.md`. Правило: D1
-   подтверждён ⇔ `MAX(bs_index) ≤ 20` (иначе стоп, пересмотр data-surface §4).
-2. `02_promise_coverage.py --adjudication-request --n 30 --overdue 10 --seed 0` → владелец заполняет
-   (≤40 строк, протокол `box-package/protocol.md` §5) → `04_cr_eval.py --adjudicated …` (E-1/E-2/E-3(1)),
-   `05_temporal_holdout.py` (E-8/E-4) — решения по `decision-rules.md` → строки `reliability_params`.
-3. Dev: фаза A плана R-02…R-15 (тиры T1/T2 по задачам; T-26 в `sintezdiharea.md` после CP-5 — продуктовое
-   решение владельца о порядке относительно T-07/T-06).
+**Next (возврат к `docs/sintezdiharea.md`): T-07** (durable jobs/attempts/retry-backoff, P0) — вертикальный
+срез: transition table + `next_retry_at`/backoff+jitter в `retry_errors()`, попутно T-18 (`user_id` в
+`get_error_calls`/`retry_errors` → кнопка Reprocess только свой user). Режим: оркестрация (Workflow),
+адаптивное распределение моделей/усилия по стадиям, ponytail ultra. Альтернатива — T-06.
 
 **State (2026-08-21) — облачный routine, первый реальный запуск: extras-баг + WAL-restore баг:**
 
