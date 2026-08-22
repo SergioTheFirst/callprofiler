@@ -367,6 +367,30 @@ def build_doctor_message(checks: list[Check]) -> str:
     return header + "\n\n" + format_report(checks)
 
 
+def _check_backup(config: Any) -> Check:
+    """T-21: последний ВЕРИФИЦИРОВАННЫЙ бэкап (T-20 манифест) и его возраст."""
+    from callprofiler.ops.backup import latest_verified_backup
+
+    backup_dir = Path(getattr(config, "backup_dir", "") or Path(config.data_dir) / "backups")  # как cli/commands/backup._backup_dir
+    latest = latest_verified_backup(str(backup_dir)) if backup_dir.exists() else None
+    if not latest:
+        return Check("backup", "WARN", f"нет верифицированного бэкапа в {backup_dir} — `backup` + `verify-backup`")
+    age_h = (time.time() - os.path.getmtime(latest)) / 3600
+    status = "WARN" if age_h > 7 * 24 else "OK"
+    return Check("backup", status, f"{Path(latest).name}, возраст {age_h / 24:.1f} дн.")
+
+
+def _check_dead_letters(config: Any, conn) -> Check:
+    """T-21: звонки в error с исчерпанными повторами (retry_count >= max_retries) — видимый карантин."""
+    if conn is None:
+        return Check("dead-letters", "SKIP", "нет соединения с БД")
+    max_retries = int(getattr(getattr(config, "pipeline", None), "max_retries", 3) or 3)
+    n = conn.execute("SELECT COUNT(*) FROM calls WHERE status='error' AND retry_count >= ?", (max_retries,)).fetchone()[0]
+    if n:
+        return Check("dead-letters", "WARN", f"{n} звонков в error без повторов — `reprocess --user X` после фикса причины")
+    return Check("dead-letters", "OK", "0")
+
+
 def run_checks(config: Any, conn=None) -> list[Check]:
     """Прогнать все преполётные чеки. conn=None -> db-* блоки SKIP."""
     return [
@@ -386,6 +410,8 @@ def run_checks(config: Any, conn=None) -> list[Check]:
         _safe("heartbeat", lambda: _check_heartbeat(config)),
         _safe("queue-stuck", lambda: _check_queue_stuck(conn)),
         _safe("error-burst", lambda: _check_error_burst(conn)),
+        _safe("dead-letters", lambda: _check_dead_letters(config, conn)),
+        _safe("backup", lambda: _check_backup(config)),
         _safe("disk", lambda: _check_disk(config)),
         _safe("reminders-stale", lambda: _check_reminders_stale(conn)),
         _safe("input-silence", lambda: _check_input_silence(config, conn)),

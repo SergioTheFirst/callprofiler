@@ -433,3 +433,19 @@ def test_watcher_doctor_report_skips_before_9am(tmp_path):
         ) as sender:
             watcher._maybe_send_doctor_report()
     sender.assert_not_called()
+
+
+def test_backup_and_dead_letters_checks(tmp_path):
+    """T-21: нет бэкапа → WARN; error с исчерпанными повторами → WARN, иначе OK."""
+    from callprofiler.doctor import run_checks
+    conn = _schema_conn(tmp_path)
+    cfg = _fake_config(tmp_path)
+    by = {c.name: c for c in run_checks(cfg, conn=conn)}
+    assert by["backup"].status == "WARN"
+    assert by["dead-letters"].status == "OK"
+    conn.execute("INSERT INTO users(user_id, display_name, incoming_dir, sync_dir, ref_audio) VALUES ('u1','U','C:/tmp/in','C:/tmp/sync','C:/tmp/ref.wav')")
+    conn.execute("INSERT INTO calls(user_id, status, retry_count, source_filename, source_md5, audio_path) "
+                 "VALUES ('u1','error', 99, 'a.mp3', 'm', 'p')")
+    conn.commit()
+    by = {c.name: c for c in run_checks(cfg, conn=conn)}
+    assert by["dead-letters"].status == "WARN" and "1" in by["dead-letters"].detail
