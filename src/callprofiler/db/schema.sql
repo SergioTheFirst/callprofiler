@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS calls (
     call_type      TEXT,          -- NULL для обычных звонков, 'note' для голосовых заметок (F4)
     retry_count    INTEGER NOT NULL DEFAULT 0,
     error_message  TEXT,
+    next_retry_at  TEXT,
     created_at     TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );

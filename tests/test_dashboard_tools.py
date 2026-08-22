@@ -194,12 +194,12 @@ class TestReprocessConfig:
 
         class FakeRepo:
             def __init__(self, *a, **k): pass
-            def get_error_calls(self, n): return []
+            def get_error_calls(self, n, user_id=None): return []
             def close(self): pass
 
         class FakeOrch:
             def __init__(self, c, r): captured["cfg"] = c
-            def retry_errors(self): captured["retried"] = True
+            def retry_errors(self, user_id=None): captured["retried"] = True
 
         def _no_load(*a, **k):
             raise AssertionError("load_config must NOT be called; self.config is already a Config")

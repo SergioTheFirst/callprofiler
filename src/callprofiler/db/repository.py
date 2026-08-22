@@ -6,6 +6,7 @@ repository.py вЂ” РґРѕСЃС‚СѓРї Рє SQLite. Р‘РµР· ORM, 
 
 import json
 import logging
+import random
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +21,9 @@ logger = logging.getLogger(__name__)
 
 
 class Repository:
+    backoff_base_sec: int = 60   # T-07: база exp-backoff; Orchestrator ставит из config.pipeline.retry_interval_sec
+    backoff_max_sec: int = 3600
+
     def __init__(self, db_path: str):
         self._db_path = db_path
         self._conn: sqlite3.Connection | None = None
@@ -355,13 +359,13 @@ class Repository:
 
     def reset_call(self, user_id: str, call_id: int) -> bool:
         """Сбросить звонок на полную переобработку: status='new', stage=0,
-        retry_count=0, error_message=NULL. Используется при восстановлении
+        retry_count=0, error_message=NULL, next_retry_at=NULL. Используется при восстановлении
         потерянного аудио / форс-переобработке. False без исключения при
         чужом/несуществующем call_id."""
         conn = self._get_conn()
         row = conn.execute(
             "UPDATE calls SET status='new', pipeline_stage=0, retry_count=0, "
-            "error_message=NULL WHERE call_id=? AND user_id=?",
+            "error_message=NULL, next_retry_at=NULL WHERE call_id=? AND user_id=?",
             (call_id, user_id),
         )
         self._commit(conn)
@@ -420,15 +424,55 @@ class Repository:
         call_id: int,
         status: str,
         error_message: str | None = None,
+        force: bool = False,
+        backoff_base_sec: int | None = None,
+        backoff_max_sec: int | None = None,
     ) -> bool:
-        """False без исключения при чужом/несуществующем call_id (P-TEN-02)."""
+        """Set call status. Returns False without error if call not found or terminal
+        status cannot be overwritten (P-TEN-02).
+
+        If error_message is not None, sets next_retry_at with exponential backoff + jitter:
+        delay = min(base * 2^retry_count, max) * uniform(0.8, 1.2); base/max default to
+        Repository.backoff_base_sec / backoff_max_sec (Orchestrator sets base from
+        config.pipeline.retry_interval_sec).
+
+        If force=True, allows overwriting terminal statuses (done/transcribed).
+        If force=False (default), refuses to overwrite terminal statuses with different status.
+        """
         conn = self._get_conn()
+
+        # Terminal status guard: refuse overwrite unless forced or status unchanged
+        if not force:
+            current = conn.execute(
+                "SELECT status FROM calls WHERE call_id = ? AND user_id = ?",
+                (call_id, user_id),
+            ).fetchone()
+            if current and current["status"] in ("done", "transcribed") and current["status"] != status:
+                logger.warning(
+                    "update_call_status: refuse %s→%s call_id=%s (terminal; force=False)",
+                    current["status"], status, call_id,
+                )
+                return False
+
         if error_message is not None:
+            # Exponential backoff + jitter (T-07 slice): delay = min(base·2^retry_count, max)·U(0.8,1.2),
+            # retry_count = число ПРЕДЫДУЩИХ ошибок. Первая ошибка тоже ждёт base — иначе tight retry
+            # в каждом цикле watcher. ponytail: один worker — без lease/attempts; добавить при втором писателе.
+            retry_row = conn.execute(
+                "SELECT retry_count FROM calls WHERE call_id = ? AND user_id = ?",
+                (call_id, user_id),
+            ).fetchone()
+            retry_count = retry_row["retry_count"] if retry_row else 0
+            base = self.backoff_base_sec if backoff_base_sec is None else backoff_base_sec
+            cap = self.backoff_max_sec if backoff_max_sec is None else backoff_max_sec
+            delay_sec = min(base * (2 ** min(retry_count, 20)), cap) * random.uniform(0.8, 1.2)
             row = conn.execute(
                 """UPDATE calls SET status=?, error_message=?,
                    retry_count=retry_count+1,
-                   updated_at=datetime('now') WHERE call_id=? AND user_id=?""",
-                (status, error_message, call_id, user_id),
+                   next_retry_at=datetime('now', '+' || ? || ' seconds'),
+                   updated_at=datetime('now')
+                   WHERE call_id=? AND user_id=?""",
+                (status, error_message, int(delay_sec), call_id, user_id),
             )
         else:
             row = conn.execute(
@@ -523,11 +567,18 @@ class Repository:
         # ВНИМАНИЕ: max_retries ПЕРВЫМ — все вызовы передают его позиционно
         # (retry_errors/cmd_reprocess/cmd_status/dashboard). Раньше user_id был
         # первым → get_error_calls(3) трактовался как user_id=3 → пустой результат.
+        #
+        # Фильтр по next_retry_at (exponential backoff): пропускаем звонки, еще не готовые
+        # к повтору. next_retry_at=NULL → никогда не устанавливался (старые error-звонки) →
+        # готовы; next_retry_at <= now → пора повторять.
         if user_id:
             rows = (
                 self._get_conn()
                 .execute(
-                    "SELECT * FROM calls WHERE status='error' AND retry_count < ? AND user_id=? ORDER BY updated_at",
+                    """SELECT * FROM calls WHERE status='error' AND retry_count < ?
+                       AND user_id=?
+                       AND (next_retry_at IS NULL OR next_retry_at <= datetime('now'))
+                       ORDER BY updated_at""",
                     (max_retries, user_id),
                 )
                 .fetchall()
@@ -536,7 +587,9 @@ class Repository:
             rows = (
                 self._get_conn()
                 .execute(
-                    "SELECT * FROM calls WHERE status='error' AND retry_count < ? ORDER BY updated_at",
+                    """SELECT * FROM calls WHERE status='error' AND retry_count < ?
+                       AND (next_retry_at IS NULL OR next_retry_at <= datetime('now'))
+                       ORDER BY updated_at""",
                     (max_retries,),
                 )
                 .fetchall()

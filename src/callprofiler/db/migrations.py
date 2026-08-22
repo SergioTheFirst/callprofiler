@@ -283,6 +283,20 @@ def _m009_owner_triggers(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m010_calls_next_retry_at(conn: sqlite3.Connection) -> None:
+    """Exponential backoff retry column: next_retry_at for error calls.
+
+    Guarded: only adds if missing (idempotent via _add_columns_if_missing).
+    """
+    _add_columns_if_missing(
+        conn,
+        "calls",
+        [
+            ("next_retry_at", "TEXT"),
+        ],
+    )
+
+
 ALL_MIGRATIONS: list[Migration] = [
     Migration(1, "contacts_columns", _m001_contacts_columns),
     Migration(2, "analyses_columns", _m002_analyses_columns),
@@ -293,6 +307,7 @@ ALL_MIGRATIONS: list[Migration] = [
     Migration(7, "calls_md5_unique_index", _m007_calls_md5_unique_index),
     Migration(8, "fts_drop_user_id", _m008_fts_drop_user_id),
     Migration(9, "owner_triggers", _m009_owner_triggers),
+    Migration(10, "calls_next_retry_at", _m010_calls_next_retry_at),
 ]
 
 

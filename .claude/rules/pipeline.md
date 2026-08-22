@@ -43,6 +43,17 @@ scan: MD5-дедуп (`get_call_by_md5`). Новый → ingest = КОПИЯ в 
 
 **Терминальные статусы:** `done` (полный путь), `transcribed` (Stage-1, LLM off), `error`.
 `get_stalled_calls` реклаймит `status NOT IN (new,done,error,transcribed)`.
+**Retry/backoff (T-07 slice, 2026-08-22):** ошибка (`update_call_status(..., error_message=…)`) ставит
+`calls.next_retry_at = now + min(base·2^retry_count, 3600с)·U(0.8,1.2)` (миграция 10; base =
+`pipeline.retry_interval_sec`, проставляется в `Orchestrator.__init__` через `repo.backoff_base_sec`);
+дефолт `retry_interval_sec=3600` = cap → на практике фиксированный интервал ~1ч±20%; рост 2^n виден
+только при base<cap (например 60 в base.yaml);
+`get_error_calls` отдаёт только `next_retry_at IS NULL OR <= now` — tight retry в каждом цикле watcher
+исключён. **Терминальный гард:** `update_call_status` ОТКАЗЫВАЕТСЯ менять `done`/`transcribed` на другой
+статус (warning, `False`) без `force=True`; явный сброс — `reset_call_for_retry` (чистит и `next_retry_at`).
+Dashboard «Reprocess» и `Orchestrator.retry_errors(user_id=…)` user-scoped (T-18); watcher зовёт без user
+(мульти-юзер по замыслу). Lease/attempts/reconciler T-07 — не реализованы (один writer), добавлять при
+втором писателе.
 
 **Голосовые заметки (F4, `calls.call_type='note'`):** Telegram voice/audio → `voicenote_*`
 в incoming_dir → штатный ingest/watcher. Диаризация ПРОПУСКАЕТСЯ (turns=[]), сегменты

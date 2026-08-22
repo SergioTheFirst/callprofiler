@@ -20,20 +20,25 @@
 - `data_dir = C:\calls\data`. Лог: `C:\calls\callprofiler.log`.
 - **GPU sequential (Hard Constraint):** ASR+pyannote и LLM НИКОГДА одновременно (12GB RTX 3060).
 
-**State (2026-08-22) — BS-research ОТЛОЖЕН решением владельца; код не менялся:**
+**State (2026-08-22) — T-07 slice сделан (после BS-research, отложенного владельцем):**
 
-`docs/research/bs/` (план R-01…R-30, box-package) — **в архив, не применять**: владелец оценил
-результат как не отвечающий задаче (нужен был индекс пиздежа ИЗ имеющихся наработок, без
-калибровки на реальной БД, работающий для нового пользователя; план же предлагал заморозить/убрать
-существующее и зависел от adjudication). Факт из реконструкции остаётся полезным: в `aggregator` 4 из 5
-счётчиков BS никогда не заполняются из-за схлопывания типов в `'fact'` (bugs.md 🔴 2026-08-22 — фикс
-счётчиков = маленькая задача «оживить формулу», не перепроектирование). Suite baseline: 1462 passed /
-3 skipped (`.[dev,full]`).
+- **T-07 (вертикальный срез) + T-18 user_id:** `next_retry_at` (миграция 10) + exp-backoff/jitter,
+  `get_error_calls` по `next_retry_at`, терминальный гард `done/transcribed` (`force=`), dashboard
+  Reprocess и `retry_errors(user_id=)` user-scoped. Карта — `pipeline.md` «Retry/backoff». НЕ сделано из
+  T-07 (осознанно, один writer): lease/heartbeat, таблица attempts, artifact reconciler, error taxonomy.
+  Suite: см. CHANGELOG/последний прогон (ожидается 1466+ passed).
+- **BS-research** (`docs/research/bs/`) — ОТЛОЖЕН владельцем, не применять (справка). Урок — memory
+  `research-build-on-existing`. Попутный факт: `aggregator` BS-счётчики мертвы (bugs.md 🔴 2026-08-22) —
+  фикс «оживить формулу» (fact_type/who/verbatim) — обычная T1/T2-задача, в очередь по решению владельца.
+- Режим работы (владелец, 2026-08-22): оркестрация Workflow с адаптивным распределением моделей/усилия
+  (Opus implement / Haiku test-gate / Sonnet review / Fable дизайн+верификация), ponytail **ultra**,
+  нужные skills по задаче. Отчёт агента ≠ доказательство: дифф и suite проверять лично (в T-07 агент
+  отклонился от спеки дважды — первая ошибка без задержки, конфиг не подключён).
 
-**Next (возврат к `docs/sintezdiharea.md`): T-07** (durable jobs/attempts/retry-backoff, P0) — вертикальный
-срез: transition table + `next_retry_at`/backoff+jitter в `retry_errors()`, попутно T-18 (`user_id` в
-`get_error_calls`/`retry_errors` → кнопка Reprocess только свой user). Режим: оркестрация (Workflow),
-адаптивное распределение моделей/усилия по стадиям, ponytail ultra. Альтернатива — T-06.
+**Next (по `docs/sintezdiharea.md`):** **T-06** (purge/retention manifest: `purge_user` не чистит
+`llm_calls`/`ask_log`/`reminders`/файлы; манифест артефактов) — T3-гейт (удаление данных): дизайн лично,
+реализация оркестрацией. Альтернатива: остаток T-07 (attempts/reconciler) — только при появлении второго
+писателя. Затем T-08 (`card_generator` через `artifacts.atomic_write_text`).
 
 **State (2026-08-21) — облачный routine, первый реальный запуск: extras-баг + WAL-restore баг:**
 

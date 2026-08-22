@@ -190,14 +190,99 @@ def test_get_pending_calls(repo):
 def test_get_error_calls(repo):
     add_user(repo)
     call_id, _ = add_call(repo)
-    repo.update_call_status("user1", call_id, "error", "ошибка")
+    repo.update_call_status("user1", call_id, "error", "ошибка", backoff_base_sec=0)
     errors = repo.get_error_calls(max_retries=3)
     assert len(errors) == 1
     # После max_retries попыток — не возвращать
     for _ in range(3):
-        repo.update_call_status("user1", call_id, "error", "снова")
+        repo.update_call_status("user1", call_id, "error", "снова", backoff_base_sec=0)
     errors = repo.get_error_calls(max_retries=3)
     assert len(errors) == 0
+
+
+def test_error_sets_next_retry_at_future_and_grows(repo):
+    """T-07: каждая ошибка (включая первую) ставит next_retry_at в будущее; задержка растёт."""
+    add_user(repo)
+    call_id, _ = add_call(repo)
+
+    def _delay():
+        return repo._get_conn().execute(
+            "SELECT (julianday(next_retry_at) - julianday('now')) * 86400 AS d, retry_count "
+            "FROM calls WHERE call_id = ?", (call_id,)).fetchone()
+
+    repo.update_call_status("user1", call_id, "error", "первая ошибка", backoff_base_sec=60)
+    first = _delay()
+    assert first["retry_count"] == 1 and 40 <= first["d"] <= 75  # 60·U(0.8,1.2)
+
+    repo.update_call_status("user1", call_id, "error", "вторая ошибка", backoff_base_sec=60)
+    second = _delay()
+    assert second["retry_count"] == 2 and 90 <= second["d"] <= 150  # 120·U(0.8,1.2)
+    assert second["d"] > first["d"]
+
+    repo.update_call_status("user1", call_id, "error", "cap", backoff_base_sec=60, backoff_max_sec=100)
+    assert _delay()["d"] <= 121
+
+def test_get_error_calls_skips_not_yet_due(repo):
+    """T-07: get_error_calls не отдаёт звонок до next_retry_at; после — отдаёт."""
+    add_user(repo)
+    call_id, _ = add_call(repo)
+    repo.update_call_status("user1", call_id, "error", "ошибка", backoff_base_sec=60)
+    assert repo.get_error_calls(max_retries=3) == []  # ещё не пора
+    repo._get_conn().execute(
+        "UPDATE calls SET next_retry_at = datetime('now', '-10 seconds') WHERE call_id = ?", (call_id,))
+    repo._get_conn().commit()
+    assert len(repo.get_error_calls(max_retries=3)) == 1  # пора
+    assert len(repo.get_error_calls(max_retries=3, user_id="other")) == 0  # чужой user
+
+def test_terminal_status_not_overwritten(repo):
+    """Verify that done/transcribed statuses cannot be overwritten without force=True."""
+    add_user(repo)
+    call_id, _ = add_call(repo)
+
+    # Set to done
+    repo.update_call_status("user1", call_id, "done")
+    call = repo.get_call("user1", call_id)
+    assert call["status"] == "done"
+
+    # Try to overwrite with force=False (default)
+    result = repo.update_call_status("user1", call_id, "error", "ошибка", force=False)
+    assert result is False  # Should refuse
+
+    call = repo.get_call("user1", call_id)
+    assert call["status"] == "done"  # Status unchanged
+
+    # Overwrite with force=True
+    result = repo.update_call_status("user1", call_id, "error", "ошибка", force=True)
+    assert result is True
+
+    call = repo.get_call("user1", call_id)
+    assert call["status"] == "error"  # Status changed
+
+
+def test_reset_call_for_retry_clears_next_retry_at(repo):
+    """Verify that reset_call clears next_retry_at along with other fields."""
+    add_user(repo)
+    call_id, _ = add_call(repo)
+
+    # Set to error with future retry time
+    repo.update_call_status("user1", call_id, "error", "ошибка", backoff_base_sec=60)
+    repo.update_call_status("user1", call_id, "error", "вторая", backoff_base_sec=60)
+
+    call = repo.get_call("user1", call_id)
+    assert call["status"] == "error"
+    assert call["next_retry_at"] is not None
+    assert call["retry_count"] == 2
+
+    # Reset
+    result = repo.reset_call("user1", call_id)
+    assert result is True
+
+    call = repo.get_call("user1", call_id)
+    assert call["status"] == "new"
+    assert call["pipeline_stage"] == 0
+    assert call["retry_count"] == 0
+    assert call["error_message"] is None
+    assert call["next_retry_at"] is None
 
 
 # ---- Transcripts ----

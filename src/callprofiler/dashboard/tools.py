@@ -217,13 +217,13 @@ class DashboardTools:
             repo = Repository(str(self.db_path))
             orchestrator = Orchestrator(cfg, repo)
 
-            errors = repo.get_error_calls(cfg.pipeline.max_retries)
+            errors = repo.get_error_calls(cfg.pipeline.max_retries, user_id=self.user_id)
             if not errors:
                 repo.close()
                 return {"status": "ok", "message": "No errored calls to reprocess", "count": 0}
 
             count = len(errors)
-            orchestrator.retry_errors()
+            orchestrator.retry_errors(user_id=self.user_id)
             repo.close()
             self._log(f"reprocess: {count} calls retried")
             return {"status": "ok", "message": f"Retrying {count} calls", "count": count}

@@ -120,6 +120,7 @@ class Orchestrator:
         """
         self.config = config
         self.repo = repo
+        repo.backoff_base_sec = config.pipeline.retry_interval_sec  # T-07: база exp-backoff
 
         # Компоненты ASR/diarize (лениво загружаются)
         # ASR-runner создаётся ЛЕНИВО, при первом обращении (см. property ниже) —
@@ -516,10 +517,14 @@ class Orchestrator:
             for i in range(0, len(call_ids), chunk):
                 self.process_batch(call_ids[i : i + chunk])
 
-    def retry_errors(self) -> None:
-        """Повторить звонки со статусом 'error' и retry_count < max_retries."""
+    def retry_errors(self, user_id: str | None = None) -> None:
+        """Повторить звонки со статусом 'error' и retry_count < max_retries.
+
+        If user_id is provided, only retries that user's calls (T-18 user-scope gate).
+        If user_id is None, retries all users' calls (multi-user watcher).
+        """
         max_retries = self.config.pipeline.max_retries
-        errors = self.repo.get_error_calls(max_retries)
+        errors = self.repo.get_error_calls(max_retries, user_id=user_id)
         if not errors:
             logger.debug("Нет звонков для повтора")
             return
