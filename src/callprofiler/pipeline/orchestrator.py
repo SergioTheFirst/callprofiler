@@ -234,6 +234,18 @@ class Orchestrator:
             self.repo.save_transcripts(user_id, call_id, segments)
             self._export_text(call, segments)
             self.repo.set_role_fragile(user_id, call_id, is_role_fragile(segments))
+
+            # T-11: гейт ASR-покрытия перед stage 2 — частичное распознавание = error (видимый карантин), не COMPLETE
+            asr_coverage = float(getattr(self.asr_runner, "last_coverage", 1.0))
+            asr_windows_total = int(getattr(self.asr_runner, "last_windows_total", 0))
+            asr_windows_failed = int(getattr(self.asr_runner, "last_windows_failed", 0))
+            self.repo.set_asr_coverage(user_id, call_id, asr_coverage)
+            if asr_coverage < self.config.models.asr_min_coverage:
+                raise RuntimeError(
+                    f"ASR partial coverage {asr_coverage:.2f} < {self.config.models.asr_min_coverage}: "
+                    f"{asr_windows_failed}/{asr_windows_total} окон упали"
+                )
+
             self.repo.update_pipeline_stage(user_id, call_id, 2)
 
             # F4: заметка — без анализа (промпт заточен под диалог), сразу done.
@@ -416,6 +428,18 @@ class Orchestrator:
                         self.repo.save_transcripts(uid, call_id, segs)
                         self._export_text(call, segs)
                         self.repo.set_role_fragile(uid, call_id, is_role_fragile(segs))
+
+                        # T-11: гейт ASR-покрытия перед stage 2
+                        asr_coverage = float(getattr(self.asr_runner, "last_coverage", 1.0))
+                        asr_windows_total = int(getattr(self.asr_runner, "last_windows_total", 0))
+                        asr_windows_failed = int(getattr(self.asr_runner, "last_windows_failed", 0))
+                        self.repo.set_asr_coverage(uid, call_id, asr_coverage)
+                        if asr_coverage < self.config.models.asr_min_coverage:
+                            raise RuntimeError(
+                                f"ASR partial coverage {asr_coverage:.2f} < {self.config.models.asr_min_coverage}: "
+                                f"{asr_windows_failed}/{asr_windows_total} окон упали"
+                            )
+
                         self.repo.update_pipeline_stage(uid, call_id, 2)
                         call["pipeline_stage"] = 2
                     except Exception as exc:

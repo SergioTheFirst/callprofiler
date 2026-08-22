@@ -61,6 +61,10 @@ class GigaAMRunner:
         self.config = config
         self._model = None  # GigaAMModel (HF-обёртка)
         self._asr = None    # GigaAMASR: prepare_wav / forward / decoding / head
+        # Coverage tracking (T-07: ASR window-level resilience monitoring)
+        self.last_windows_total: int = 0
+        self.last_windows_failed: int = 0
+        self.last_coverage: float = 1.0
 
     # ── lifecycle ──────────────────────────────────────────────────────
     def load(self) -> None:
@@ -175,6 +179,8 @@ class GigaAMRunner:
 
         segments: list[Segment] = []
         start = 0
+        windows_total = 0
+        windows_failed = 0
         while start < total:
             end = min(start + chunk, total)
             seg_wav = wav[:, start:end]
@@ -182,11 +188,13 @@ class GigaAMRunner:
             if n < min_tail:
                 break
 
+            windows_total += 1
             length = torch.full([1], n, device=seg_wav.device)
             try:
                 encoded, encoded_len = asr.forward(seg_wav, length)
                 text = asr.decoding.decode(asr.head, encoded, encoded_len)[0]
             except Exception as exc:  # noqa: BLE001 — окно не должно ронять звонок
+                windows_failed += 1
                 logger.warning(
                     "GigaAM: окно [%d:%d] упало (%s), пропуск", start, end, exc
                 )
@@ -210,7 +218,13 @@ class GigaAMRunner:
                 break
             start += step
 
-        logger.info("GigaAM: %d сегментов из %s", len(segments), wav_path)
+        # Сохранить покрытие для передачи в orchestrator
+        self.last_windows_total = windows_total
+        self.last_windows_failed = windows_failed
+        self.last_coverage = 1.0 if windows_total == 0 else 1.0 - (windows_failed / windows_total)
+        logger.info("GigaAM: %d сегментов, окна %d/%d (покрытие %.1f%%)",
+                    len(segments), windows_total - windows_failed, windows_total,
+                    self.last_coverage * 100.0)
         return segments
 
     def transcribe_turns(self, wav_path: str, turns: list[dict]) -> list["Segment"]:
@@ -243,6 +257,8 @@ class GigaAMRunner:
         min_tail = int(_MIN_TAIL_SEC * _SAMPLE_RATE)
 
         out: list[Segment] = []
+        windows_total = 0
+        windows_failed = 0
         for turn in turns:
             s = max(0, int(int(turn.get("start_ms", 0)) * _SAMPLE_RATE / 1000))
             e = min(total, int(int(turn.get("end_ms", 0)) * _SAMPLE_RATE / 1000))
@@ -257,11 +273,13 @@ class GigaAMRunner:
                 seg_wav = wav[:, p:q]
                 if int(seg_wav.shape[-1]) < min_tail:
                     break
+                windows_total += 1
                 length = torch.full([1], int(seg_wav.shape[-1]), device=seg_wav.device)
                 try:
                     encoded, encoded_len = asr.forward(seg_wav, length)
                     text = asr.decoding.decode(asr.head, encoded, encoded_len)[0]
                 except Exception as exc:  # noqa: BLE001 — окно не валит turn
+                    windows_failed += 1
                     logger.warning("GigaAM turn-окно [%d:%d] упало (%s)", p, q, exc)
                     text = ""
                 if text and text.strip():
@@ -281,5 +299,11 @@ class GigaAMRunner:
                     )
                 )
 
-        logger.info("GigaAM turns: %d сегментов из %s", len(out), wav_path)
+        # Сохранить покрытие для передачи в orchestrator
+        self.last_windows_total = windows_total
+        self.last_windows_failed = windows_failed
+        self.last_coverage = 1.0 if windows_total == 0 else 1.0 - (windows_failed / windows_total)
+        logger.info("GigaAM turns: %d сегментов, окна %d/%d (покрытие %.1f%%)",
+                    len(out), windows_total - windows_failed, windows_total,
+                    self.last_coverage * 100.0)
         return out

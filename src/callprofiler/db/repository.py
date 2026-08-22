@@ -504,6 +504,17 @@ class Repository:
         self._commit(conn)
         return row.rowcount > 0
 
+    def set_asr_coverage(self, user_id: str, call_id: int, coverage: float) -> bool:
+        """Установить ASR-покрытие звонка (T-07: доля успешных окон)."""
+        conn = self._get_conn()
+        row = conn.execute(
+            "UPDATE calls SET asr_coverage=?, updated_at=datetime('now') "
+            "WHERE call_id=? AND user_id=?",
+            (coverage, call_id, user_id),
+        )
+        self._commit(conn)
+        return row.rowcount > 0
+
     def update_call_paths(
         self, user_id: str, call_id: int, norm_path: str, duration_sec: int
     ) -> bool:

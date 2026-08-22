@@ -595,6 +595,14 @@
             ? '<div class="detail-section" style="color:#e0922a">⚠ роли могли спутаться (много UNKNOWN) — не полагайтесь на [me]/[s2] в этом звонке</div>'
             : '';
 
+        // T-07: ASR coverage badge
+        var coverageHtml = '';
+        if (d.asr_coverage !== null && d.asr_coverage !== undefined && d.asr_coverage < 1.0) {
+            var coveragePercent = Math.round(d.asr_coverage * 100);
+            coverageHtml = '<div class="detail-section" style="color:#e0922a">⚠ распознано частично (' + coveragePercent + '%) — ' +
+                Math.round((1 - d.asr_coverage) * 100) + '% окон упали</div>';
+        }
+
         // M7: почему звонок в error, полный текст
         var errorHtml = (d.status === 'error' && d.error_message)
             ? '<div class="detail-section" style="color:#FF6B6B"><h4>Ошибка</h4>' + escapeHtml(d.error_message) + '</div>'
@@ -614,7 +622,7 @@
             '<dt>Call Type</dt><dd>' + escapeHtml(d.call_type || '--') + '</dd>' +
             '<dt>Model</dt><dd>' + escapeHtml(d.model || '--') + '</dd>' +
             '</dl></div>' +
-            audioHtml + fragileHtml + errorHtml +
+            audioHtml + fragileHtml + coverageHtml + errorHtml +
             '<div class="detail-section"><h4>Summary</h4><p style="font-size:13px;color:var(--text-secondary);line-height:1.6">' + escapeHtml(summary) + '</p></div>' +
             flagsHtml + segsHtml + promHtml;
 

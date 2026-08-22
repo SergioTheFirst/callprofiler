@@ -1649,7 +1649,7 @@ class DashboardDBReader:
         row = self._conn.execute(
             f"""SELECT c.call_id, c.call_datetime, c.direction, c.duration_sec,
                       c.status, c.created_at, c.updated_at, c.source_filename,
-                      c.source_md5, c.role_fragile,
+                      c.source_md5, c.role_fragile, c.asr_coverage,
                       {error_col}
                       COALESCE(ct.display_name, ct.phone_e164) AS contact_label,
                       ct.contact_id, ct.display_name, ct.phone_e164, ct.guessed_name,

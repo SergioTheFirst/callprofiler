@@ -41,6 +41,8 @@ scan: MD5-дедуп (`get_call_by_md5`). Новый → ingest = КОПИЯ в 
 | 3 | analyzing | локальная LLM (llama-server) | — |
 | 4 | delivering→**done** | карточка + Telegram | sync/ |
 
+**ASR-покрытие (T-11, 2026-08-22):** `GigaAMRunner` считает окна (`last_windows_total/failed`, `last_coverage`) в `transcribe` и `transcribe_turns`; orchestrator (оба пути) пишет `calls.asr_coverage` (миграция 11) и при `coverage < models.asr_min_coverage` (0.8) поднимает `RuntimeError` ДО stage 2 → `status='error'` с сообщением «ASR partial coverage …» (T-07 backoff → повтор; видимый карантин, не тихий COMPLETE). Дашборд: бейдж «⚠ распознано частично (NN%)» в детали звонка.
+
 **Терминальные статусы:** `done` (полный путь), `transcribed` (Stage-1, LLM off), `error`.
 `get_stalled_calls` реклаймит `status NOT IN (new,done,error,transcribed)`.
 **Retry/backoff (T-07 slice, 2026-08-22):** ошибка (`update_call_status(..., error_message=…)`) ставит

@@ -297,6 +297,21 @@ def _m010_calls_next_retry_at(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m011_calls_asr_coverage(conn: sqlite3.Connection) -> None:
+    """ASR window coverage: fraction of successful ASR windows (T-07).
+
+    Tracks partial ASR failures per call: asr_coverage = 1 - (failed_windows / total_windows).
+    Used for pre-stage-2 gating and diagnostics. Guarded: only adds if missing.
+    """
+    _add_columns_if_missing(
+        conn,
+        "calls",
+        [
+            ("asr_coverage", "REAL"),
+        ],
+    )
+
+
 ALL_MIGRATIONS: list[Migration] = [
     Migration(1, "contacts_columns", _m001_contacts_columns),
     Migration(2, "analyses_columns", _m002_analyses_columns),
@@ -308,6 +323,7 @@ ALL_MIGRATIONS: list[Migration] = [
     Migration(8, "fts_drop_user_id", _m008_fts_drop_user_id),
     Migration(9, "owner_triggers", _m009_owner_triggers),
     Migration(10, "calls_next_retry_at", _m010_calls_next_retry_at),
+    Migration(11, "calls_asr_coverage", _m011_calls_asr_coverage),
 ]
 
 

@@ -126,3 +126,41 @@ def test_transcribe_turns_empty(tmp_path):
     f = tmp_path / "c.wav"
     f.write_bytes(b"\x00")
     assert _runner(16000 * 10).transcribe_turns(str(f), []) == []
+
+
+# ── Coverage tracking (T-07) ──────────────────────────────────────────────
+
+class _FakeASRWithFailures(_FakeASR):
+    """Имитация ASR с контролируемыми сбоями окон."""
+
+    def __init__(self, total_samples: int, fail_on_window: int = 2) -> None:
+        super().__init__(total_samples)
+        self.fail_on_window = fail_on_window  # какое окно (по порядку) упадёт
+        self.window_count = 0
+
+    def forward(self, seg, length):
+        self.window_count += 1
+        if self.window_count == self.fail_on_window:
+            raise RuntimeError("simulated ASR failure")
+        return ("ENC", int(seg.shape[-1]))
+
+
+def test_transcribe_counts_failed_windows(tmp_path):
+    """Coverage tracking: T-07."""
+    f = tmp_path / "call.wav"
+    f.write_bytes(b"\x00")
+
+    # 30 сек, окно 10с → 3 окна; 2-е окно упадёт
+    cfg = Config()
+    cfg.models = ModelsConfig(gigaam_chunk_sec=10.0)
+    r = GigaAMRunner(cfg)
+    r._asr = _FakeASRWithFailures(16000 * 30, fail_on_window=2)
+
+    segs = r.transcribe(str(f))
+
+    # 2 успешных окна (1-е и 3-е), 2-е упало → coverage = 2/3 ≈ 0.667
+    assert r.last_windows_total == 3
+    assert r.last_windows_failed == 1
+    assert abs(r.last_coverage - (2.0 / 3.0)) < 0.01
+    # Сегменты из двух успешных окон (упавший пропущен)
+    assert len(segs) == 2
