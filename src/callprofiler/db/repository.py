@@ -692,62 +692,93 @@ class Repository:
         return counts
 
     def purge_user(self, user_id: str, apply: bool = False) -> dict[str, int]:
-        """Полностью удалить пользователя и ВСЕ его данные (FTS-safe).
+        """Полностью удалить пользователя и ВСЕ его данные (FTS-safe, introspection-based).
 
-        ``apply=False`` — только счётчики. ``apply=True`` — удаляет в одной
-        транзакции: analyses/transcripts (по call_id юзера) → events/promises →
-        bio_* (если biography запускалась) → calls → граф
-        (entities/relations/entity_metrics/entity_merges_log) →
-        contact_summaries → contacts → users. FTS-строки удаляются до transcripts.
-        Графовые и bio_* таблицы могут отсутствовать (apply_graph_schema /
-        apply_biography_schema не вызывали) — пропускаем по _table_exists.
+        ``apply=False`` — только счётчики. ``apply=True`` — удаляет в одной транзакции.
+        Таблицы открыты через introspection (PRAGMA table_info), но удаляются в
+        безопасном FK-порядке (дети до родителей).
         """
         conn = self._get_conn()
-        sub = "(SELECT call_id FROM calls WHERE user_id=?)"
         counts: dict[str, int] = {}
 
         def _count(sql: str) -> int:
             return conn.execute(sql, (user_id,)).fetchone()[0]
 
-        counts["calls"] = _count("SELECT COUNT(*) FROM calls WHERE user_id=?")
-        counts["transcripts"] = _count(
-            f"SELECT COUNT(*) FROM transcripts WHERE call_id IN {sub}"
-        )
-        counts["analyses"] = _count(
-            f"SELECT COUNT(*) FROM analyses WHERE call_id IN {sub}"
-        )
-        # Таблицы с прямым user_id (графовые — только если существуют)
-        user_tables = ["events", "promises", "contact_summaries", "contacts"]
-        graph_tables = ["entities", "relations", "entity_metrics", "entity_merges_log"]
-        # bio_* (если biography запускалась). 12 таблиц с колонкой user_id;
-        # bio_scene_entities — junction (scene_id, entity_id) без user_id, чистится
-        # по scene_id. Порядок: ссылающиеся на bio_entities → bio_scenes/bio_entities
-        # ПОСЛЕДНИМИ, чтобы DELETE был FK-safe при foreign_keys=ON.
-        bio_tables = [
+        # Enum все таблицы (кроме sqlite_master и FTS shadow-таблиц)
+        all_tables = [
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'transcripts_fts%' "
+                "ORDER BY name"
+            )
+        ]
+
+        # Classify таблицы: PROTECTED (никогда не трогаем) + CHILD_RULES (без user_id)
+        PROTECTED_TABLES = {"schema_migrations"}
+        CHILD_RULES = {
+            "transcripts": "call_id IN (SELECT call_id FROM calls WHERE user_id=?)",
+            "analyses": "call_id IN (SELECT call_id FROM calls WHERE user_id=?)",
+            "bio_scene_entities": "scene_id IN (SELECT scene_id FROM bio_scenes WHERE user_id=?)",
+        }
+
+        # Deletion order (FK-safe, children before parents)
+        # Defined here (not in if apply:) so count loop can filter to only these tables
+        delete_order = [
+            "transcripts", "analyses",  # children of calls
+            "events", "promises",  # user_id FKs
+            "bio_checkpoints", "bio_checkpoint_items", "bio_llm_calls",
             "bio_threads", "bio_portraits", "bio_behavior_patterns",
             "bio_contradictions", "bio_arcs", "bio_chapters", "bio_books",
-            "bio_checkpoints", "bio_checkpoint_items", "bio_llm_calls",
-            "bio_scenes", "bio_entities",
+            "bio_scene_entities",  # child of bio_scenes
+            "bio_scenes", "bio_entities",  # parents of above
+            "contact_notes",  # user_id FK
+            "ask_log",  # user_id FK
+            "entity_profiles",  # user_id FK (graph)
+            "contact_summaries",  # user_id FK
+            "calls",  # user_id FK, parent of transcripts/analyses/bio_scenes
+            "mention_edges", "contact_archetypes", "contact_features", "archetype_models",  # user_id FKs (insight)
+            "contact_tiers",  # user_id FK
+            "entity_contact_map", "graph_replay_runs",  # user_id FKs
+            "promise_outcomes", "deep_facts",  # user_id FKs (but no FK constraint)
+            "llm_calls",  # user_id FK
+            "bs_thresholds",  # user_id FK
+            "reminders",  # user_id FK
+            "report_state", "owner_mirror",  # user_id FKs
+            "contacts",  # user_id FK, parent of calls
+            "entity_merges_log", "entity_metrics", "relations", "entities",  # user_id FKs (graph)
+            "risk_thresholds",  # user_id FK (insight)
+            "users",  # PK, delete last
         ]
-        for tbl in user_tables + graph_tables:
-            if self._table_exists(conn, tbl):
+
+        # Count rows before apply
+        for tbl in all_tables:
+            if tbl in PROTECTED_TABLES:
+                continue
+            # Only count tables that will actually be deleted (in delete_order)
+            if tbl not in delete_order:
+                continue
+
+            cols = {row[1] for row in conn.execute(f"PRAGMA table_info({tbl})")}
+            has_user_id = "user_id" in cols
+
+            if has_user_id:
                 counts[tbl] = _count(f"SELECT COUNT(*) FROM {tbl} WHERE user_id=?")
-        if self._table_exists(conn, "bio_scene_entities") and self._table_exists(
-            conn, "bio_scenes"
-        ):
-            counts["bio_scene_entities"] = conn.execute(
-                "SELECT COUNT(*) FROM bio_scene_entities WHERE scene_id IN "
-                "(SELECT scene_id FROM bio_scenes WHERE user_id=?)",
-                (user_id,),
-            ).fetchone()[0]
-        for tbl in bio_tables:
-            if self._table_exists(conn, tbl):
-                counts[tbl] = _count(f"SELECT COUNT(*) FROM {tbl} WHERE user_id=?")
-        counts["users"] = _count("SELECT COUNT(*) FROM users WHERE user_id=?")
+            elif tbl in CHILD_RULES:
+                rule = CHILD_RULES[tbl]
+                counts[tbl] = _count(f"SELECT COUNT(*) FROM {tbl} WHERE {rule}")
+            else:
+                raise RuntimeError(
+                    f"purge_user: таблица '{tbl}' не имеет user_id и нет правила в CHILD_RULES. "
+                    f"Добавьте правило перед использованием."
+                )
 
         if apply:
-            # FTS-строки убираем ДО удаления transcripts (user_id известен — это
-            # цель purge; все сегменты принадлежат ему). См. _fts_delete_rows.
+            # Defer FK checks until all deletes complete
+            conn.execute("PRAGMA defer_foreign_keys=ON")
+
+            # FTS-строки убираем ДО удаления transcripts
+            sub = "(SELECT call_id FROM calls WHERE user_id=?)"
             fts_rows = conn.execute(
                 f"SELECT segment_id, text, speaker, call_id FROM transcripts "
                 f"WHERE call_id IN {sub}",
@@ -760,29 +791,35 @@ class Repository:
                     for r in fts_rows
                 ],
             )
-            # Дети звонков (FK на calls) — раньше calls
-            conn.execute(f"DELETE FROM analyses WHERE call_id IN {sub}", (user_id,))
-            conn.execute(f"DELETE FROM transcripts WHERE call_id IN {sub}", (user_id,))
-            for tbl in ("events", "promises"):
-                conn.execute(f"DELETE FROM {tbl} WHERE user_id=?", (user_id,))
-            # bio_* ДО calls/contacts/users (bio_scenes→calls, bio_entities→contacts,
-            # все→users): junction по scene_id → прочие → bio_scenes/bio_entities.
-            if self._table_exists(conn, "bio_scene_entities") and self._table_exists(
-                conn, "bio_scenes"
-            ):
-                conn.execute(
-                    "DELETE FROM bio_scene_entities WHERE scene_id IN "
-                    "(SELECT scene_id FROM bio_scenes WHERE user_id=?)",
-                    (user_id,),
+
+            # Удаления в FK-безопасном порядке (дети перед родителями):
+            # FTS уже удалены; transcripts/analyses (дети calls) → events/promises →
+            # bio_* (дети bio_scenes/bio_entities) → calls → contact_summaries →
+            # contacts → граф (entities/relations/entity_metrics) → users
+
+            for tbl in delete_order:
+                if tbl not in all_tables or tbl in PROTECTED_TABLES:
+                    continue
+
+                cols = {row[1] for row in conn.execute(f"PRAGMA table_info({tbl})")}
+                has_user_id = "user_id" in cols
+
+                if has_user_id:
+                    conn.execute(f"DELETE FROM {tbl} WHERE user_id=?", (user_id,))
+                elif tbl in CHILD_RULES:
+                    rule = CHILD_RULES[tbl]
+                    conn.execute(f"DELETE FROM {tbl} WHERE {rule}", (user_id,))
+
+            # Fail-safe: check for unmapped tables (guard against schema drift)
+            unmapped = set(all_tables) - set(delete_order) - PROTECTED_TABLES
+            if unmapped:
+                raise RuntimeError(
+                    f"purge_user: tables exist but not in delete_order: {sorted(unmapped)}. "
+                    f"Add them to delete_order in repository.py before purging."
                 )
-            for tbl in bio_tables:
-                if self._table_exists(conn, tbl):
-                    conn.execute(f"DELETE FROM {tbl} WHERE user_id=?", (user_id,))
-            conn.execute("DELETE FROM calls WHERE user_id=?", (user_id,))
-            for tbl in graph_tables + ["contact_summaries", "contacts", "users"]:
-                if self._table_exists(conn, tbl):
-                    conn.execute(f"DELETE FROM {tbl} WHERE user_id=?", (user_id,))
+
             self._commit(conn)
+
         return counts
 
     def purge_other_users(
