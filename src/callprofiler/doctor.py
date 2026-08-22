@@ -381,13 +381,19 @@ def _check_backup(config: Any) -> Check:
 
 
 def _check_dead_letters(config: Any, conn) -> Check:
-    """T-21: звонки в error с исчерпанными повторами (retry_count >= max_retries) — видимый карантин."""
+    """T-21: звонки в error с исчерпанными повторами (retry_count >= max_retries) или FATAL errors — видимый карантин."""
     if conn is None:
         return Check("dead-letters", "SKIP", "нет соединения с БД")
     max_retries = int(getattr(getattr(config, "pipeline", None), "max_retries", 3) or 3)
-    n = conn.execute("SELECT COUNT(*) FROM calls WHERE status='error' AND retry_count >= ?", (max_retries,)).fetchone()[0]
+    # Оба типа dead-letters: exhausted retries ИЛИ FATAL errors (error_message LIKE 'FATAL[%')
+    row = conn.execute(
+        """SELECT COUNT(*) FROM calls WHERE status='error'
+           AND (retry_count >= ? OR error_message LIKE 'FATAL[%')""",
+        (max_retries,)
+    ).fetchone()
+    n = row[0] if row else 0
     if n:
-        return Check("dead-letters", "WARN", f"{n} звонков в error без повторов — `reprocess --user X` после фикса причины")
+        return Check("dead-letters", "WARN", f"{n} звонков в карантине (retry exhausted или FATAL) — `reprocess --user X` после фикса")
     return Check("dead-letters", "OK", "0")
 
 

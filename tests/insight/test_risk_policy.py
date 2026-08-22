@@ -30,9 +30,10 @@ def test_risk_band_with_none_score():
 def test_risk_band_fallback_thresholds():
     """risk_band uses fallback 30/70 when thresholds=None."""
     assert risk_band(0, None) == "low"
-    assert risk_band(30, None) == "low"
-    assert risk_band(31, None) == "mid"
-    assert risk_band(70, None) == "mid"
+    assert risk_band(29, None) == "low"
+    assert risk_band(30, None) == "mid"
+    assert risk_band(69, None) == "mid"
+    assert risk_band(70, None) == "high"
     assert risk_band(71, None) == "high"
     assert risk_band(100, None) == "high"
 
@@ -40,9 +41,10 @@ def test_risk_band_fallback_thresholds():
 def test_risk_band_custom_thresholds():
     """risk_band respects custom thresholds."""
     thresholds = {"green_max": 40, "yellow_max": 80}
-    assert risk_band(40, thresholds) == "low"
-    assert risk_band(41, thresholds) == "mid"
-    assert risk_band(80, thresholds) == "mid"
+    assert risk_band(39, thresholds) == "low"
+    assert risk_band(40, thresholds) == "mid"
+    assert risk_band(79, thresholds) == "mid"
+    assert risk_band(80, thresholds) == "high"
     assert risk_band(81, thresholds) == "high"
 
 
@@ -54,9 +56,10 @@ def test_risk_emoji_with_none():
 def test_risk_emoji_fallback():
     """risk_emoji uses fallback 30/70 policy."""
     assert risk_emoji(0, None) == "🟢"
-    assert risk_emoji(30, None) == "🟢"
-    assert risk_emoji(31, None) == "🟡"
-    assert risk_emoji(70, None) == "🟡"
+    assert risk_emoji(29, None) == "🟢"
+    assert risk_emoji(30, None) == "🟡"
+    assert risk_emoji(69, None) == "🟡"
+    assert risk_emoji(70, None) == "🔴"
     assert risk_emoji(71, None) == "🔴"
     assert risk_emoji(100, None) == "🔴"
 
@@ -64,9 +67,9 @@ def test_risk_emoji_fallback():
 def test_risk_emoji_custom_thresholds():
     """risk_emoji uses custom thresholds."""
     thresholds = {"green_max": 25, "yellow_max": 75}
-    assert risk_emoji(25, thresholds) == "🟢"
-    assert risk_emoji(26, thresholds) == "🟡"
-    assert risk_emoji(75, thresholds) == "🟡"
+    assert risk_emoji(24, thresholds) == "🟢"
+    assert risk_emoji(25, thresholds) == "🟡"
+    assert risk_emoji(74, thresholds) == "🟡"
     assert risk_emoji(76, thresholds) == "🔴"
 
 

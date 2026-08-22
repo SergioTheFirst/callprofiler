@@ -452,3 +452,13 @@ def test_save_promises_and_events_idempotent_ids_preserved(repo):
     assert [r[0] for r in conn.execute("SELECT id FROM events WHERE call_id=?", (call_id,))] == ids1
     repo.save_events("user1", call_id, [{"event_type": "promise", "who": "OTHER", "payload": "другое"}])
     assert conn.execute("SELECT COUNT(*) FROM events WHERE call_id=?", (call_id,)).fetchone()[0] == 2
+
+
+def test_get_error_calls_excludes_fatal(repo):
+    """T-09: FATAL[...] ошибки не ретрятся автоматически (dead letter до reprocess)."""
+    add_user(repo)
+    fatal_id, _ = add_call(repo, md5="m-fatal")
+    retry_id, _ = add_call(repo, md5="m-retry")
+    repo.update_call_status("user1", fatal_id, "error", "FATAL[transcribe]: bad value", backoff_base_sec=0)
+    repo.update_call_status("user1", retry_id, "error", "transcribe: llm down", backoff_base_sec=0)
+    assert {r["call_id"] for r in repo.get_error_calls(3, user_id="user1")} == {retry_id}

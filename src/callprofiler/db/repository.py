@@ -582,6 +582,9 @@ class Repository:
         # Фильтр по next_retry_at (exponential backoff): пропускаем звонки, еще не готовые
         # к повтору. next_retry_at=NULL → никогда не устанавливался (старые error-звонки) →
         # готовы; next_retry_at <= now → пора повторять.
+        #
+        # Исключаем FATAL ошибки (error_message LIKE 'FATAL[%') — они никогда не ретрятся
+        # автоматически, только при явной команде (после фикса). Находятся в dead-letters.
         if user_id:
             rows = (
                 self._get_conn()
@@ -589,6 +592,7 @@ class Repository:
                     """SELECT * FROM calls WHERE status='error' AND retry_count < ?
                        AND user_id=?
                        AND (next_retry_at IS NULL OR next_retry_at <= datetime('now'))
+                       AND (error_message IS NULL OR error_message NOT LIKE 'FATAL[%')
                        ORDER BY updated_at""",
                     (max_retries, user_id),
                 )
@@ -600,6 +604,7 @@ class Repository:
                 .execute(
                     """SELECT * FROM calls WHERE status='error' AND retry_count < ?
                        AND (next_retry_at IS NULL OR next_retry_at <= datetime('now'))
+                       AND (error_message IS NULL OR error_message NOT LIKE 'FATAL[%')
                        ORDER BY updated_at""",
                     (max_retries,),
                 )

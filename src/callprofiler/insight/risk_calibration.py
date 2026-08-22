@@ -106,7 +106,7 @@ def risk_band(score: float | None, thresholds: dict | None = None) -> str:
                    or None to use fallback (30/70)
 
     Returns:
-        'low' (≤green_max), 'mid' (≤yellow_max), 'high' (>yellow_max), or 'none' (score is None)
+        'low' (<green_max), 'mid' (>=green_max and <yellow_max), 'high' (>=yellow_max), or 'none' (score is None)
     """
     if score is None:
         return "none"
@@ -118,9 +118,10 @@ def risk_band(score: float | None, thresholds: dict | None = None) -> str:
         green_max = thresholds.get("green_max", FALLBACK_GREEN_MAX)
         yellow_max = thresholds.get("yellow_max", FALLBACK_YELLOW_MAX)
 
-    if score <= green_max:
+    # Контракт прежнего risk_emoji (tests/insight/test_risk_calibration.py): 🟢 <green_max, 🟡 ≥green_max, 🔴 ≥yellow_max
+    if score < green_max:
         return "low"
-    if score <= yellow_max:
+    if score < yellow_max:
         return "mid"
     return "high"
 

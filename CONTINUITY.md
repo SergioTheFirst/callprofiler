@@ -20,23 +20,27 @@
 - `data_dir = C:\calls\data`. Лог: `C:\calls\callprofiler.log`.
 - **GPU sequential (Hard Constraint):** ASR+pyannote и LLM НИКОГДА одновременно (12GB RTX 3060).
 
-**State (2026-08-22) — T-07 slice и T-06 сделаны (оркестрация + личная верификация):**
+**State (2026-08-22) — серия sintezdiharea T-06…T-25 (срезы) ЗАВЕРШЕНА, всё в `main`:**
 
-- **T-07 (срез) + T-18:** `next_retry_at` + exp-backoff/jitter, терминальный гард, user-scoped
-  reprocess (`pipeline.md` «Retry/backoff»). Не сделано осознанно: lease/attempts/reconciler (один writer).
-- **T-06:** `purge_user` по introspection + fail-loud + `foreign_key_check`; карантин файлов
-  `ops/purge_files.py` (move в `trash/`, никогда rmtree); `cleanup.py` wiring (`db.md` «Purge»).
-  Уроки оркестрации (3 подряд): агент (1) оставил ручной список порядка удаления, (2) переносил файлы
-  по одному с «hardlink-защитой», (3) вызвал несуществующий `Config.load()` — тесты не импортируют
-  cleanup.py, gate зелёный. Правило подтверждено: дифф и API-вызовы проверять лично, не по отчёту.
-- **BS-research** — отложен владельцем; промпт для Sol переписан (`docs/routines/bs-research-sol.md`,
-  индекс из существующих сигналов, new-user-ready). `aggregator` BS-счётчики мертвы (bugs.md 🔴).
-- Suite: см. CHANGELOG/последний прогон.
+Сделано (каждый срез: Workflow Opus/Sonnet + личная верификация диффа + full suite перед push; подробно
+— CHANGELOG за 2026-08-22, карты `pipeline.md`/`db.md`/`llm.md`/`dashboard.md`, `decisions.md` абзац
+«Серия sintezdiharea 2026-08-22»): T-07 backoff/терминальный гард · T-06 purge introspection + trash ·
+T-08 атомарные карточки/архив · T-12 VRAM-барьер · T-11 asr_coverage · T-14 промпт v002 · T-15 строгий
+анализ · T-16 идемпотентность · T-17 токен · T-21 doctor · T-22 exit codes · T-23 психометрика удалена ·
+T-24 tenant-матрица · T-19 RiskPolicy · T-09 `_fail()`/loader · T-25 чек-лист. Миграции 10–11 (next_retry_at,
+asr_coverage). `PROMPT_VERSION_ANALYZE='v002'` (кэш v001 цел), biography `p5-v4`.
+Осознанно не сделано: lease/attempts/outbox/GpuCoordinator-state-machine/model-manifest/JSON-логи.
+Suite (2026-08-22, финал серии): **1590 passed, 4 skipped, 0 failed** (`.[dev,full]`), ruff F821-гейт зелёный.
+BS-research — отложен владельцем (справка `docs/research/bs/`, промпт для Sol — `docs/routines/
+bs-research-sol.md`).
 
-**Next (по `docs/sintezdiharea.md`):** **T-08** — `deliver/card_generator.py:332` пишет карточку
-`Path.write_text` мимо `artifacts.atomic_write_text` (частичный артефакт при краше; теста нет) —
-маленький T1; затем остаток T-08 (atomic ingest/original archive/tenant-safe exports) по спеке. Режим тот
-же: Workflow (Opus implement / Haiku gate / Sonnet review) + личная верификация диффа, ponytail ultra.
+**Next:**
+1. **Бокс — канарейка серии:** `docs/ops/box-canary-checklist.md` по шагам (backup → миграции → canary
+   v002 → строгий анализ 50 звонков → ASR-покрытие → GPU-барьер → backoff → purge на копии → rollback).
+2. По результатам канарейки — пороги `asr_min_coverage`/`gpu_unload_barrier_mb`/`prompt_max_chars` в
+   base.yaml; при массовых `LLM parsed_partial` — json_mode (M4).
+3. Дальше `sintezdiharea.md`: остатки T-07 (attempts) и T-17 (outbox) — только при появлении второго
+   writer'а/внешних потребителей; иначе — продуктовые фичи (`opsus5.md`) после CP-5.
 
 **State (2026-08-21) — облачный routine, первый реальный запуск: extras-баг + WAL-restore баг:**
 

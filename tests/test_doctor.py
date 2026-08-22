@@ -449,3 +449,15 @@ def test_backup_and_dead_letters_checks(tmp_path):
     conn.commit()
     by = {c.name: c for c in run_checks(cfg, conn=conn)}
     assert by["dead-letters"].status == "WARN" and "1" in by["dead-letters"].detail
+
+
+def test_dead_letters_counts_fatal(tmp_path):
+    """T-09: dead-letters считает и FATAL-ошибки без исчерпания повторов."""
+    from callprofiler.doctor import run_checks
+    conn = _schema_conn(tmp_path)
+    conn.execute("INSERT INTO users(user_id, display_name, incoming_dir, sync_dir, ref_audio) VALUES ('u1','U','i','s','r')")
+    conn.execute("INSERT INTO calls(user_id, status, retry_count, error_message, source_filename, source_md5, audio_path) "
+                 "VALUES ('u1','error', 0, 'FATAL[analyze]: x', 'a.mp3', 'm1', 'p')")
+    conn.commit()
+    by = {c.name: c for c in run_checks(_fake_config(tmp_path), conn=conn)}
+    assert by["dead-letters"].status == "WARN"

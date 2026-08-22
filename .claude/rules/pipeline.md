@@ -44,6 +44,14 @@ scan: MD5-дедуп (`get_call_by_md5`). Новый → ingest = КОПИЯ в 
 **ASR-покрытие (T-11, 2026-08-22):** `GigaAMRunner` считает окна (`last_windows_total/failed`, `last_coverage`) в `transcribe` и `transcribe_turns`; orchestrator (оба пути) пишет `calls.asr_coverage` (миграция 11) и при `coverage < models.asr_min_coverage` (0.8) поднимает `RuntimeError` ДО stage 2 → `status='error'` с сообщением «ASR partial coverage …» (T-07 backoff → повтор; видимый карантин, не тихий COMPLETE). Дашборд: бейдж «⚠ распознано частично (NN%)» в детали звонка.
 
 **Терминальные статусы:** `done` (полный путь), `transcribed` (Stage-1, LLM off), `error`.
+**T-09 (2026-08-22) — один владелец семантики ошибок:** `Orchestrator._fail(user_id, call_id, exc, stage)` —
+единственное место, ставящее `status='error'` (все per-call `except` в `process_call`/`process_batch`/
+`_analyze_call` идут через него). Классификация: `ValueError/TypeError/KeyError/AssertionError/
+FileNotFoundError` → `FATAL[stage]: …` (НЕ ретрится: `get_error_calls` исключает `error_message LIKE
+'FATAL[%'`, `doctor dead-letters` их считает; сброс — `reset_call_for_retry`/`reprocess`); всё остальное
+(`ConnectionError/TimeoutError/OSError/RuntimeError`, LLM-сбои T-15) → `stage: …` → T-07 backoff.
+`bulk-load` больше не ставит `done` до транскриптов: после `save_transcripts` → `pipeline_stage=2`,
+`status='transcribed'` (Stage-1 терминал; `bulk-enrich` выбирает по отсутствию analysis).
 `get_stalled_calls` реклаймит `status NOT IN (new,done,error,transcribed)`.
 **Retry/backoff (T-07 slice, 2026-08-22):** ошибка (`update_call_status(..., error_message=…)`) ставит
 `calls.next_retry_at = now + min(base·2^retry_count, 3600с)·U(0.8,1.2)` (миграция 10; base =

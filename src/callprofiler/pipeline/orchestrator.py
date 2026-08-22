@@ -153,6 +153,24 @@ class Orchestrator:
     def asr_runner(self, runner) -> None:
         self._asr_runner = runner
 
+    def _fail(self, user_id: str, call_id: int, exc: Exception, stage: str) -> None:
+        """Централизованная обработка ошибок с классификацией FATAL vs retryable.
+
+        FATAL: ValueError, TypeError, KeyError, AssertionError, FileNotFoundError
+          → сообщение f"FATAL[{stage}]: {exc}", не ретрится автоматически.
+        Retryable (всё остальное): ConnectionError, TimeoutError, OSError, RuntimeError, Exception
+          → сообщение f"{stage}: {exc}", ретрится по exp-backoff.
+
+        Всегда логирует и вызывает update_call_status(user_id, call_id, "error", message).
+        """
+        FATAL_TYPES = (ValueError, TypeError, KeyError, AssertionError, FileNotFoundError)
+        if isinstance(exc, FATAL_TYPES):
+            message = f"FATAL[{stage}]: {exc}"
+        else:
+            message = f"{stage}: {exc}"
+        logger.error(message + f" (call_id={call_id})", exc_info=True)
+        self.repo.update_call_status(user_id, call_id, "error", message)
+
     def process_call(self, call_id: int) -> bool:
         """Обработать один звонок от начала до конца.
 
@@ -277,9 +295,10 @@ class Orchestrator:
             return True
 
         except Exception as exc:
-            logger.error("Ошибка при обработке call_id=%d: %s", call_id, exc)
             if user_id is not None:
-                self.repo.update_call_status(user_id, call_id, "error", str(exc))
+                # Определить стадию по pipeline_stage для логирования
+                stage = "process_call"
+                self._fail(user_id, call_id, exc, stage)
             return False
 
     def process_batch(self, call_ids: list[int]) -> None:
@@ -366,8 +385,9 @@ class Orchestrator:
                         call["pipeline_stage"] = 1
                         logger.info("Нормализация: call_id=%d, duration=%ds", cid, duration_sec)
                     else:
-                        logger.error("Ошибка нормализации call_id=%d: %s", cid, err)
-                        self.repo.update_call_status(call["user_id"], cid, "error", err)
+                        # Ошибка нормализации — классифицируем как синтетический RuntimeError
+                        exc = RuntimeError(err)
+                        self._fail(call["user_id"], cid, exc, "normalize")
                         call["_skip"] = True
 
         calls_data = [c for c in calls_data if not c.get("_skip")]
@@ -444,8 +464,7 @@ class Orchestrator:
                         self.repo.update_pipeline_stage(uid, call_id, 2)
                         call["pipeline_stage"] = 2
                     except Exception as exc:
-                        logger.error("Ошибка транскрибирования call_id=%d: %s", call_id, exc)
-                        self.repo.update_call_status(uid, call_id, "error", str(exc))
+                        self._fail(uid, call_id, exc, "transcribe")
             finally:
                 # GPU-sequential (CLAUDE.md Hard Constraint): ASR+pyannote (~5GB)
                 # ОБЯЗАНЫ уйти из VRAM ДО Фазы 3 — иначе они + llama-server
@@ -498,8 +517,7 @@ class Orchestrator:
                     self.repo.update_pipeline_stage(uid, call_id, 3)
                     call["pipeline_stage"] = 3
                 except Exception as exc:
-                    logger.error("Ошибка анализа call_id=%d: %s", call_id, exc)
-                    self.repo.update_call_status(uid, call_id, "error", str(exc))
+                    self._fail(uid, call_id, exc, "analyze")
 
         # ── Фаза 4: Deliver ──────────────────────────────────────────
         for call in calls_data:
@@ -517,8 +535,7 @@ class Orchestrator:
                 self.repo.update_call_status(uid, call_id, "done")
                 logger.info("✓ Звонок %d обработан (batch)", call_id)
             except Exception as exc:
-                logger.error("Ошибка доставки call_id=%d: %s", call_id, exc)
-                self.repo.update_call_status(uid, call_id, "error", str(exc))
+                self._fail(uid, call_id, exc, "deliver")
 
         logger.info("Batch завершён: %d звонков", len(call_ids))
 
@@ -1019,14 +1036,11 @@ class Orchestrator:
             except (ConnectionError, RuntimeError) as exc:
                 # Gate B.2: LLM недоступен — логируем, помечаем статус, НЕ сохраняем анализ
                 logger.error("LLM недоступен для call_id=%d: %s", call_id, exc)
-                self.repo.update_call_status(
-                    user_id, call_id, "error",
-                    f"LLM unavailable: {exc}"
-                )
+                self._fail(user_id, call_id, exc, "analyze")
                 return
             except Exception as exc:
                 logger.error("Ошибка анализа call_id=%d: %s", call_id, exc)
-                self.repo.update_call_status(user_id, call_id, "error", str(exc))
+                self._fail(user_id, call_id, exc, "analyze")
                 return
 
         # Gate B.3: После реального ответа от LLM — проверяем parse_status
@@ -1038,7 +1052,8 @@ class Orchestrator:
                 "Анализ call_id=%d quarantined (parse_status=%s), не сохраняем",
                 call_id, parse_status,
             )
-            self.repo.update_call_status(user_id, call_id, "error", error_msg)
+            exc = RuntimeError(error_msg)
+            self._fail(user_id, call_id, exc, "analyze")
             return
 
         # T-04: анализ + обещания + summary + граф — одна граница транзакции.

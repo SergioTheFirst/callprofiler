@@ -192,7 +192,7 @@ def bulk_load(
                 )
                 stats['unique_contacts'].add(contact_id)
 
-            # Создать звонок (status='done' — уже обработан)
+            # Создать звонок (Stage-1 terminal: 'transcribed' с pipeline_stage=2)
             call_id = repo.create_call(
                 user_id=user_id,
                 contact_id=contact_id,
@@ -203,11 +203,12 @@ def bulk_load(
                 audio_path=str(filepath),
             )
 
-            # Обновить статус в 'done'
-            repo.update_call_status(user_id, call_id, "done")
-
-            # Сохранить транскрипт
+            # Сохранить транскрипт ПЕРЕД установкой терминального статуса (crash hole)
             repo.save_transcripts(user_id, call_id, segments)
+
+            # Обновить stage и status (транскрипт-only завершён)
+            repo.update_pipeline_stage(user_id, call_id, 2)
+            repo.update_call_status(user_id, call_id, "transcribed")
 
             log.debug(
                 "[bulk_load] Загружен файл: %s (call_id=%d, segments=%d, phone=%s)",
