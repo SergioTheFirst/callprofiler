@@ -26,6 +26,15 @@ def _col_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
     return column in existing
 
 
+def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
+    return (
+        conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+        ).fetchone()
+        is not None
+    )
+
+
 def _index_exists(conn: sqlite3.Connection, index_name: str) -> bool:
     row = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='index' AND name=?",
@@ -40,6 +49,18 @@ def apply_graph_schema(conn: sqlite3.Connection) -> None:
     Safe to call on every startup — all operations are idempotent.
     """
     conn.executescript(_GRAPH_DDL)
+
+    # BS-v2 canonical tables (единый текст с schema.sql/migration 12 — RISK-15).
+    from callprofiler.db.bs_schema import apply_bs_v2_tables
+
+    apply_bs_v2_tables(conn)
+
+    # Порядок применителей схемы не фиксирован (apply_graph_schema может
+    # выполниться до init_db) — колонки/индексы core-таблиц трогаем только
+    # когда они существуют; иначе их создаст schema.sql + migrations.
+    if not _table_exists(conn, "analyses"):
+        commit_unless_uow(conn)
+        return
 
     # ── analyses.schema_version ──────────────────────────────────────────
     if not _col_exists(conn, "analyses", "schema_version"):
@@ -74,7 +95,7 @@ def apply_graph_schema(conn: sqlite3.Connection) -> None:
     # ── entities merge + owner fields ────────────────────────────────────
     _entity_migrations = [
         ("entities", "archived",       "INTEGER DEFAULT 0"),
-        ("entities", "merged_into_id", "INTEGER REFERENCES entities(id)"),
+        ("entities", "merged_into_id", "INTEGER"),
         ("entities", "is_owner",       "INTEGER DEFAULT 0"),
     ]
     for table, col, defn in _entity_migrations:
@@ -128,11 +149,16 @@ CREATE TABLE IF NOT EXISTS entities (
     normalized_key  TEXT    NOT NULL,
     aliases         TEXT,
     attributes      TEXT,
+    archived        INTEGER DEFAULT 0,
+    merged_into_id  INTEGER,
+    is_owner        INTEGER DEFAULT 0,
     created_at      TEXT    DEFAULT CURRENT_TIMESTAMP,
     updated_at      TEXT    DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id, entity_type, normalized_key)
 );
 CREATE INDEX IF NOT EXISTS idx_entities_user_type ON entities(user_id, entity_type);
+CREATE INDEX IF NOT EXISTS idx_entities_user_archived ON entities(user_id, archived);
+CREATE INDEX IF NOT EXISTS idx_entities_owner ON entities(user_id, is_owner);
 
 CREATE TABLE IF NOT EXISTS relations (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -145,6 +171,8 @@ CREATE TABLE IF NOT EXISTS relations (
     first_seen_call_id  INTEGER REFERENCES calls(call_id),
     last_seen_call_id   INTEGER REFERENCES calls(call_id),
     call_count          INTEGER DEFAULT 1,
+    producer            TEXT NOT NULL DEFAULT 'graph_v1' CHECK(producer IN ('graph_v1','graph_v2')),
+    source_signature    TEXT NOT NULL DEFAULT '',
     created_at          TEXT    DEFAULT CURRENT_TIMESTAMP,
     updated_at          TEXT    DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id, src_entity_id, dst_entity_id, relation_type)
@@ -167,6 +195,12 @@ CREATE TABLE IF NOT EXISTS entity_metrics (
     avg_risk            REAL    DEFAULT 0,
     bs_index            REAL    DEFAULT 0,
     bs_formula_version  TEXT    DEFAULT 'v1_linear',
+    bs_confidence       INTEGER NOT NULL DEFAULT 1 CHECK(bs_confidence BETWEEN 1 AND 100),
+    bs_confidence_version TEXT NOT NULL DEFAULT 'legacy',
+    bs_components_json  TEXT NOT NULL DEFAULT '{}',
+    bs_source_signature TEXT NOT NULL DEFAULT '',
+    bs_as_of            TEXT,
+    bs_projection_status TEXT NOT NULL DEFAULT 'legacy' CHECK(bs_projection_status IN ('contact','unmapped','ambiguous','legacy')),
     emotional_pattern   TEXT,
     last_interaction    TEXT,
     updated_at          TEXT    DEFAULT CURRENT_TIMESTAMP
@@ -200,9 +234,12 @@ CREATE TABLE IF NOT EXISTS graph_replay_runs (
     entities_count  INTEGER DEFAULT 0,
     avg_bs_index    REAL,
     audit_critical  INTEGER DEFAULT 0,
+    run_signature   TEXT,
+    as_of           TEXT,
     created_at      TEXT    DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_replay_runs_user ON graph_replay_runs(user_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_replay_runs_sig ON graph_replay_runs(user_id, run_signature) WHERE run_signature IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS bs_thresholds (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -213,6 +250,8 @@ CREATE TABLE IF NOT EXISTS bs_thresholds (
     unreliable_max  REAL    NOT NULL,
     entity_count    INTEGER DEFAULT 0,
     std_dev         REAL,
+    bs_formula_version TEXT NOT NULL DEFAULT 'legacy',
+    policy_version  TEXT NOT NULL DEFAULT 'legacy',
     created_at      TEXT    DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_bs_thresholds_user ON bs_thresholds(user_id, created_at);

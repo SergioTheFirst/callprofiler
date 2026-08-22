@@ -766,6 +766,13 @@ class Repository:
                 raise RuntimeError("purge_user: нельзя вызывать внутри открытой транзакции")
             conn.execute("PRAGMA foreign_keys=OFF")
             try:
+                # M12: bs_legacy_snapshots неизменяемы триггером, но purge обязан
+                # уметь их удалить (privacy-контракт T-06). Флаг снимает запрет
+                # ровно на время этой транзакции; rollback снимает и флаг.
+                conn.execute(
+                    "UPDATE users SET purge_started_at=datetime('now') WHERE user_id=?",
+                    (user_id,),
+                )
                 sub = "(SELECT call_id FROM calls WHERE user_id=?)"
                 fts_rows = conn.execute(
                     f"SELECT segment_id, text, speaker, call_id FROM transcripts "

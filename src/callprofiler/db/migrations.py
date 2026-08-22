@@ -312,6 +312,256 @@ def _m011_calls_asr_coverage(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m012_bs_v2(conn: sqlite3.Connection) -> None:
+    """BS-v2 (T-26): canonical contact pair, legacy snapshots, relation ledger.
+
+    Строго порядок §6 плана ``docs/100bsindex.md`` п.1-16. Всё аддитивно:
+    ничего не удаляется и не перезаписывается, старые значения снимаются в
+    ``bs_legacy_snapshots`` ДО первой v2-проекции. Guarded ALTER (``table_exists``)
+    для graph/insight-таблиц, которых на этой БД может не быть.
+    """
+    import json
+
+    from callprofiler.db.bs_schema import (
+        BS_FORMULA_VERSION_V2,
+        BS_V2_COLUMNS,
+        BS_V2_INDEXES,
+        CONFIDENCE_FORMULA_VERSION_V1,
+        EMPTY_DETAILS_JSON,
+        apply_bs_v2_tables,
+        callset_signature,
+        empty_source_signature,
+    )
+
+    def _alter(table: str) -> None:
+        if table_exists(conn, table):
+            _add_columns_if_missing(conn, table, BS_V2_COLUMNS[table])
+
+    # 1. parent key для composite FK (contacts.contact_id — одиночный PK)
+    conn.execute(BS_V2_INDEXES[0])
+    # 2. purge-флаг: снимает immutability снапшотов ТОЛЬКО внутри purge (T-06)
+    _alter("users")
+    # 3. canonical таблицы + owner/immutability триггеры
+    apply_bs_v2_tables(conn)
+    # 4. placeholder-ключ контактов без телефона (никогда не merge'ится)
+    _alter("contacts")
+    conn.execute(BS_V2_INDEXES[1])
+    phoneless = conn.execute(
+        """SELECT contact_id, user_id FROM contacts
+           WHERE phone_e164 IS NULL AND placeholder_key IS NULL
+           ORDER BY user_id, contact_id"""
+    ).fetchall()
+    for row in phoneless:
+        md5 = conn.execute(
+            """SELECT source_md5 FROM calls
+               WHERE user_id=? AND contact_id=? AND source_md5 IS NOT NULL
+               ORDER BY source_md5 LIMIT 1""",
+            (row["user_id"], row["contact_id"]),
+        ).fetchone()
+        key = f"md5-{md5['source_md5'].lower()}" if md5 else f"contact-{row['contact_id']}"
+        conn.execute(
+            "UPDATE contacts SET placeholder_key=? WHERE contact_id=? AND user_id=?",
+            (key, row["contact_id"], row["user_id"]),
+        )
+
+    # 5. звонки без контакта → same-owner placeholder + baseline-строка 0/1
+    call_cols = _existing_columns(conn, "calls")
+    created_expr = "created_at" if "created_at" in call_cols else "NULL AS created_at"
+    dt_expr = "call_datetime" if "call_datetime" in call_cols else "NULL AS call_datetime"
+    orphan_calls = conn.execute(
+        f"""SELECT call_id, user_id, source_md5, {dt_expr}, {created_expr}
+            FROM calls WHERE contact_id IS NULL ORDER BY user_id, call_id"""
+    ).fetchall()
+    for call in orphan_calls:
+        md5 = (call["source_md5"] or "").lower()
+        key = f"md5-{md5}" if md5 else f"call-{call['call_id']}"
+        conn.execute(
+            """INSERT OR IGNORE INTO contacts (user_id, phone_e164, display_name, placeholder_key)
+               VALUES (?, NULL, NULL, ?)""",
+            (call["user_id"], key),
+        )
+        contact_id = conn.execute(
+            "SELECT contact_id FROM contacts WHERE user_id=? AND placeholder_key=?",
+            (call["user_id"], key),
+        ).fetchone()["contact_id"]
+        conn.execute(
+            "UPDATE calls SET contact_id=? WHERE call_id=? AND user_id=? AND contact_id IS NULL",
+            (contact_id, call["call_id"], call["user_id"]),
+        )
+        as_of = (call["call_datetime"] or call["created_at"] or "")[:10]
+        conn.execute(
+            """INSERT OR IGNORE INTO contact_bs_metrics
+               (user_id, contact_id, bs_index, bs_confidence, bs_formula_version,
+                confidence_formula_version, behavior_score, linguistic_score, model_score,
+                potential_mass, qualified_mass, quality_score, agreement_score, stability_score,
+                no_evidence, details_json, source_signature, callset_signature, computed_as_of)
+               VALUES (?,?,0.0,1,?,?,NULL,NULL,NULL,0.0,0.0,0.0,0.0,0.0,1,?,?,?,?)""",
+            (
+                call["user_id"],
+                contact_id,
+                BS_FORMULA_VERSION_V2,
+                CONFIDENCE_FORMULA_VERSION_V1,
+                EMPTY_DETAILS_JSON,
+                empty_source_signature(call["user_id"], contact_id, as_of),
+                callset_signature([(md5, as_of)]),
+                as_of,
+            ),
+        )
+
+    # 6-12. аддитивные колонки существующих таблиц (guarded)
+    for table in (
+        "promises",
+        "events",
+        "contact_summaries",
+        "entity_metrics",
+        "bs_thresholds",
+        "graph_replay_runs",
+        "relations",
+    ):
+        _alter(table)
+    if table_exists(conn, "events"):
+        conn.execute("UPDATE events SET producer='graph_v1' WHERE fact_id IS NOT NULL")
+    if table_exists(conn, "graph_replay_runs"):
+        conn.execute(BS_V2_INDEXES[2])
+
+    # 13. relation ledger из уже сохранённых v2 analyses (модель не вызывается)
+    if table_exists(conn, "analyses"):
+        cols = _existing_columns(conn, "analyses")
+        if "schema_version" in cols and "raw_response" in cols:
+            canonical_expr = (
+                "a.canonical_json" if "canonical_json" in cols else "'' AS canonical_json"
+            )
+            dt_col = "c.call_datetime" if "call_datetime" in call_cols else "NULL"
+            created_col = "c.created_at" if "created_at" in call_cols else "NULL"
+            rows = conn.execute(
+                f"""SELECT a.call_id, a.raw_response, {canonical_expr}, c.user_id,
+                           c.source_md5, {dt_col} AS call_datetime,
+                           {created_col} AS created_at
+                      FROM analyses a JOIN calls c ON c.call_id = a.call_id
+                     WHERE a.schema_version='v2'
+                     ORDER BY a.call_id"""
+            ).fetchall()
+            invalid = 0
+            for row in rows:
+                payload = None
+                for candidate in (row["canonical_json"], row["raw_response"]):
+                    if not candidate:
+                        continue
+                    try:
+                        parsed = json.loads(candidate)
+                    except (ValueError, TypeError):
+                        continue
+                    if isinstance(parsed, dict):
+                        payload = parsed
+                        break
+                if payload is None:
+                    invalid += 1
+                    continue
+                relations = payload.get("relations")
+                if not isinstance(relations, list):
+                    continue
+                source_date = (row["call_datetime"] or row["created_at"] or "")[:19]
+                for idx, rel in enumerate(relations):
+                    if not isinstance(rel, dict):
+                        invalid += 1
+                        continue
+                    src_type = str(rel.get("src_type") or rel.get("source_type") or "")
+                    src_key = str(rel.get("src_key") or rel.get("source") or "")
+                    dst_type = str(rel.get("dst_type") or rel.get("target_type") or "")
+                    dst_key = str(rel.get("dst_key") or rel.get("target") or "")
+                    rel_type = str(rel.get("relation_type") or rel.get("type") or "")
+                    if not (src_key and dst_key and rel_type):
+                        invalid += 1
+                        continue
+                    try:
+                        confidence = float(rel.get("confidence", 1.0))
+                    except (TypeError, ValueError):
+                        invalid += 1
+                        continue
+                    if not 0.0 <= confidence <= 1.0:
+                        invalid += 1
+                        continue
+                    key_payload = json.dumps(
+                        [
+                            row["user_id"],
+                            row["source_md5"],
+                            idx,
+                            src_type,
+                            src_key,
+                            dst_type,
+                            dst_key,
+                            rel_type,
+                        ],
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        ensure_ascii=False,
+                    )
+                    evidence_key = hashlib.sha256(key_payload.encode("utf-8")).hexdigest()
+                    conn.execute(
+                        """INSERT OR IGNORE INTO relation_evidence
+                           (user_id, evidence_key, source_call_id, raw_src_type, raw_src_key,
+                            raw_dst_type, raw_dst_key, relation_type, confidence, source_date, producer)
+                           VALUES (?,?,?,?,?,?,?,?,?,?, 'graph_v1')""",
+                        (
+                            row["user_id"],
+                            evidence_key,
+                            row["call_id"],
+                            src_type,
+                            src_key,
+                            dst_type,
+                            dst_key,
+                            rel_type,
+                            confidence,
+                            source_date,
+                        ),
+                    )
+            if invalid:
+                logger.warning(
+                    "migration 12: %d invalid relation rows skipped (no model called)", invalid
+                )
+
+    # 14. снимок v1 ДО первой v2-проекции (byte-neutral INSERT OR IGNORE)
+    if table_exists(conn, "entity_metrics") and table_exists(conn, "entities"):
+        for row in conn.execute(
+            """SELECT m.*, e.entity_type, e.normalized_key
+                 FROM entity_metrics m JOIN entities e ON e.id = m.entity_id
+                ORDER BY m.entity_id"""
+        ).fetchall():
+            payload = {k: row[k] for k in row.keys()}
+            conn.execute(
+                """INSERT OR IGNORE INTO bs_legacy_snapshots
+                   (user_id, subject_kind, subject_key, contact_id, bs_index,
+                    bs_formula_version, payload_json)
+                   VALUES (?, 'entity', ?, NULL, ?, ?, ?)""",
+                (
+                    row["user_id"],
+                    f"{row['entity_type']}|{row['normalized_key']}",
+                    float(row["bs_index"] or 0.0),
+                    row["bs_formula_version"] or "v1_linear",
+                    json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+                ),
+            )
+    if table_exists(conn, "contact_summaries"):
+        for row in conn.execute(
+            """SELECT * FROM contact_summaries
+                WHERE avg_bs_score IS NOT NULL ORDER BY contact_id"""
+        ).fetchall():
+            payload = {k: row[k] for k in row.keys()}
+            conn.execute(
+                """INSERT OR IGNORE INTO bs_legacy_snapshots
+                   (user_id, subject_kind, subject_key, contact_id, bs_index,
+                    bs_formula_version, payload_json)
+                   VALUES (?, 'contact_fallback', ?, ?, ?, 'legacy', ?)""",
+                (
+                    row["user_id"],
+                    str(row["contact_id"]),
+                    row["contact_id"],
+                    float(row["avg_bs_score"] or 0.0),
+                    json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+                ),
+            )
+
+
 ALL_MIGRATIONS: list[Migration] = [
     Migration(1, "contacts_columns", _m001_contacts_columns),
     Migration(2, "analyses_columns", _m002_analyses_columns),
@@ -324,6 +574,7 @@ ALL_MIGRATIONS: list[Migration] = [
     Migration(9, "owner_triggers", _m009_owner_triggers),
     Migration(10, "calls_next_retry_at", _m010_calls_next_retry_at),
     Migration(11, "calls_asr_coverage", _m011_calls_asr_coverage),
+    Migration(12, "bs_v2", _m012_bs_v2),
 ]
 
 

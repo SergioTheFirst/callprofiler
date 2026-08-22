@@ -254,7 +254,12 @@ def _ensure_columns(conn: sqlite3.Connection, table: str, columns: dict) -> None
 
 
 def apply_insight_schema(conn: sqlite3.Connection) -> None:
+    from callprofiler.db.bs_schema import apply_bs_v2_tables
+
     conn.executescript(_SCHEMA)
+    # BS-v2 canonical пара живёт в contact_bs_metrics — тот же текст, что в
+    # schema.sql и migration 12 (RISK-15: три DDL-владельца не должны расходиться).
+    apply_bs_v2_tables(conn)
     for table, cols in _MIGRATIONS.items():
         _ensure_columns(conn, table, cols)
     conn.commit()
