@@ -7,6 +7,7 @@ import argparse
 import logging
 from pathlib import Path
 
+from callprofiler.artifacts import atomic_copy_file
 from callprofiler.cli.utils import load_config_and_repo, setup_logging
 
 
@@ -240,7 +241,7 @@ def cmd_audio_migrate(args: argparse.Namespace) -> int:
         try:
             dest_dir.mkdir(parents=True, exist_ok=True)
             if not dest_path.exists():
-                shutil.copy2(str(src), str(dest_path))
+                atomic_copy_file(src, dest_path)  # T-08
             conn.execute(
                 "UPDATE calls SET audio_path=?, updated_at=datetime('now') WHERE call_id=?",
                 (str(dest_path), call_id),

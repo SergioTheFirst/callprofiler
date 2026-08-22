@@ -27,6 +27,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from callprofiler.artifacts import atomic_copy_file
 from callprofiler.identity import user_profile_dir
 
 if TYPE_CHECKING:
@@ -498,7 +499,7 @@ class FileWatcher:
                 if archive and not Path(archive).exists():
                     try:
                         Path(archive).parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(filepath, archive)
+                        atomic_copy_file(filepath, archive)  # T-08: tmp→fsync→replace
                         self.repo.reset_call(user_id, call_id)
                         new_ids.append(call_id)
                         self._last_sources[call_id] = (user_id, incoming_path, filepath)

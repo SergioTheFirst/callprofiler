@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from callprofiler.db.repository import Repository
 
+from callprofiler.artifacts import atomic_write_text
 from callprofiler.graph.calibration import BSCalibrator
 from callprofiler.graph.repository import GraphRepository
 
@@ -305,7 +306,7 @@ class SummaryBuilder:
         card_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            card_path.write_text(card_text, encoding="utf-8")
+            atomic_write_text(card_path, card_text)  # T-08
             log.debug("[summary] Wrote card: %s", card_path)
         except Exception as e:
             log.error("[summary] Failed to write card %s: %s", card_path, e)

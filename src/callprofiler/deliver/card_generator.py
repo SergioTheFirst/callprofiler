@@ -41,6 +41,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from callprofiler.db.repository import Repository
 
+from callprofiler.artifacts import atomic_write_text
 from callprofiler.insight.risk_calibration import get_latest_risk_thresholds
 from callprofiler.insight.risk_calibration import risk_emoji as _calibrated_risk_emoji
 
@@ -329,7 +330,7 @@ class CardGenerator:
         sync_path.mkdir(parents=True, exist_ok=True)
 
         card_path = sync_path / f"{canonical}.txt"
-        card_path.write_text(card_text, encoding="utf-8")
+        atomic_write_text(card_path, card_text)  # T-08: никогда не виден частичный артефакт
 
         logger.info("Карточка записана: %s (%d байт)", card_path, len(card_text.encode("utf-8")))
 

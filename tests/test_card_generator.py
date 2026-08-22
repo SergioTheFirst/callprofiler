@@ -411,3 +411,25 @@ def test_user_isolation():
     assert "Контакт B" not in card_a
     assert "Контакт B" in card_b
     assert "Контакт A" not in card_b
+
+
+def test_card_write_is_atomic_old_card_survives_crash(tmp_path, monkeypatch):
+    """T-08: сбой в момент публикации карточки не оставляет частичного файла, старая карточка цела."""
+    import os
+    from callprofiler import artifacts
+
+    dest = tmp_path / "card.txt"
+    artifacts.atomic_write_text(dest, "old")
+    real_replace = os.replace
+
+    def boom(src, dst):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(artifacts.os, "replace", boom)
+    try:
+        artifacts.atomic_write_text(dest, "new")
+    except OSError:
+        pass
+    monkeypatch.setattr(artifacts.os, "replace", real_replace)
+    assert dest.read_text(encoding="utf-8") == "old"
+    assert [p.name for p in tmp_path.iterdir()] == ["card.txt"]  # нет .tmp/.part сирот
