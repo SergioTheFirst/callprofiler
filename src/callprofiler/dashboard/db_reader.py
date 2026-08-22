@@ -177,9 +177,6 @@ class DashboardDBReader:
             profiler = PsychologyProfiler(self._conn)
             psych = profiler.build_profile(entity_id, user_id, include_llm=False)
             if psych:
-                profile["temperament"] = psych.get("temperament")
-                profile["big_five"] = psych.get("big_five")
-                profile["motivation"] = psych.get("motivation")
                 profile["patterns"] = psych.get("patterns", [])
         except Exception as e:
             log.warning("Failed to load psychology profile for entity %d: %s", entity_id, e)
@@ -290,8 +287,13 @@ class DashboardDBReader:
             except (json.JSONDecodeError, TypeError):
                 pass
 
-            temperament = (payload.get("temperament") or {})
-            motivation = (payload.get("motivation") or {})
+            risk = row["avg_risk"] or 0
+            if risk >= 60:
+                label = "Рисковый"
+            elif risk >= 30:
+                label = "Средний"
+            else:
+                label = "Надёжный"
 
             results.append({
                 "entity_id": row["entity_id"],
@@ -300,32 +302,11 @@ class DashboardDBReader:
                 "total_calls": row["total_calls"] or 0,
                 "avg_risk": row["avg_risk"],
                 "bs_index": row["bs_index"],
-                "temperament_type": temperament.get("type"),
-                "motivation_primary": motivation.get("primary"),
-                "character_label": self._build_character_label(row, temperament, motivation),
+                "character_label": label,
                 "has_portrait": self._has_portrait(row["entity_id"], user_id),
                 "has_psychology": bool(payload),
             })
         return results
-
-    def _build_character_label(self, row, temperament, motivation):
-        parts = []
-        tmp_type = (temperament or {}).get("type")
-        mot_primary = (motivation or {}).get("primary")
-        if tmp_type:
-            parts.append(labels_ru.ru(labels_ru.TEMPERAMENT, tmp_type).capitalize())
-        if mot_primary:
-            mot_map = {"achievement": "достиженец", "power": "властный", "affiliation": "партнёр", "security": "осторожный"}
-            parts.append(mot_map.get(mot_primary, labels_ru.ru(labels_ru.MOTIVATION, mot_primary)))
-        if not parts:
-            risk = row["avg_risk"] or 0
-            if risk >= 60:
-                parts.append("Рисковый")
-            elif risk >= 30:
-                parts.append("Средний")
-            else:
-                parts.append("Надёжный")
-        return "-".join(parts) if parts else "Неизвестный"
 
     def _apply_fact_verdicts(self, user_id: str, item_kind: str, items: list[dict],
                               key_field: str = "id") -> list[dict]:
@@ -388,13 +369,22 @@ class DashboardDBReader:
             (entity_id, user_id),
         ).fetchone()
 
-        psych = {}
-        temperament = profile.get("temperament") or {}
-        motivation = profile.get("motivation") or {}
-
-        profile["character_summary"] = self._build_character_summary(
-            metrics_row, temperament, motivation
-        )
+        # Build character_summary from entity_metrics (avg_risk / bs_index) when bio data unavailable
+        if metrics_row:
+            metrics_dict = dict(metrics_row)
+            avg_risk = metrics_dict.get("avg_risk")
+            bs_index = metrics_dict.get("bs_index")
+            total_calls = metrics_dict.get("total_calls")
+            if avg_risk is not None or bs_index is not None:
+                parts = []
+                if avg_risk is not None and avg_risk > 0:
+                    parts.append(f"avg_risk={int(avg_risk)}")
+                if bs_index is not None and bs_index > 0:
+                    parts.append(f"bs_index={int(bs_index)}")
+                if total_calls is not None and total_calls > 0:
+                    parts.append(f"calls={int(total_calls)}")
+                if parts:
+                    profile["character_summary"] = ", ".join(parts)
 
         # bio_behavior_patterns — ОДНА строка сводных метрик на entity (trust_score/
         # volatility/...), НЕ список именованных паттернов (нет колонок name/severity/
@@ -451,38 +441,6 @@ class DashboardDBReader:
 
         # Паттерны/противоречия из bio_* — тоже по-русски (base уже локализован).
         return labels_ru.localize_character(profile)
-
-    def _build_character_summary(self, metrics_row, temperament, motivation):
-        if not metrics_row:
-            return "Нет данных."
-        parts = []
-        risk = metrics_row["avg_risk"] or 0
-        bs = metrics_row["bs_index"] or 0
-        trust = metrics_row["trust_score"] or 0
-
-        if risk >= 70:
-            parts.append("Высокорисковый")
-        elif risk >= 40:
-            parts.append("Средний риск")
-        else:
-            parts.append("Низкорисковый")
-
-        tmp_type = (temperament or {}).get("type")
-        if tmp_type:
-            parts.append(labels_ru.ru(labels_ru.TEMPERAMENT, tmp_type))
-
-        mot_primary = (motivation or {}).get("primary")
-        if mot_primary:
-            parts.append(f"мотивация — {labels_ru.ru(labels_ru.MOTIVATION, mot_primary)}")
-
-        if bs >= 60:
-            parts.append("склонен к размытым обещаниям")
-        if trust >= 70:
-            parts.append("высокое доверие")
-        elif trust <= 30:
-            parts.append("низкое доверие")
-
-        return ". ".join(parts) + "."
 
     def get_contact_profile(self, contact_id: int, user_id: str) -> dict[str, Any] | None:
         """Full contact profile: contact info + summary + linked entities + recent calls."""
@@ -773,8 +731,6 @@ class DashboardDBReader:
             "finance": None,
             "mentions": None,
             "promise_outcomes": None,
-            "temperament": None,
-            "motivation": None,
             "facts": [],
             "deep_facts": [],
             "contradictions": [],
@@ -1064,8 +1020,6 @@ class DashboardDBReader:
                 dossier["temporal"] = prof.get("temporal")
                 dossier["social"] = prof.get("social")
                 dossier["network"] = prof.get("network")
-                dossier["temperament"] = prof.get("temperament")
-                dossier["motivation"] = prof.get("motivation")
                 dossier["evolution"] = prof.get("evolution") or []
                 dossier["facts"] = prof.get("top_facts") or []
                 if isinstance(prof.get("interpretation"), str):
@@ -1259,24 +1213,6 @@ class DashboardDBReader:
             (user_id,),
         ).fetchall()
         result["top_contacts_by_risk"] = [{"name": r["name"] or "?", "avg_risk": r["avg_risk"]} for r in top_risk_rows]
-
-        tmp_rows = self._conn.execute(
-            """SELECT ep.payload_json
-               FROM entity_profiles ep
-               JOIN entities e ON e.id = ep.entity_id
-               WHERE e.user_id = ? AND ep.profile_type = 'psychology'
-               AND ep.payload_json IS NOT NULL""",
-            (user_id,),
-        ).fetchall()
-        tmp_dist = {}
-        for row in tmp_rows:
-            try:
-                p = json.loads(row["payload_json"] or "{}")
-                t = (p.get("temperament") or {}).get("type")
-                if t: tmp_dist[t] = tmp_dist.get(t, 0) + 1
-            except (json.JSONDecodeError, TypeError):
-                pass
-        result["temperament_distribution"] = tmp_dist or {"нет данных": 1}
 
         type_rows = self._conn.execute(
             """SELECT a.call_type, COUNT(*) as cnt

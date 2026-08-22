@@ -72,31 +72,5 @@ ENTITY_TYPE_ICONS: Dict[str, str] = {
     "mood": "🎭",
 }
 
-TEMPERAMENT_LABELS: Dict[str, str] = {
-    "analytical": "Аналитик",
-    "driver": "Драйвер",
-    "amiable": "Амиабельный",
-    "expressive": "Экспрессивный",
-    "neutral": "Нейтральный",
-}
 
-BIG_FIVE_LABELS: Dict[str, str] = {
-    "openness": "Открытость",
-    "conscientiousness": "Сознательность",
-    "extraversion": "Экстраверсия",
-    "agreeableness": "Доброжелательность",
-    "neuroticism": "Нейротизм",
-}
 
-MOTIVATION_LABELS: Dict[str, str] = {
-    "achievement": "Достижение",
-    "affiliation": "Привязанность",
-    "power": "Власть",
-    "security": "Безопасность",
-    "autonomy": "Автономия",
-    "purpose": "Целеустремлённость",
-    "growth": "Рост",
-    "recognition": "Признание",
-    "stability": "Стабильность",
-    "variety": "Разнообразие",
-}

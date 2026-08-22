@@ -29,7 +29,7 @@ PASS_VERSIONS = {
     "p3_threads": "p3-v2",
     "p3b_behavioral": "p3b-v1",
     "p4_arcs": "p4-v1",
-    "p5_portraits": "p5-v3",
+    "p5_portraits": "p5-v4",
     "p6_chapters": "p6-v3",
     "p7_book": "p7-v1",
     "p8_editorial": "p8-v2",
@@ -607,9 +607,6 @@ def build_portrait_prompt(
     thread_summary: str | None,
     scenes: list[dict],
     behavior: dict | None = None,
-    temperament: dict | None = None,
-    big_five: dict | None = None,
-    motivation: dict | None = None,
     profile_depth: str | None = None,
 ) -> list[dict]:
     condensed = [
@@ -632,27 +629,6 @@ def build_portrait_prompt(
             f" | роль={behavior.get('role_type', '?')}"
             f" | волатильность={behavior.get('volatility', 0.0):.1f}\n"
         )
-    psych_section = ""
-    if temperament or big_five or motivation:
-        parts = []
-        if temperament:
-            parts.append(
-                f"Темперамент: {temperament.get('type', '?')} "
-                f"(энергия={temperament.get('energy')}, реактивность={temperament.get('reactivity')}, "
-                f"~{temperament.get('calls_per_week', 0)} бесед/нед)"
-            )
-        if big_five:
-            bf = big_five
-            parts.append(
-                f"Big Five: O={bf.get('openness',0):.1f} C={bf.get('conscientiousness',0):.1f} "
-                f"E={bf.get('extraversion',0):.1f} A={bf.get('agreeableness',0):.1f} "
-                f"N={bf.get('neuroticism',0):.1f}"
-            )
-        if motivation:
-            prim = motivation.get("primary", "?")
-            all_d = [d["driver"] for d in motivation.get("drivers", [])]
-            parts.append(f"Мотивация: доминанта={prim}, драйверы={all_d}")
-        psych_section = "\nПсихологический профиль (вычислен детерминированно, используй как основу для 'похоже/возможно'):\n" + "\n".join(f"  {p}" for p in parts) + "\n"
     depth_note = ""
     if profile_depth == "light":
         depth_note = "\nПсихологическая глубина: минимальная. Не развёртывай анализ — достаточно 1 фразы.\n"
@@ -663,7 +639,6 @@ def build_portrait_prompt(
         f"Роль: {role or 'не определена'}\n"
         f"Сюжетная линия: {thread_summary or '-'}\n"
         f"{behavior_section}"
-        f"{psych_section}"
         f"{depth_note}"
         f"Сцены (всего {len(scenes)}):\n"
         f"{BUDGETS['p5_portraits'].trim_one(json.dumps(condensed, ensure_ascii=False, indent=2), 'scenes')}\n\n"

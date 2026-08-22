@@ -53,7 +53,7 @@ def allocate_psychology_budget(
     if crs > 0.7:
         # Rich material: top-10 entities, deep profiles
         profile_count = min(10, entity_count)
-        profile_depth = "deep"  # All OCEAN + motivation + network + evolution
+        profile_depth = "deep"  # Full network + evolution analysis
         max_tokens = 2500
     elif crs < 0.3:
         # Thin material: top-3 entities, basic profiles
@@ -185,17 +185,6 @@ def run(
             behavior.setdefault("avg_risk", gm.get("avg_risk"))
             behavior.setdefault("total_calls", gm.get("total_calls"))
 
-        # Load psychological profile from PsychologyProfiler when graph available
-        temperament_data = None
-        big_five_data = None
-        motivation_data = None
-        if _GRAPH_AVAILABLE and graph_conn is not None and graph_profile:
-            geid = graph_profile.get("entity_id")
-            if geid:
-                temperament_data = graph_profile.get("temperament")
-                big_five_data = graph_profile.get("big_five")
-                motivation_data = graph_profile.get("motivation")
-
         messages = build_portrait_prompt(
             entity_name=name,
             entity_type=etype,
@@ -203,9 +192,6 @@ def run(
             thread_summary=(thread or {}).get("summary"),
             scenes=top,
             behavior=behavior,
-            temperament=temperament_data,
-            big_five=big_five_data,
-            motivation=motivation_data,
             profile_depth=profile_depth,
         )
         response = llm.call(

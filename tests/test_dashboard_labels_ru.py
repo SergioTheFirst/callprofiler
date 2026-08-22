@@ -13,9 +13,9 @@ _CYR = re.compile(r"[а-яА-ЯёЁ]")
 
 
 def test_enum_maps_cover_profiler_vocabulary():
-    # значения берутся из psychology_profiler.py — все обязаны иметь перевод
-    assert set(L.TEMPERAMENT) == {"choleric", "sanguine", "phlegmatic", "melancholic"}
-    assert set(L.MOTIVATION) == {"achievement", "power", "affiliation", "security"}
+    # TEMPERAMENT and MOTIVATION have been removed from psychology_profiler
+    assert not hasattr(L, "TEMPERAMENT"), "TEMPERAMENT should be removed"
+    assert not hasattr(L, "MOTIVATION"), "MOTIVATION should be removed"
     assert {"high", "medium", "low", "positive"} <= set(L.SEVERITY)
     for name in ("promise_breaker", "contradictory", "vague_communicator",
                  "blame_shifter", "emotionally_volatile", "reliable",
@@ -25,11 +25,12 @@ def test_enum_maps_cover_profiler_vocabulary():
 
 
 def test_ru_unknown_value_passes_through():
-    assert L.ru(L.TEMPERAMENT, "choleric") == "холерик"
-    assert L.ru(L.TEMPERAMENT, "Choleric") == "холерик"  # регистр ключа не важен
-    assert L.ru(L.TEMPERAMENT, "холерик") == "холерик"   # уже русское — без изменений
-    assert L.ru(L.TEMPERAMENT, "alien") == "alien"       # неизвестное не теряется
-    assert L.ru(L.MOTIVATION, None) is None
+    # Test with SEVERITY enum (TEMPERAMENT and MOTIVATION removed)
+    assert L.ru(L.SEVERITY, "high") == "высокая"
+    assert L.ru(L.SEVERITY, "HIGH") == "высокая"          # регистр ключа не важен
+    assert L.ru(L.SEVERITY, "высокая") == "высокая"       # уже русское — без изменений
+    assert L.ru(L.SEVERITY, "alien") == "alien"           # неизвестное не теряется
+    assert L.ru(L.SEVERITY, None) is None
 
 
 def test_pattern_label_translates_generated_english():
@@ -44,19 +45,14 @@ def test_localize_character_full_profile():
     prof = {
         "entity_type": "person",
         "emotional_pattern": "volatile",
-        "temperament": {"type": "choleric", "extraversion": 0.7},
-        "motivation": {"primary": "achievement", "secondary": "power",
-                       "drivers": [{"driver": "affiliation", "weight": 0.4}]},
         "patterns": [{"name": "promise_breaker", "severity": "high",
                       "label": "5/10 promises broken"}],
         "contradictions": [{"quote_1": "a", "quote_2": "b", "severity": "medium"}],
     }
     out = L.localize_character(prof)
-    assert out["temperament"]["type"] == "холерик"
-    assert out["temperament"]["extraversion"] == 0.7          # числа не трогаем
-    assert out["motivation"]["primary"] == "достижение"
-    assert out["motivation"]["secondary"] == "власть"
-    assert out["motivation"]["drivers"][0]["driver"] == "привязанность"
+    # temperament and motivation should not be present
+    assert "temperament" not in out, "temperament should be removed"
+    assert "motivation" not in out, "motivation should be removed"
     assert out["entity_type"] == "person"                     # ключ сохранён
     assert out["entity_type_label"] == "человек"
     assert out["emotional_pattern"] == "неустойчивый"
@@ -70,16 +66,15 @@ def test_localize_character_full_profile():
 
 def test_localize_dossier_and_idempotent():
     dossier = {
-        "temperament": {"type": "sanguine"},
-        "motivation": {"primary": "security"},
         "patterns": [{"name": "reliable", "severity": "positive", "label": "0 broken promises"}],
         "facts": [{"quote": "q", "type": "promise"}],
         "temporal": {"frequency_trend": "increasing", "avg_calls_per_week": 2.0},
         "contradictions": [],
     }
     out = L.localize_dossier(dossier)
-    assert out["temperament"]["type"] == "сангвиник"
-    assert out["motivation"]["primary"] == "безопасность"
+    # temperament and motivation should not be present
+    assert "temperament" not in out, "temperament should be removed"
+    assert "motivation" not in out, "motivation should be removed"
     assert out["patterns"][0]["severity_label"] == "надёжность"
     assert out["patterns"][0]["name"] == "надёжный"
     assert out["facts"][0]["type"] == "обещание"
@@ -87,7 +82,6 @@ def test_localize_dossier_and_idempotent():
     assert out["temporal"]["avg_calls_per_week"] == 2.0
     # идемпотентность: второй прогон ничего не ломает
     again = L.localize_dossier(out)
-    assert again["temperament"]["type"] == "сангвиник"
     assert again["patterns"][0]["name"] == "надёжный"
     assert again["patterns"][0]["severity"] == "positive"
 

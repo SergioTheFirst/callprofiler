@@ -788,36 +788,7 @@
                 body.innerHTML += '<div class="detail-section"><h4>Характеристика</h4><p style="font-size:13px;color:var(--text-secondary)">' + escapeHtml(d.character_summary) + '</p></div>';
             }
         } else if (tab === 'psychology') {
-            var TRAIT_RU = { openness: 'открытость', conscientiousness: 'добросовестность',
-                extraversion: 'экстраверсия', agreeableness: 'доброжелательность', neuroticism: 'нейротизм' };
             var html = '<div class="detail-section"><h4>Психопрофиль</h4>';
-            var hasData = false;
-            if (d.temperament && Object.keys(d.temperament).length) {
-                hasData = true;
-                html += '<dl class="detail-meta">';
-                if (d.temperament.type) html += '<dt>Темперамент</dt><dd>' + escapeHtml(String(d.temperament.type)) + '</dd>';
-                if (d.temperament.extraversion != null) html += '<dt>Экстраверсия</dt><dd>' + d.temperament.extraversion + '</dd>';
-                if (d.temperament.neuroticism != null) html += '<dt>Нейротизм</dt><dd>' + d.temperament.neuroticism + '</dd>';
-                html += '</dl>';
-            }
-            if (d.big_five && Object.keys(d.big_five).length) {
-                hasData = true;
-                html += '<h4 style="margin-top:12px">Большая пятёрка (OCEAN)</h4><dl class="detail-meta">';
-                ['openness', 'conscientiousness', 'extraversion', 'agreeableness', 'neuroticism'].forEach(function(trait) {
-                    if (d.big_five[trait] != null) html += '<dt>' + (TRAIT_RU[trait] || trait) + '</dt><dd>' + Number(d.big_five[trait]).toFixed(2) + '</dd>';
-                });
-                html += '</dl>';
-            }
-            if (d.motivation && Object.keys(d.motivation).length) {
-                hasData = true;
-                html += '<h4 style="margin-top:12px">Мотивация</h4><dl class="detail-meta">';
-                if (d.motivation.primary) html += '<dt>Основная</dt><dd>' + escapeHtml(String(d.motivation.primary)) + '</dd>';
-                if (d.motivation.secondary) html += '<dt>Вторичная</dt><dd>' + escapeHtml(String(d.motivation.secondary)) + '</dd>';
-                html += '</dl>';
-            }
-            if (!hasData) html += '<span class="detail-empty">Нет психологических данных</span>';
-            html += '</div>';
-
             if (d.patterns && d.patterns.length) {
                 html += '<div class="detail-section"><h4>Паттерны поведения</h4>';
                 d.patterns.forEach(function(p) {
@@ -1311,14 +1282,6 @@
                     '<strong>' + escapeHtml(p.name || '?') + '</strong>' +
                     (p.label ? ' — ' + escapeHtml(p.label) : '') + '</div>';
             }).join(''));
-        }
-
-        // Психотип
-        if ((d.temperament && d.temperament.type) || (d.motivation && d.motivation.primary)) {
-            var tm = '';
-            if (d.temperament && d.temperament.type) tm += '<dt>Темперамент</dt><dd>' + escapeHtml(String(d.temperament.type)) + '</dd>';
-            if (d.motivation && d.motivation.primary) tm += '<dt>Мотивация</dt><dd>' + escapeHtml(String(d.motivation.primary)) + '</dd>';
-            html += dossierSec('Психотип', '<dl class="detail-meta">' + tm + '</dl>');
         }
 
         // Ритм общения

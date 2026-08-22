@@ -47,11 +47,6 @@ class EntityProfile(BaseModel):
     volatility: float | None = None
     conflict_count: int | None = None
 
-    # Psychology profile
-    temperament: dict[str, Any] | None = None
-    big_five: dict[str, float] | None = None
-    motivation: dict[str, Any] | None = None
-
     # Biography portrait
     prose: str | None = None
     traits: list[str] = Field(default_factory=list)
@@ -88,8 +83,6 @@ class CharacterSummary(BaseModel):
     total_calls: int = 0
     avg_risk: float | None = None
     bs_index: float | None = None
-    temperament_type: str | None = None
-    motivation_primary: str | None = None
     character_label: str = ""
     has_portrait: bool = False
     has_psychology: bool = False

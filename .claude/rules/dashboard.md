@@ -21,6 +21,8 @@ biography, менять нельзя). `get_entity_profile`/`get_character_profi
 `_extract_patterns`) русифицируется пофразно. Статичные подписи entity-модалки — в app.js
 `renderEntityTab`; `entity_type` фронт показывает как `entity_type_label`.
 
+**T-23 (2026-08-22):** темперамент / Big Five (OCEAN) / «мотивация» УДАЛЕНЫ из `psychology_profiler` (методы снесены, payload `entity_profiles` их больше не пишет; legacy-строки с этими ключами игнорируются), из портретных промптов biography (`p5-v4`), из досье/entity-модалки/`labels_ru`/`models.py`/`dashboard/config.py`. Остаются только наблюдаемые паттерны/ритм/связи/факты. Любой возврат — только из валидированного явного опросника (CONSTITUTION, T-23).
+
 ## Вкладки (templates/index.html)
 `overview` (+ **«Здоровье»**, F7: collapsible-панель `#health-panel` — те же doctor-чеки F6 через
 `GET /api/health-report` (`doctor.run_checks` напрямую, threadpool, никакой записи в БД); 🔴-бейдж

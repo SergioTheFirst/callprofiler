@@ -20,14 +20,6 @@ import re
 from typing import Any
 
 # ── Словари enum → русский ──────────────────────────────────────────────
-TEMPERAMENT = {
-    "choleric": "холерик", "sanguine": "сангвиник",
-    "phlegmatic": "флегматик", "melancholic": "меланхолик",
-}
-MOTIVATION = {
-    "achievement": "достижение", "power": "власть",
-    "affiliation": "привязанность", "security": "безопасность",
-}
 TREND = {
     "increasing": "учащается", "decreasing": "затухает", "stable": "стабильно",
     "insufficient_data": "мало данных", "unknown": "неизвестно",
@@ -114,24 +106,6 @@ def _localize_contradictions(rows: Any) -> Any:
     return rows
 
 
-def _localize_temperament(t: Any) -> Any:
-    if isinstance(t, dict) and t.get("type") is not None:
-        t["type"] = ru(TEMPERAMENT, t["type"])
-    return t
-
-
-def _localize_motivation(m: Any) -> Any:
-    if not isinstance(m, dict):
-        return m
-    for key in ("primary", "secondary"):
-        if m.get(key) is not None:
-            m[key] = ru(MOTIVATION, m[key])
-    for drv in m.get("drivers") or []:
-        if isinstance(drv, dict) and drv.get("driver") is not None:
-            drv["driver"] = ru(MOTIVATION, drv["driver"])
-    return m
-
-
 def _localize_facts(facts: Any) -> Any:
     for f in facts or []:
         if isinstance(f, dict) and f.get("type") is not None:
@@ -149,8 +123,6 @@ def localize_dossier(d: dict[str, Any]) -> dict[str, Any]:
     """In-place русификация досье (`get_person_dossier`). Идемпотентна."""
     if not isinstance(d, dict):
         return d
-    _localize_temperament(d.get("temperament"))
-    _localize_motivation(d.get("motivation"))
     _localize_patterns(d.get("patterns"))
     _localize_contradictions(d.get("contradictions"))
     _localize_facts(d.get("facts"))
@@ -163,8 +135,6 @@ def localize_character(d: dict[str, Any]) -> dict[str, Any]:
     (`get_entity_profile` / `get_character_profile`). Идемпотентна."""
     if not isinstance(d, dict):
         return d
-    _localize_temperament(d.get("temperament"))
-    _localize_motivation(d.get("motivation"))
     _localize_patterns(d.get("patterns"))
     _localize_contradictions(d.get("contradictions"))
     if d.get("entity_type") is not None:
