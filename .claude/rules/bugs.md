@@ -4,7 +4,27 @@
 
 ### 🔴 High Priority
 
-None currently identified.
+1. **BS-index `v1_linear`: 4 из 5 членов структурно ≡ 0 + атрибуция говорящего потеряна + verbatim-гейт
+   только в replay** (2026-08-22, найдено реконструкцией `docs/research/bs/40-data-surface.md`)
+   - **Issue (D1):** `graph/repository.py:399-402` `insert_fact_event` схлопывает `emotion_spike|vagueness|
+     blame_shift|claim → 'fact'` (CHECK-констрейнт `events.event_type`), а `graph/aggregator.py:44-51`
+     читает `counts["vagueness"]`, `counts["blame_shift"]`, `counts["emotion_spike"]`, `counts["broken_promise"]`
+     по `event_type` — ключей никогда нет. Итог: `bs_index = 20·min(contradictions/total_calls,1) ∈ [0,20]`;
+     `psychology_profiler` паттерн `reliable` (`broken==0 ∧ promises≥3`) — всегда истинен.
+   - **Issue (D2):** `repository.py:406-415` пишет `who='UNKNOWN'` для всех structured_facts; промпт
+     `analyze_v001.txt` поля «кто сказал» не имеет; колонка `events.fact_type` объявлена, не пишется.
+   - **Issue (D3):** `GraphBuilder.update_from_call(call_id)` без `transcript_text` в `orchestrator.py:994`,
+     `enricher.py:276`, `db/uow.py:8` → `FactValidator` пропускает проверку дословности (warning);
+     проверяется только `graph-replay`/`graph-backfill`.
+   - **Почему не ловилось:** `tests/test_graph.py:380-399` кормят `_bs_v1_linear` рукописными счётчиками
+     (`vagueness=5…`) — формула зелёная на входах, которых прод не порождает («зелёные тесты ≠
+     доказательство», decisions.md 2026-06-06/2026-08-21).
+   - **Solution:** НЕ чинить маппинг (оживление членов без внешнего критерия = ложная точность) —
+     план `docs/research/bs/90-execution-plan.md`: R-02 (отключить потребителей), R-03 (verbatim в боевом
+     пути: builder сам грузит транскрипт), R-12/R-13 (убрать admiralty/паттерны), CR/CI вместо BS.
+     Проверка на боксе: `box-package/scripts/01_bs_dead_terms.py` (MAX(bs_index)≤20).
+   - **Status:** ACTIVE (план написан, код не менялся). **Priority:** 🔴 High (владелец видит ранговый
+     ярлык «надёжности» на мёртвой формуле).
 
 ### 🟡 Medium Priority
 
