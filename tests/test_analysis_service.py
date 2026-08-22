@@ -21,6 +21,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import pytest
+from callprofiler.analyze.service import PROMPT_VERSION_ANALYZE
 import requests
 
 from callprofiler.analyze.llm_client import LLMClient
@@ -106,7 +107,7 @@ class TestAnalysisServiceMessages:
         # Подготовить prompts dir
         prompts_dir = tmp_path / "prompts"
         prompts_dir.mkdir()
-        (prompts_dir / "analyze_v001.txt").write_text(
+        (prompts_dir / f"analyze_{PROMPT_VERSION_ANALYZE}.txt").write_text(
             "Ты анализируешь звонок. Верни JSON.", encoding="utf-8"
         )
 
@@ -169,7 +170,7 @@ class TestAnalysisServiceMessages:
         """messages[0] с role='system' содержит текст системного промпта."""
         prompts_dir = tmp_path / "prompts"
         prompts_dir.mkdir()
-        (prompts_dir / "analyze_v001.txt").write_text(
+        (prompts_dir / f"analyze_{PROMPT_VERSION_ANALYZE}.txt").write_text(
             "SYSTEM INSTRUCTIONS HERE", encoding="utf-8"
         )
 
@@ -227,7 +228,7 @@ class TestAnalysisServiceMessages:
         """messages user-часть содержит транскрипт."""
         prompts_dir = tmp_path / "prompts"
         prompts_dir.mkdir()
-        (prompts_dir / "analyze_v001.txt").write_text("SYS", encoding="utf-8")
+        (prompts_dir / f"analyze_{PROMPT_VERSION_ANALYZE}.txt").write_text("SYS", encoding="utf-8")
 
         from callprofiler.analyze.service import AnalysisService
         from callprofiler.config import (
