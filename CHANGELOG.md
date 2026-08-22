@@ -4169,3 +4169,4 @@ FALLBACK:     null
 - 2026-08-22 — feat(T-22 slice): `cli/exit_codes.py` (0 ok/1 fatal/2 usage/3 not found/4 partial/5 retryable/130 interrupted), `main()` маппит исключения; `reprocess` требует явный `--user X` или `--all` (T-18/T-22), user-scoped. Тесты tests/test_cli_exit_codes.py.
 - 2026-08-22 — feat(T-21 slice): doctor-чеки `backup` (последний верифицированный бэкап из манифестов T-20, возраст >7 дн → WARN) и `dead-letters` (error с retry_count ≥ max_retries → WARN с подсказкой reprocess).
 - 2026-08-22 — feat(T-16 slice): save_promises/save_events идемпотентны (insert-if-absent, rowid сохраняются → fact_feedback не сиротеет); тест test_save_promises_and_events_idempotent_ids_preserved.
+- 2026-08-22 — docs(T-25): docs/ops/box-canary-checklist.md — порядок канареечной проверки серии на боксе (backup → миграции 10–11 → canary v002 → строгий анализ → ASR-покрытие → GPU-барьер → backoff → purge на копии → rollback).
