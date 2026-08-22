@@ -158,10 +158,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # ── reprocess ────────────────────────────────────────────
-    sub.add_parser(
+    p_rp = sub.add_parser(
         "reprocess",
         help="Повторить звонки с ошибками (retry_count < max_retries)",
     )
+    rp_scope = p_rp.add_mutually_exclusive_group(required=True)
+    rp_scope.add_argument("--user", dest="user_id", help="user_id, чьи error-звонки повторить")
+    rp_scope.add_argument("--all", action="store_true", help="все пользователи (явно, T-22)")
 
     # ── bootstrap ────────────────────────────────────────────
     p_boot = sub.add_parser(
@@ -937,28 +940,27 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    """Главная функция CLI."""
+    """Главная функция CLI. Коды выхода — ``cli/exit_codes.py`` (T-22)."""
+    from callprofiler.cli.exit_codes import EXIT_OK, EXIT_USAGE, map_exception
+
     parser = _build_parser()
     args = parser.parse_args()
 
     entry = _DISPATCH.get(args.command)
     if entry is None:
         parser.print_help()
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     module_name, func_name = entry
     handler = getattr(importlib.import_module(module_name), func_name)
 
     try:
-        exit_code = handler(args)
-        sys.exit(exit_code)
-    except KeyboardInterrupt:
-        print("\nПрервано пользователем")
-        sys.exit(0)
-    except Exception as exc:
-        logging.getLogger(__name__).error("Неожиданная ошибка: %s", exc)
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
+        sys.exit(int(handler(args) or EXIT_OK))
+    except SystemExit:
+        raise
+    except BaseException as exc:  # noqa: BLE001 — единая точка маппинга в код выхода
+        if isinstance(exc, KeyboardInterrupt):
+            print("\nПрервано пользователем")
+        else:
+            logging.getLogger(__name__).error("%s: %s", type(exc).__name__, exc)
+        sys.exit(map_exception(exc))

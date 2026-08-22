@@ -109,7 +109,8 @@ def cmd_reprocess(args: argparse.Namespace) -> int:
 
     log = logging.getLogger(__name__)
 
-    errors = repo.get_error_calls(cfg.pipeline.max_retries)
+    user_id = None if getattr(args, "all", False) else getattr(args, "user_id", None)  # T-22/T-18
+    errors = repo.get_error_calls(cfg.pipeline.max_retries, user_id=user_id)
     if not errors:
         log.info("Нет звонков для повторной обработки")
         return 0
@@ -119,7 +120,7 @@ def cmd_reprocess(args: argparse.Namespace) -> int:
     from callprofiler.pipeline.orchestrator import Orchestrator
 
     orchestrator = Orchestrator(cfg, repo)
-    orchestrator.retry_errors()
+    orchestrator.retry_errors(user_id=user_id)
     return 0
 
 
