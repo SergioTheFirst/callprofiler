@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 
 from callprofiler.artifacts import atomic_write_text
 from callprofiler.insight.risk_calibration import get_latest_risk_thresholds
-from callprofiler.insight.risk_calibration import risk_emoji as _calibrated_risk_emoji
+from callprofiler.insight.risk_calibration import risk_band, risk_emoji as _calibrated_risk_emoji
 
 logger = logging.getLogger(__name__)
 

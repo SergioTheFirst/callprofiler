@@ -92,16 +92,46 @@ def get_latest_risk_thresholds(conn: sqlite3.Connection, user_id: str) -> dict |
     return dict(row) if row else None
 
 
+RISK_POLICY_VERSION = "risk-v1"
+FALLBACK_GREEN_MAX = 30
+FALLBACK_YELLOW_MAX = 70
+
+
+def risk_band(score: float | None, thresholds: dict | None = None) -> str:
+    """Classify risk score into band: 'low' | 'mid' | 'high' | 'none'.
+
+    Args:
+        score: Risk score (0-100) or None
+        thresholds: dict with 'green_max' and 'yellow_max' from get_latest_risk_thresholds,
+                   or None to use fallback (30/70)
+
+    Returns:
+        'low' (≤green_max), 'mid' (≤yellow_max), 'high' (>yellow_max), or 'none' (score is None)
+    """
+    if score is None:
+        return "none"
+
+    if thresholds is None:
+        green_max = FALLBACK_GREEN_MAX
+        yellow_max = FALLBACK_YELLOW_MAX
+    else:
+        green_max = thresholds.get("green_max", FALLBACK_GREEN_MAX)
+        yellow_max = thresholds.get("yellow_max", FALLBACK_YELLOW_MAX)
+
+    if score <= green_max:
+        return "low"
+    if score <= yellow_max:
+        return "mid"
+    return "high"
+
+
 def risk_emoji(risk: float, thresholds: dict | None) -> str:
     """🟢/🟡/🔴. thresholds=None → дефолт 30/70 (прежнее поведение)."""
-    if thresholds is None:
-        if risk >= 70:
-            return "🔴"
-        if risk >= 30:
-            return "🟡"
+    band = risk_band(risk, thresholds)
+    if band == "low":
         return "🟢"
-    if risk <= thresholds["green_max"]:
-        return "🟢"
-    if risk <= thresholds["yellow_max"]:
+    if band == "mid":
         return "🟡"
-    return "🔴"
+    if band == "high":
+        return "🔴"
+    return "⚪"  # none

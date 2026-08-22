@@ -15,6 +15,7 @@ from typing import Any
 
 from callprofiler.dashboard import labels_ru
 from callprofiler.db.connection import ConnectionFactory
+from callprofiler.insight.risk_calibration import get_latest_risk_thresholds, risk_band
 
 log = logging.getLogger(__name__)
 
@@ -279,6 +280,8 @@ class DashboardDBReader:
             (user_id,),
         ).fetchall()
 
+        thresholds = get_latest_risk_thresholds(self._conn, user_id)
+
         results = []
         for row in rows:
             payload = {}
@@ -288,12 +291,10 @@ class DashboardDBReader:
                 pass
 
             risk = row["avg_risk"] or 0
-            if risk >= 60:
-                label = "Рисковый"
-            elif risk >= 30:
-                label = "Средний"
-            else:
-                label = "Надёжный"
+            band = risk_band(risk, thresholds)
+
+            risk_labels = {"high": "Рисковый", "mid": "Средний", "low": "Надёжный"}
+            label = risk_labels.get(band, "?")
 
             results.append({
                 "entity_id": row["entity_id"],
@@ -303,6 +304,7 @@ class DashboardDBReader:
                 "avg_risk": row["avg_risk"],
                 "bs_index": row["bs_index"],
                 "character_label": label,
+                "risk_band": band,
                 "has_portrait": self._has_portrait(row["entity_id"], user_id),
                 "has_psychology": bool(payload),
             })

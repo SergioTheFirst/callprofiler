@@ -23,6 +23,8 @@ biography, менять нельзя). `get_entity_profile`/`get_character_profi
 
 **T-23 (2026-08-22):** темперамент / Big Five (OCEAN) / «мотивация» УДАЛЕНЫ из `psychology_profiler` (методы снесены, payload `entity_profiles` их больше не пишет; legacy-строки с этими ключами игнорируются), из портретных промптов biography (`p5-v4`), из досье/entity-модалки/`labels_ru`/`models.py`/`dashboard/config.py`. Остаются только наблюдаемые паттерны/ритм/связи/факты. Любой возврат — только из валидированного явного опросника (CONSTITUTION, T-23).
 
+**T-19 (2026-08-22) — единая RiskPolicy:** `insight/risk_calibration.py::risk_band(score, thresholds)` → `low|mid|high|none` (`RISK_POLICY_VERSION='risk-v1'`; пороги `risk_thresholds` p50/p85 юзера, fallback 30/70 — те же, что у карточки), `risk_emoji(band)`. Все payload'ы дашборда несут `risk_band`; `app.js::riskClass(row)` красит по нему (fallback на старые литералы только для старых payload'ов); жёстких `>= 60/30` в db_reader/app.js больше нет (закрыт «отложенный» пункт A4 в decisions.md). Гистограмма распределения риска — бины, не policy.
+
 ## Вкладки (templates/index.html)
 `overview` (+ **«Здоровье»**, F7: collapsible-панель `#health-panel` — те же doctor-чеки F6 через
 `GET /api/health-report` (`doctor.run_checks` напрямую, threadpool, никакой записи в БД); 🔴-бейдж

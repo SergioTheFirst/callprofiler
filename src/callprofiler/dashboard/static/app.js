@@ -23,6 +23,27 @@
         return div.innerHTML;
     }
 
+    /**
+     * Determine CSS risk class from risk_band (preferred) or fallback to literal score.
+     * Payloads should contain risk_band='low'|'mid'|'high'|'none'.
+     * If risk_band is absent, compute from numeric risk score using fallback policy (30/70).
+     */
+    function riskClass(row) {
+        if (row.risk_band) {
+            var band = row.risk_band;
+            if (band === 'high') return 'risk-high';
+            if (band === 'mid') return 'risk-med';
+            if (band === 'low') return 'risk-low';
+            return '';
+        }
+        // Fallback: payload missing risk_band, use numeric risk_score
+        var risk = row.risk_score != null ? row.risk_score : null;
+        if (risk === null) return '';
+        if (risk > 70) return 'risk-high';
+        if (risk > 30) return 'risk-med';
+        return 'risk-low';
+    }
+
     // T-18: double-submit CSRF cookie (set by the server on every response).
     // Mutating requests must echo it back as a header — a cross-site page
     // cannot read our cookie, so it cannot forge this header.
@@ -491,7 +512,7 @@
             var status = c.status || '--';
             var rawRisk = c.risk_score != null ? c.risk_score : null;
             var risk = rawRisk !== null ? rawRisk : '--';
-            var cls = rawRisk !== null ? (rawRisk >= 60 ? 'risk-high' : (rawRisk >= 30 ? 'risk-med' : 'risk-low')) : '';
+            var cls = riskClass(c);
             var type = c.direction || '--';
             var summary = c.summary ? c.summary.substring(0, 80) : '--';
             var badge = status === 'done' ? 'badge-done' : (status === 'error' ? 'badge-error' : 'badge-pending');
@@ -541,7 +562,7 @@
         var callDt = d.call_datetime ? new Date(d.call_datetime).toLocaleString() : '--';
         var duration = d.duration_sec ? Math.floor(d.duration_sec/60) + 'm ' + (d.duration_sec%60) + 's' : '--';
         var risk = d.risk_score != null ? d.risk_score : '--';
-        var riskCls = d.risk_score >= 60 ? 'risk-high' : (d.risk_score >= 30 ? 'risk-med' : 'risk-low');
+        var riskCls = riskClass(d);
         var status = d.status || '--';
         var summary = d.summary || 'No summary available';
 
@@ -767,7 +788,7 @@
 
         if (tab === 'metrics') {
             var risk = d.avg_risk != null ? d.avg_risk : (d.risk_score != null ? d.risk_score : '--');
-            var riskCls = Number(risk) >= 60 ? 'risk-high' : (Number(risk) >= 30 ? 'risk-med' : 'risk-low');
+            var riskCls = riskClass(d);
             body.innerHTML =
                 '<div class="detail-section"><h4>Метрики</h4><dl class="detail-meta">' +
                 '<dt>Имя</dt><dd>' + escapeHtml(d.canonical_name || '?') + '</dd>' +
@@ -821,7 +842,7 @@
                 html += '<div class="table-wrap"><table class="data-table"><thead><tr><th>ID</th><th>Дата</th><th>Тип</th><th>Риск</th><th>Сводка</th></tr></thead><tbody>';
                 calls.slice(0, 20).forEach(function(c) {
                     var risk = c.risk_score != null ? c.risk_score : '--';
-                    var riskCls = Number(risk) >= 60 ? 'risk-high' : (Number(risk) >= 30 ? 'risk-med' : 'risk-low');
+                    var riskCls = riskClass(c);
                     html += '<tr class="call-row" data-call-id="' + c.call_id + '">' +
                         '<td>' + c.call_id + '</td>' +
                         '<td>' + (c.call_datetime ? new Date(c.call_datetime).toLocaleString() : '--') + '</td>' +
@@ -953,7 +974,7 @@
                 ? '<span class="sr-tag" style="border-color:' + TIER_COLOR[p.tier] + ';color:' + TIER_COLOR[p.tier] + '">' + escapeHtml(p.tier_label || p.tier) + '</span>'
                 : '--';
             var risk = p.global_risk != null ? p.global_risk : null;
-            var riskCls = risk !== null ? (risk >= 60 ? 'risk-high' : (risk >= 30 ? 'risk-med' : 'risk-low')) : '';
+            var riskCls = riskClass(p);
             var bs = p.bs_index != null ? Number(p.bs_index).toFixed(0)
                    : (p.avg_bs_score != null ? Number(p.avg_bs_score).toFixed(0) : '--');
             var arch = p.archetype_label
@@ -1071,7 +1092,8 @@
             if (thr.yellow_max != null && n <= thr.yellow_max) return 'risk-med';
             return 'risk-high';
         }
-        return n >= 60 ? 'risk-high' : (n >= 30 ? 'risk-med' : 'risk-low');
+        // Fallback: match BSCalibrator defaults (reliable ≤25, noisy ≤50, risky ≤75)
+        return n <= 25 ? 'risk-low' : (n <= 50 ? 'risk-med' : 'risk-high');
     }
 
     var TREND_RU = { increasing: 'учащается', decreasing: 'затухает', stable: 'стабильно',
@@ -1125,8 +1147,7 @@
 
         // Индексы
         var bs = idx.bs_index != null ? idx.bs_index : idx.avg_bs_score;
-        var riskCls = idx.global_risk != null
-            ? (idx.global_risk >= 60 ? 'risk-high' : (idx.global_risk >= 30 ? 'risk-med' : 'risk-low')) : '';
+        var riskCls = riskClass(idx);
         html += '<div class="detail-section"><div class="db-stats">' +
             dossierIdx('Риск', idx.global_risk != null ? idx.global_risk : '--', riskCls) +
             dossierIdx('BS-index', bs != null ? Number(bs).toFixed(0) : '--', bsClass(bs, d.bs_thresholds)) +
@@ -1465,7 +1486,7 @@
             var cHtml = '<div class="table-wrap"><table class="data-table"><thead><tr><th>ID</th><th>Дата</th><th>Риск</th><th>Суть</th></tr></thead><tbody>';
             calls.slice(0, 10).forEach(function(x) {
                 var r = x.risk_score != null ? x.risk_score : '--';
-                var rc = Number(r) >= 60 ? 'risk-high' : (Number(r) >= 30 ? 'risk-med' : 'risk-low');
+                var rc = riskClass(x);
                 cHtml += '<tr class="call-row" data-call-id="' + x.call_id + '">' +
                     '<td>' + x.call_id + '</td>' +
                     '<td>' + (x.call_datetime ? new Date(x.call_datetime).toLocaleDateString() : '--') + '</td>' +
@@ -1565,7 +1586,7 @@
         tbody.innerHTML = entities.map(function(e) {
             var rawRisk = e.avg_risk != null ? e.avg_risk : (e.risk_score != null ? e.risk_score : null);
             var riskDisp = rawRisk !== null ? Number(rawRisk).toFixed(0) : '--';
-            var riskCls = rawRisk !== null ? (Number(rawRisk) >= 60 ? 'risk-high' : (Number(rawRisk) >= 30 ? 'risk-med' : 'risk-low')) : '';
+            var riskCls = riskClass(e);
             // Persona id-space: prefer graph entity_id (modal calls /api/character/{entity_id}).
             var entityId = e.entity_id != null ? e.entity_id : e.contact_id;
             var calls = e.total_calls != null ? e.total_calls : (e.call_count || 0);
