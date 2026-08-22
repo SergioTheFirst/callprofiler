@@ -30,6 +30,15 @@ python -m pytest
 No manual `PYTHONPATH` needed — `[tool.pytest.ini_options]` in `pyproject.toml`
 sets `pythonpath = ["src"]` and `testpaths = ["tests"]`.
 
+## Tiers (T-24)
+
+- **PR tier** (всегда): `python -m pytest -q` — офлайн, без GPU/ffmpeg/боевой БД; включает гейты
+  `tests/test_tenant_matrix.py` (изоляция арендаторов по read-методам Repository — добавляйте новые
+  user-scoped методы в `MATRIX`), `tests/test_cleanup.py::test_purge_user_introspection_classifies_all_tables`
+  (каждая таблица имеет правило purge), `tests/test_db_migrations.py` (schema.sql ↔ миграции).
+- **Box tier**: тесты с маркером `box` / skip без ffmpeg-GPU — запускаются на боксе по
+  `docs/ops/box-canary-checklist.md`.
+
 ## Lint
 
 ```

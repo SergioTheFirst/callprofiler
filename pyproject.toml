@@ -77,4 +77,4 @@ where = ["src"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 asyncio_mode = "strict"
-markers = ["unit: fast, no I/O", "asyncio: pytest-asyncio-run test"]
+markers = ["unit: fast, no I/O", "asyncio: pytest-asyncio-run test", "box: требует бокс (GPU/ffmpeg/боевая БД) — T-24 release tier, в CI пропускается", "tenant: P-TEN матрица изоляции арендаторов (T-24)"]
