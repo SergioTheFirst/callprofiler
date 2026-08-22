@@ -480,6 +480,17 @@ def bulk_enrich(
                         parse_status = "output_truncated"
                         is_partial = True
 
+                    # Gate B.3 enricher: Quarantine parse_failed/parsed_partial/output_truncated
+                    # (same as orchestrator._analyze_call) — do NOT save these analyses
+                    if parse_status in ("parse_failed", "parsed_partial", "output_truncated"):
+                        raw_snippet = getattr(analysis, "raw_response", "")[:300]
+                        log.error(
+                            "[enricher] call_id=%d quarantined (parse_status=%s): %s — skipping save",
+                            call_id, parse_status, raw_snippet,
+                        )
+                        stats["failed"] += 1
+                        continue
+
                     # ETA по всем завершённым (включая skipped/failed)
                     completed = stats["processed"] + stats["partial"] + stats["skipped"] + stats["failed"]
                     elapsed_total = time.time() - global_start

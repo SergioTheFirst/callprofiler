@@ -104,6 +104,20 @@ class GraphBuilder:
             log.debug("[graph] call_id=%d: schema_version=%s, skipping", call_id, schema_version)
             return False
 
+        # Gate C: Load transcript_text if not provided
+        # Needed for FactValidator.validate(..., transcript_text) to verify quote verbatimness
+        if transcript_text is None:
+            transcript_rows = self._conn.execute(
+                """SELECT text FROM transcripts
+                   WHERE call_id = ? ORDER BY start_ms""",
+                (call_id,),
+            ).fetchall()
+            if transcript_rows:
+                transcript_text = "\n".join(row[0] for row in transcript_rows if row[0])
+            else:
+                log.warning("[graph] call_id=%d: no transcript rows found, skipping verbatim check", call_id)
+                # transcript_text remains None → validator will warn about missing transcript
+
         # Try canonical_json first (repaired by parser), fallback to raw_response
         raw = (
             (row["canonical_json"] if "canonical_json" in row.keys() else "")

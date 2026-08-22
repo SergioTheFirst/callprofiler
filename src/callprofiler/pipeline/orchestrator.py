@@ -978,15 +978,25 @@ class Orchestrator:
         call: dict,
         segments: list[Segment],
     ) -> None:
-        """Запустить LLM-анализ для звонка через AnalysisService."""
+        """Запустить LLM-анализ для звонка через AnalysisService.
+
+        Gate B: анализ → orchestrator → сохранение
+          1. Short-call stub: parse_status='stub_short' (легитимное снижение качества, не ошибка)
+          2. LLM ConnectionError/RuntimeError: log.error, update_call_status("error"), return (нет invented analysis)
+          3. После реального ответа LLM: если parse_status in (parse_failed, parsed_partial, output_truncated)
+             → update_call_status("error"), return (не сохраняем quarantine-анализ)
+        """
         user_id = call["user_id"]
         contact_id = call.get("contact_id")
 
         # Короткие звонки — skip LLM entirely (Sprint 4)
         transcript_text = " ".join(s.text for s in segments).strip()
-        if len(transcript_text) < 50 and not any(
-            kw in transcript_text.lower() for kw in ("долг", "обещ", "срок", "завтра", "оплат")
-        ):
+        is_short_call = (
+            len(transcript_text) < 50
+            and not any(kw in transcript_text.lower() for kw in ("долг", "обещ", "срок", "завтра", "оплат"))
+        )
+
+        if is_short_call:
             logger.info(
                 "Короткий звонок call_id=%d (%d символов), skip LLM",
                 call_id, len(transcript_text),
@@ -997,6 +1007,8 @@ class Orchestrator:
                 prompt_version=PROMPT_VERSION_ANALYZE,
             )
             analysis.call_type = "short"
+            # Gate B.1: Отметить как stub, не как failure
+            analysis.parse_status = "stub_short"
         else:
             # Использовать AnalysisService (единая точка анализа, F11.1)
             try:
@@ -1005,16 +1017,29 @@ class Orchestrator:
                 svc = AnalysisService(self.config, self.repo, user_id=call.get("user_id", ""))
                 analysis = svc.analyze_one_call(call, segments)
             except (ConnectionError, RuntimeError) as exc:
+                # Gate B.2: LLM недоступен — логируем, помечаем статус, НЕ сохраняем анализ
                 logger.error("LLM недоступен для call_id=%d: %s", call_id, exc)
-                analysis = parse_llm_response(
-                    "",
-                    model=self.config.models.llm_model,
-                    prompt_version=PROMPT_VERSION_ANALYZE,
+                self.repo.update_call_status(
+                    user_id, call_id, "error",
+                    f"LLM unavailable: {exc}"
                 )
+                return
             except Exception as exc:
                 logger.error("Ошибка анализа call_id=%d: %s", call_id, exc)
                 self.repo.update_call_status(user_id, call_id, "error", str(exc))
                 return
+
+        # Gate B.3: После реального ответа от LLM — проверяем parse_status
+        # Если это критичный отказ парсера (не stub), не сохраняем
+        parse_status = getattr(analysis, "parse_status", "unknown")
+        if not is_short_call and parse_status in ("parse_failed", "parsed_partial", "output_truncated"):
+            error_msg = f"LLM {parse_status}: {getattr(analysis, 'raw_response', '')[:300]}"
+            logger.error(
+                "Анализ call_id=%d quarantined (parse_status=%s), не сохраняем",
+                call_id, parse_status,
+            )
+            self.repo.update_call_status(user_id, call_id, "error", error_msg)
+            return
 
         # T-04: анализ + обещания + summary + граф — одна граница транзакции.
         # Раньше каждый save_* коммитил отдельно; крах между ними оставлял

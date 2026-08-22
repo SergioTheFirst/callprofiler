@@ -28,81 +28,105 @@ logger = logging.getLogger(__name__)
 
 
 def parse_llm_response(raw: str, model: str = "unknown", prompt_version: str = "v001") -> Analysis:
-    """Распарсить ответ LLM и вернуть объект Analysis.
+    """Распарсить ответ LLM и вернуть объект Analysis. НИКОГДА не raises.
 
     Параметры:
-        raw             — сырой ответ от LLM (может быть JSON, текст, markdown)
+        raw             — сырой ответ от LLM (может быть JSON, текст, markdown, None, bytes, и т.п.)
         model           — название модели (для логирования)
         prompt_version  — версия промпта (для логирования)
 
     Возвращает:
         Analysis объект (с дефолтами, если парсинг упал)
-        parse_status: 'parsed_ok'|'parsed_partial'|'parse_failed'|'output_truncated'
+        parse_status: 'parsed_ok' | 'parsed_partial' | 'parse_failed' | 'output_truncated' | 'stub_short'
+
+    ГАРАНТИЯ: функция НИКОГДА не поднимает исключений. Любая ошибка → Analysis с parse_status='parse_failed'.
     """
-    logger.debug("Парсинг ответа LLM (длина=%d, модель=%s)", len(raw), model)
+    try:
+        # Нормализация входа: если это не строка — попробуем, если не сработает → parse_failed
+        if raw is None:
+            logger.debug("None raw response")
+            return _default_analysis(raw_response="", model=model, prompt_version=prompt_version,
+                                    parse_status="parse_failed")
 
-    parse_status = "unknown"
+        if not isinstance(raw, str):
+            logger.debug("Raw response is not a string, type=%s", type(raw).__name__)
+            return _default_analysis(raw_response=str(raw), model=model, prompt_version=prompt_version,
+                                    parse_status="parse_failed")
 
-    # Попытка 1: Прямое парсинг JSON
-    json_str = raw.strip()
-    parsed = _try_parse_json(json_str)
-    if parsed is not None:
+        logger.debug("Парсинг ответа LLM (длина=%d, модель=%s)", len(raw), model)
+
+        if raw.strip() == "":
+            logger.debug("Empty raw response")
+            return _default_analysis(raw_response=raw, model=model, prompt_version=prompt_version,
+                                    parse_status="parse_failed")
+
+        parse_status = "unknown"
+
+        # Попытка 1: Прямое парсинг JSON
+        json_str = raw.strip()
+        parsed = _try_parse_json(json_str)
+        if parsed is not None:
+            parse_status = _check_parse_completeness(parsed)
+            return _build_analysis(parsed, raw_response=raw, model=model,
+                                  prompt_version=prompt_version, parse_status=parse_status)
+
+        # Попытка 2: Извлечь JSON из markdown-обёрток
+        if parsed is None:
+            json_str = _extract_json_from_markdown(raw)
+            if json_str:
+                parsed = _try_parse_json(json_str)
+                if parsed is not None:
+                    parse_status = _check_parse_completeness(parsed)
+                    return _build_analysis(parsed, raw_response=raw, model=model,
+                                          prompt_version=prompt_version, parse_status=parse_status)
+
+        # Попытка 3: Очистить от текста до/после JSON
+        if parsed is None:
+            json_str = _extract_json_bounds(raw)
+            if json_str:
+                parsed = _try_parse_json(json_str)
+                if parsed is not None:
+                    parse_status = _check_parse_completeness(parsed)
+                    return _build_analysis(parsed, raw_response=raw, model=model,
+                                          prompt_version=prompt_version, parse_status=parse_status)
+
+        # Проверка на обрезанный JSON (нет закрывающей })
+        if parsed is None and _is_json_truncated(raw):
+            parse_status = "output_truncated"
+
+        # Попытка 4: Починить обрезанный/невалидный JSON
+        if parsed is None:
+            json_str = _repair_json(raw)
+            if json_str:
+                parsed = _try_parse_json(json_str)
+                if parsed is not None:
+                    parse_status = _check_parse_completeness(parsed)
+                    return _build_analysis(parsed, raw_response=raw, model=model,
+                                          prompt_version=prompt_version, parse_status=parse_status)
+
+        # Если всё ещё None, пробуем извлечь критические поля regex-ом
+        if parsed is None:
+            logger.warning(
+                "Не удалось распарсить JSON, пытаемся извлечь поля regex-ом (первые 300 символов): %s...",
+                raw[:300],
+            )
+            parsed = _extract_fields_by_regex(raw)
+
+        # Если даже это не сработало, используем дефолты
+        if parsed is None:
+            logger.error("Не удалось распарсить JSON и извлечь поля из ответа LLM")
+            return _default_analysis(raw_response=raw, model=model, prompt_version=prompt_version,
+                                    parse_status="parse_failed")
+
+        # Построить Analysis с подставленными или дефолтными значениями
         parse_status = _check_parse_completeness(parsed)
-        return _build_analysis(parsed, raw_response=raw, model=model,
-                              prompt_version=prompt_version, parse_status=parse_status)
+        return _build_analysis(parsed, raw_response=raw, model=model, prompt_version=prompt_version,
+                              parse_status=parse_status)
 
-    # Попытка 2: Извлечь JSON из markdown-обёрток
-    if parsed is None:
-        json_str = _extract_json_from_markdown(raw)
-        if json_str:
-            parsed = _try_parse_json(json_str)
-            if parsed is not None:
-                parse_status = _check_parse_completeness(parsed)
-                return _build_analysis(parsed, raw_response=raw, model=model,
-                                      prompt_version=prompt_version, parse_status=parse_status)
-
-    # Попытка 3: Очистить от текста до/после JSON
-    if parsed is None:
-        json_str = _extract_json_bounds(raw)
-        if json_str:
-            parsed = _try_parse_json(json_str)
-            if parsed is not None:
-                parse_status = _check_parse_completeness(parsed)
-                return _build_analysis(parsed, raw_response=raw, model=model,
-                                      prompt_version=prompt_version, parse_status=parse_status)
-
-    # Проверка на обрезанный JSON (нет закрывающей })
-    if parsed is None and _is_json_truncated(raw):
-        parse_status = "output_truncated"
-
-    # Попытка 4: Починить обрезанный/невалидный JSON
-    if parsed is None:
-        json_str = _repair_json(raw)
-        if json_str:
-            parsed = _try_parse_json(json_str)
-            if parsed is not None:
-                parse_status = _check_parse_completeness(parsed)
-                return _build_analysis(parsed, raw_response=raw, model=model,
-                                      prompt_version=prompt_version, parse_status=parse_status)
-
-    # Если всё ещё None, пробуем извлечь критические поля regex-ом
-    if parsed is None:
-        logger.warning(
-            "Не удалось распарсить JSON, пытаемся извлечь поля regex-ом (первые 300 символов): %s...",
-            raw[:300],
-        )
-        parsed = _extract_fields_by_regex(raw)
-
-    # Если даже это не сработало, используем дефолты
-    if parsed is None:
-        logger.error("Не удалось распарсить JSON и извлечь поля из ответа LLM")
-        return _default_analysis(raw_response=raw, model=model, prompt_version=prompt_version,
+    except Exception as exc:
+        logger.exception("Unexpected exception in parse_llm_response: %s", exc)
+        return _default_analysis(raw_response=raw or "", model=model, prompt_version=prompt_version,
                                 parse_status="parse_failed")
-
-    # Построить Analysis с подставленными или дефолтными значениями
-    parse_status = _check_parse_completeness(parsed)
-    return _build_analysis(parsed, raw_response=raw, model=model, prompt_version=prompt_version,
-                          parse_status=parse_status)
 
 
 def _is_json_truncated(text: str) -> bool:
@@ -118,6 +142,11 @@ def _check_parse_completeness(parsed: dict) -> str:
         'parsed_ok' — все ключевые поля присутствуют
         'parsed_partial' — JSON распарсен, но отсутствуют некоторые поля (заполнены дефолтами)
     """
+    # Guard: убедиться что это dict (должно быть уже проверено в _try_parse_json)
+    if not isinstance(parsed, dict):
+        logger.warning("_check_parse_completeness called with non-dict (type=%s)", type(parsed).__name__)
+        return "parse_failed"
+
     required_fields = {"priority", "risk_score", "summary", "call_type"}
     missing = required_fields - set(parsed.keys())
     return "parsed_partial" if missing else "parsed_ok"
@@ -127,10 +156,20 @@ def _try_parse_json(json_str: str) -> dict | None:
     """Попытка распарсить JSON строку.
 
     Возвращает:
-        Dict если успешно, None если ошибка
+        Dict если успешно, None если ошибка или JSON не объект
+
+    ГАРАНТИЯ: возвращает ТОЛЬКО dict, никогда не возвращает list/str/int/null
     """
     try:
-        return json.loads(json_str)
+        parsed = json.loads(json_str)
+        # Убедиться, что это именно dict (объект), не массив, не примитив
+        if not isinstance(parsed, dict):
+            logger.debug(
+                "JSON распарсен но не объект (тип=%s): %s...",
+                type(parsed).__name__, json_str[:100],
+            )
+            return None
+        return parsed
     except json.JSONDecodeError as exc:
         logger.debug(
             "Ошибка JSON парсинга: %s (первые 100 символов): %s",

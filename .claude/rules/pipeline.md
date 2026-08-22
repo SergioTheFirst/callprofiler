@@ -132,6 +132,17 @@ if not diarization:
 
 ## LLM Response Validation
 
+**T-15 (2026-08-22) — строгий анализ:** `parse_llm_response` НИКОГДА не бросает (не-объектный JSON, мусор,
+внутренние ошибки → `parse_failed`); `parse_status ∈ {parsed_ok, parsed_partial, parse_failed,
+output_truncated, stub_short}` (`stub_short` — заглушка короткого звонка <50 симв., легитимна).
+`Orchestrator._analyze_call` и `bulk/enricher`: LLM недоступен (`ConnectionError/RuntimeError`) ИЛИ
+`parse_status ∈ {parse_failed, parsed_partial, output_truncated}` → анализ НЕ сохраняется, `status='error'`
+с сообщением `LLM unavailable: …` / `LLM <parse_status>: <raw[:300]>` → T-07 backoff → повтор; после
+`max_retries` — `doctor dead-letters` (видимый карантин). Дефолтный «нормальный» анализ при сбое больше
+не изобретается. `GraphBuilder.update_from_call` без `transcript_text` сам грузит транскрипт → verbatim-гейт
+цитат (`MIN_MATCH_RATIO=0.72`) работает и в боевом пути, не только в replay.
+
+
 **Rule:** After LLM response parsing:
 1. Check `parse_status` value (see response_parser.py)
 2. Log parse_status to database (`analyses.parse_status`)
